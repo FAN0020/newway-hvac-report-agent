@@ -1,0 +1,20 @@
+{
+  "name": "newway-hvac-report-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first HVAC field service report MVP",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "demo": "node scripts/start-demo.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test --test-concurrency=1",
+    "typecheck": "node --check src/server.js && node --check src/network-security.js && node --check src/providers/whisper.js && node --check src/providers/ollama.js && node --check src/tools/correction-integrity.js && node --check src/tools/normalize-hvac-transcript.js && node --check src/tools/tool-envelope.js && node --check src/tools/hvac-schema.js && node --check src/tools/hvac-knowledge.js && node --check src/tools/extract-service-facts.js && node --check src/tools/validate-report-input.js && node --check src/tools/plan-report-sections.js && node --check src/tools/generate-report-draft.js && node --check src/tools/validate-report-draft.js && node --check src/tools/report-integrity.js && node --check src/tools/confirm-report-draft.js && node --check src/tools/save-confirmed-report.js && node --check src/tools/export-confirmed-report.js && node --check src/storage/artifacts.js && node --check src/storage/reports.js && node --check src/wav.js && node --check scripts/prepare-whisper-runtime.js && node --check scripts/smoke-whisper-runtime.js && node --check scripts/start-demo.js && node --check web/app.js && node --check web/audio-recorder.js && node --check web/pcm-capture-worklet.js",
+    "check": "npm run typecheck && npm test",
+    "stt:prepare": "node scripts/prepare-whisper-runtime.js",
+    "stt:smoke": "node scripts/smoke-whisper-runtime.js"
+  }
+}

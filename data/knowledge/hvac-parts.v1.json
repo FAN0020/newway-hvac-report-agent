@@ -1,0 +1,55 @@
+{
+  "schema_version": "hvac-parts.v1",
+  "knowledge_version": "2026-09-18",
+  "records": [
+    {
+      "id": "part_run_capacitor",
+      "kind": "part",
+      "canonical": "运行电容",
+      "aliases": ["电容", "启动电容", "capacitor"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_run_capacitor",
+          "source": "运刑电容",
+          "target": "运行电容",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "受控零件词表中的近音 ASR 错识别候选。"
+        }
+      ],
+      "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:µF|uF|微法)$"],
+      "description": "只提供名称和规格候选，不证明本次已更换。"
+    },
+    {
+      "id": "part_air_filter",
+      "kind": "part",
+      "canonical": "空气滤网",
+      "aliases": ["滤网", "风网", "air filter"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_air_filter",
+          "source": "空气绿网",
+          "target": "空气滤网",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "受控零件词表中的近音 ASR 错识别候选。"
+        }
+      ],
+      "description": "空调回风过滤部件。"
+    },
+    {
+      "id": "part_drain_hose",
+      "kind": "part",
+      "canonical": "排水管",
+      "aliases": ["水管", "冷凝水管", "drain hose"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_drain_hose",
+          "source": "排水关",
+          "target": "排水管",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "受控零件词表中的近音 ASR 错识别候选。"
+        }
+      ],
+      "description": "冷凝水排水部件。"
+    }
+  ]
+}

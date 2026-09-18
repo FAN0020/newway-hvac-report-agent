@@ -1,0 +1,31 @@
+{
+  "schema_version": "report-modules.v1",
+  "knowledge_version": "2026-09-18",
+  "fixed_sections": [
+    { "id": "job_information", "title": "工单与服务信息", "fields": ["work_order"] },
+    { "id": "equipment_information", "title": "设备信息及位置", "fields": ["equipment"] },
+    { "id": "customer_complaint", "title": "客户反映的问题", "fields": ["customer_complaint"] },
+    { "id": "inspection_findings", "title": "现场检查结果", "fields": ["inspection_findings"] },
+    { "id": "work_performed", "title": "已完成的保养或维修工作", "fields": ["work_performed"] },
+    { "id": "parts_and_materials", "title": "使用或更换的零部件/材料及数量", "fields": ["parts_used"] },
+    { "id": "test_results", "title": "完工后的测试结果", "fields": ["test_results"] },
+    { "id": "completion_status", "title": "当前完成状态", "fields": ["completion_status"] },
+    { "id": "unresolved_and_follow_up", "title": "未解决事项与后续建议", "fields": ["unresolved_issues", "follow_up_recommendations"] },
+    { "id": "technician_review", "title": "技师复核与确认", "fields": [] }
+  ],
+  "conditional_sections": [
+    { "id": "refrigerant_record", "title": "制冷剂记录", "fields": ["refrigerant_record"] },
+    { "id": "measurements", "title": "维修前后读数", "fields": ["measurements"] },
+    { "id": "attachments", "title": "照片/附件", "fields": ["attachments"] },
+    { "id": "cost_quote", "title": "成本与报价", "fields": ["cost_quote"], "manual_or_authorized_only": true },
+    { "id": "warranty", "title": "保修情况", "fields": ["warranty"], "manual_or_authorized_only": true },
+    { "id": "customer_feedback", "title": "客户现场意见/确认", "fields": ["customer_feedback"] }
+  ],
+  "required_fact_fields": [
+    "customer_complaint",
+    "inspection_findings",
+    "work_performed",
+    "test_results",
+    "completion_status"
+  ]
+}

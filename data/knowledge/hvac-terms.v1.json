@@ -1,0 +1,56 @@
+{
+  "schema_version": "hvac-terms.v1",
+  "knowledge_version": "2026-09-18",
+  "records": [
+    {
+      "id": "term_capacitance_uf",
+      "kind": "term",
+      "canonical": "µF",
+      "aliases": ["微法", "uf", "电容量"],
+      "correction_rules": [
+        {
+          "id": "corr_spoken_35_uf",
+          "source": "三十五微法",
+          "target": "35 µF",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "受控词表中的常用口述规格格式候选；数值必须由技师确认。"
+        }
+      ],
+      "risk": "CRITICAL_VALUE",
+      "description": "电容量单位；数值或单位的修复需要技师确认。"
+    },
+    {
+      "id": "term_refrigerant",
+      "kind": "term",
+      "canonical": "制冷剂",
+      "aliases": ["冷媒", "雪种", "refrigerant"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_refrigerant",
+          "source": "制冷记",
+          "target": "制冷剂",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "受控 HVAC 词表中的近音 ASR 错识别候选。"
+        }
+      ],
+      "risk": "REFRIGERANT",
+      "description": "制冷剂类型和充注量必须有本次服务证据。"
+    },
+    {
+      "id": "term_cooling_test",
+      "kind": "term",
+      "canonical": "制冷运行测试",
+      "aliases": ["试机", "测制冷", "运行测试"],
+      "risk": "MEASUREMENT",
+      "description": "只能用于术语识别或缺失提醒，不能证明本次已测试。"
+    },
+    {
+      "id": "term_no_leak",
+      "kind": "term",
+      "canonical": "未发现泄漏",
+      "aliases": ["没漏", "没有漏", "无泄漏"],
+      "risk": "NEGATION",
+      "description": "否定语义不得被删除或反转。"
+    }
+  ]
+}

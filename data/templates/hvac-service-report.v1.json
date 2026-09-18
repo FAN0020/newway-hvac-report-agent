@@ -1,0 +1,27 @@
+{
+  "schema_version": "hvac-service-report-template.v1",
+  "template_id": "hvac_service_report",
+  "template_version": "1.0.0",
+  "service_scope": ["residential_split_ac", "small_commercial_split_ac", "general_hvac"],
+  "placeholder": "未提供/待确认",
+  "disclaimer": "本报告为 AI 整理的草稿，仅记录有来源的本次服务信息；须由技师复核确认后才能保存或导出。",
+  "allowed_claim_mode": "FACT_RENDERED",
+  "section_order": [
+    "job_information",
+    "equipment_information",
+    "customer_complaint",
+    "inspection_findings",
+    "work_performed",
+    "parts_and_materials",
+    "test_results",
+    "completion_status",
+    "unresolved_and_follow_up",
+    "refrigerant_record",
+    "measurements",
+    "attachments",
+    "cost_quote",
+    "warranty",
+    "customer_feedback",
+    "technician_review"
+  ]
+}
