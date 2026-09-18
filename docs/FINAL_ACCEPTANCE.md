@@ -28,11 +28,11 @@
 
 ## GitHub 准备度
 
-准确结论是：**source-ready after user chooses a license and creates the first commit/remote**。
+准确结论是：**source uploaded to a private GitHub repository; not production-ready**。
 
-- 当前没有 commit、没有 remote，本次没有 `git add`、commit 或 push；不能声称已上传 GitHub。
-- 待提交源码无未忽略的大文件、已知密钥、冲突标记或非审计文档的本机绝对路径。
-- 本项目 LICENSE 仍未决；用户还需决定预先存在的项目说明文件是否可分发。
+- 私有仓库为 <https://github.com/haoqi016/newway-hvac-report-agent>；首个源码提交为 `c45af75`。
+- 已上传源码无未忽略的大文件、已知密钥、冲突标记或非审计文档的本机绝对路径。
+- 用户已要求推送当前项目，项目说明文件已纳入私有仓库。本项目 LICENSE 仍未决，因此不要在未确认许可前公开仓库或授权第三方再分发。
 - Whisper 运行时、模型和项目内构建工具均已排除在 Git 之外。在另一台 Mac 上克隆后，必须运行 `npm run stt:prepare` 和 `npm run stt:smoke`。
 
 ## 演示承诺边界

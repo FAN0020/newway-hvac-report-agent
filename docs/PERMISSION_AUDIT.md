@@ -106,7 +106,7 @@ web/pcm-capture-worklet.js
 web/styles.css
 ```
 
-`MVP1-Newway-Systems项目说明.md` 也是当前未忽略、未跟踪的文件，但它在本次开发前已存在，Agent 未修改。用户必须决定它是否进入 GitHub。
+`MVP1-Newway-Systems项目说明.md` 在本次开发前已存在，Agent 未修改。用户随后明确要求推送当前项目，因此该文件已进入私有 GitHub 仓库；公开分发前仍需确认品牌材料权限和 LICENSE。
 
 ## 本地生成但不提交的产物
 
@@ -128,7 +128,7 @@ web/styles.css
 
 ## Git 状态
 
-- 当前无 commit（`HEAD` 不存在）。
-- 当前无 remote。
-- 所有提交候选都是 untracked；本次未执行 `git add`、commit 或 push。
-- 本项目 LICENSE 未决。
+- 私有仓库：<https://github.com/haoqi016/newway-hvac-report-agent>。
+- 首个源码提交：`c45af75`（`Initial commit: Newway HVAC report agent`）。
+- 本地 `main` 已与 `origin/main` 对齐；GitHub 状态更正以独立提交记录。
+- 本项目 LICENSE 未决，仓库不得在未完成许可确认前改为公开。
