@@ -107,6 +107,73 @@ export async function buildTranscriptCorrectionCandidates({ rawText, knowledgeRo
   });
 }
 
+function groupCandidatesByContext(candidates, rawText) {
+  const sentences = [];
+  const pattern = /[^\n。！？；;]+[\n。！？；;]?/gu;
+  for (const match of rawText.matchAll(pattern)) {
+    const text = match[0].trim();
+    if (!text) continue;
+    sentences.push({ start: match.index, end: match.index + match[0].length, text });
+  }
+  return sentences.map(sentence => ({
+    sentence: sentence.text,
+    start: sentence.start,
+    end: sentence.end,
+    candidates: candidates.filter(c => c.source_span.start >= sentence.start && c.source_span.end <= sentence.end)
+  })).filter(group => group.candidates.length > 0);
+}
+
+export async function buildTranscriptCorrectionCandidatesWithContext({ rawText, knowledgeRoot = defaultKnowledgeRoot, provider = null, model = null } = {}) {
+  // First: Build baseline candidates (unchanged)
+  const baseline = await buildTranscriptCorrectionCandidates({ rawText, knowledgeRoot });
+  if (!provider?.generateJson || baseline.candidates.length === 0) {
+    return baseline; // No provider or no candidates, return baseline
+  }
+  try {
+    const contextGroups = groupCandidatesByContext([...baseline.candidates], rawText);
+    if (contextGroups.length === 0) return baseline;
+    const response = await provider.generateJson({
+      model,
+      system: `You filter HVAC term correction candidates using sentence context. When multiple candidates target the same span or nearby spans, select the most appropriate. Return only candidate_id values from the supplied list. Do not invent candidates, add service facts, or change source spans. Return JSON only.`,
+      prompt: JSON.stringify({
+        raw_text: rawText,
+        candidate_groups: contextGroups.map(group => ({
+          sentence: group.sentence,
+          sentence_span: { start: group.start, end: group.end },
+          candidates: group.candidates.map(c => ({
+            candidate_id: c.candidate_id,
+            source_span: c.source_span,
+            source_text: c.source_span.text,
+            candidate: c.candidate,
+            reason: c.reason,
+            risk: c.risk
+          }))
+        })),
+        disambiguation_hints: {
+          numbers_with_units: '数字通常需要单位：35微法→35 µF，220伏→220V',
+          brand_vs_generic: '品牌名通常出现在"换""用"等动词后',
+          tool_vs_part: '工具在"用X检查"，零件在"更换X"'
+        },
+        required_output: { retained_candidate_ids: ['candidate_id'] }
+      })
+    });
+    const retainedIds = Array.isArray(response?.data?.retained_candidate_ids) ? response.data.retained_candidate_ids : [];
+    const allowedIds = new Set(baseline.candidates.map(c => c.candidate_id));
+    const validIds = retainedIds.filter(id => allowedIds.has(String(id)));
+    if (validIds.length === 0 || validIds.length === baseline.candidates.length) {
+      return baseline; // No filtering or invalid output, return baseline
+    }
+    const filtered = baseline.candidates.filter(c => validIds.includes(c.candidate_id));
+    return Object.freeze({
+      knowledge_version: baseline.knowledge_version,
+      candidates: Object.freeze(filtered.map(c => Object.freeze(c))),
+      context_filtering_applied: true
+    });
+  } catch (error) {
+    return baseline; // Provider error, return baseline
+  }
+}
+
 export async function loadReportModulesConfig({ knowledgeRoot = defaultKnowledgeRoot } = {}) {
   return readVersionedJson('report-modules.v1.json', knowledgeRoot);
 }
