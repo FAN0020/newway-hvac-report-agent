@@ -3,44 +3,79 @@
   "knowledge_version": "2026-09-18",
   "records": [
     {
+      "id": "term_refrigerant",
+      "kind": "term",
+      "canonical": "制冷剂",
+      "aliases": ["冷媒", "雪种", "refrigerant", "gas", "冷气水", "freon"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_refrigerant_1",
+          "source": "制冷记",
+          "target": "制冷剂",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_xuezhong_1",
+          "source": "学种",
+          "target": "雪种",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "新加坡口语'雪种'的常见 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_xuezhong_2",
+          "source": "血种",
+          "target": "雪种",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "新加坡口语'雪种'的常见 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_xuezhong_3",
+          "source": "雪钟",
+          "target": "雪种",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "新加坡口语'雪种'的常见 ASR 误识别"
+        }
+      ],
+      "risk": "REFRIGERANT",
+      "description": "制冷剂类型和充注量必须有本次服务证据。新加坡口语常说'雪种'。"
+    },
+    {
       "id": "term_capacitance_uf",
       "kind": "term",
       "canonical": "µF",
-      "aliases": ["微法", "uf", "电容量"],
+      "aliases": ["微法", "uf", "电容量", "法拉"],
       "correction_rules": [
         {
           "id": "corr_spoken_35_uf",
           "source": "三十五微法",
           "target": "35 µF",
           "match_basis": "CONTROLLED_EXACT_PHRASE",
-          "reason": "受控词表中的常用口述规格格式候选；数值必须由技师确认。"
+          "reason": "常用口述规格格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_25_uf",
+          "source": "二十五微法",
+          "target": "25 µF",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述规格格式候选"
+        },
+        {
+          "id": "corr_spoken_45_uf",
+          "source": "四十五微法",
+          "target": "45 µF",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述规格格式候选"
         }
       ],
       "risk": "CRITICAL_VALUE",
       "description": "电容量单位；数值或单位的修复需要技师确认。"
     },
     {
-      "id": "term_refrigerant",
-      "kind": "term",
-      "canonical": "制冷剂",
-      "aliases": ["冷媒", "雪种", "refrigerant"],
-      "correction_rules": [
-        {
-          "id": "corr_asr_refrigerant",
-          "source": "制冷记",
-          "target": "制冷剂",
-          "match_basis": "CONTROLLED_ASR_CONFUSION",
-          "reason": "受控 HVAC 词表中的近音 ASR 错识别候选。"
-        }
-      ],
-      "risk": "REFRIGERANT",
-      "description": "制冷剂类型和充注量必须有本次服务证据。"
-    },
-    {
       "id": "term_cooling_test",
       "kind": "term",
       "canonical": "制冷运行测试",
-      "aliases": ["试机", "测制冷", "运行测试"],
+      "aliases": ["试机", "测制冷", "运行测试", "开机测试", "test run"],
       "risk": "MEASUREMENT",
       "description": "只能用于术语识别或缺失提醒，不能证明本次已测试。"
     },
@@ -48,9 +83,161 @@
       "id": "term_no_leak",
       "kind": "term",
       "canonical": "未发现泄漏",
-      "aliases": ["没漏", "没有漏", "无泄漏"],
+      "aliases": ["没漏", "没有漏", "无泄漏", "no leak", "不漏"],
       "risk": "NEGATION",
       "description": "否定语义不得被删除或反转。"
+    },
+    {
+      "id": "term_hp_capacity",
+      "kind": "term",
+      "canonical": "匹",
+      "aliases": ["HP", "马力", "horsepower"],
+      "correction_rules": [
+        {
+          "id": "corr_spoken_1hp",
+          "source": "一匹",
+          "target": "1 HP",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "新加坡常用冷量单位，1 HP ≈ 9,000 BTU/hr"
+        },
+        {
+          "id": "corr_spoken_15hp",
+          "source": "一匹半",
+          "target": "1.5 HP",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "新加坡常用冷量单位"
+        },
+        {
+          "id": "corr_spoken_2hp",
+          "source": "两匹",
+          "target": "2 HP",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "新加坡常用冷量单位"
+        },
+        {
+          "id": "corr_spoken_25hp",
+          "source": "两匹半",
+          "target": "2.5 HP",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "新加坡常用冷量单位"
+        }
+      ],
+      "risk": "CRITICAL_VALUE",
+      "description": "新加坡口语冷量单位'匹'（HP）。数值需技师确认。"
+    },
+    {
+      "id": "term_high_pressure_protection",
+      "kind": "term",
+      "canonical": "高压保护",
+      "aliases": ["high pressure trip", "HP protection", "系统高压", "高压跳机"],
+      "risk": "MEASUREMENT",
+      "description": "系统高压保护触发，通常因冷凝器脏或散热不良。"
+    },
+    {
+      "id": "term_low_pressure_protection",
+      "kind": "term",
+      "canonical": "低压保护",
+      "aliases": ["low pressure trip", "LP protection", "系统低压", "低压跳机"],
+      "risk": "MEASUREMENT",
+      "description": "系统低压保护触发，通常因制冷剂不足。"
+    },
+    {
+      "id": "term_comm_fault",
+      "kind": "term",
+      "canonical": "内外机通讯故障",
+      "aliases": ["通讯故障", "comm fault", "communication error", "通信故障", "signal error"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_comm_fault",
+          "source": "通讯故障",
+          "target": "内外机通讯故障",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "补全标准术语"
+        }
+      ],
+      "risk": "LOW",
+      "description": "室内机与室外机通讯中断，可能是信号线或 PCB 问题。"
+    },
+    {
+      "id": "term_chemical_wash",
+      "kind": "term",
+      "canonical": "化学清洗",
+      "aliases": ["化学洗", "大清洗", "chemical wash", "chemical overhaul", "深度清洗"],
+      "risk": "LOW",
+      "description": "使用化学清洁剂对蒸发器和零部件进行深度清洗，比普通保养更彻底。"
+    },
+    {
+      "id": "term_general_service",
+      "kind": "term",
+      "canonical": "普通保养",
+      "aliases": ["洗机", "basic wash", "routine servicing", "regular service", "general service", "基本保养"],
+      "risk": "LOW",
+      "description": "新加坡口语'洗机'即普通保养。"
+    },
+    {
+      "id": "term_drain_clearing",
+      "kind": "term",
+      "canonical": "疏通排水管",
+      "aliases": ["通管", "通排水", "clear drain", "drain flush", "drain clearing", "通水管"],
+      "risk": "LOW",
+      "description": "清除排水管堵塞。'通管'为新加坡口语。"
+    },
+    {
+      "id": "term_vacuum",
+      "kind": "term",
+      "canonical": "抽真空",
+      "aliases": ["pull vacuum", "system evacuation", "真空处理", "vacuuming"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_vacuum_1",
+          "source": "抽珍空",
+          "target": "抽真空",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "LOW",
+      "description": "修漏后充注制冷剂前必须先抽真空。"
+    },
+    {
+      "id": "term_leak_detection",
+      "kind": "term",
+      "canonical": "查漏",
+      "aliases": ["leak detection", "leak check", "leak test", "pressure test", "探漏", "测漏"],
+      "risk": "LOW",
+      "description": "检查制冷剂回路是否存在泄漏点。"
+    },
+    {
+      "id": "term_inverter",
+      "kind": "term",
+      "canonical": "变频",
+      "aliases": ["inverter", "inverter type", "变频机", "variable speed", "频率变换"],
+      "risk": "LOW",
+      "description": "变速压缩机类型，比定频更节能。"
+    },
+    {
+      "id": "term_non_inverter",
+      "kind": "term",
+      "canonical": "定频",
+      "aliases": ["non-inverter", "fixed speed", "conventional", "定速"],
+      "risk": "LOW",
+      "description": "固定转速压缩机类型，适用于启动电容检查等维修场景。"
+    },
+    {
+      "id": "term_icing",
+      "kind": "term",
+      "canonical": "蒸发器结冰",
+      "aliases": ["结冰", "冰机", "freeze up", "icing", "冰堵", "evaporator icing"],
+      "risk": "LOW",
+      "description": "蒸发器表面形成冰层，通常由脏滤网、冷媒不足或风量不足引起。"
+    },
+    {
+      "id": "term_top_up_gas",
+      "kind": "term",
+      "canonical": "补充制冷剂",
+      "aliases": ["加雪种", "补雪种", "补气", "补 gas", "加 gas", "top up gas", "recharge refrigerant", "充氟"],
+      "risk": "REFRIGERANT",
+      "description": "新加坡常见说法为'加雪种'或'补 gas'（中英混用）。制冷剂数量需技师确认。"
     }
   ]
 }

@@ -6,50 +6,239 @@
       "id": "part_run_capacitor",
       "kind": "part",
       "canonical": "运行电容",
-      "aliases": ["电容", "启动电容", "capacitor"],
+      "aliases": ["电容", "启动电容", "capacitor", "run capacitor", "fan capacitor", "compressor capacitor"],
       "correction_rules": [
         {
           "id": "corr_asr_run_capacitor",
           "source": "运刑电容",
           "target": "运行电容",
           "match_basis": "CONTROLLED_ASR_CONFUSION",
-          "reason": "受控零件词表中的近音 ASR 错识别候选。"
+          "reason": "近音 ASR 误识别"
         }
       ],
       "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:µF|uF|微法)$"],
-      "description": "只提供名称和规格候选，不证明本次已更换。"
+      "description": "定频空调中为压缩机和风机提供启动力矩。失效时电机嗡嗡响但无法启动。仅提供名称和规格候选，不证明本次已更换。"
     },
     {
       "id": "part_air_filter",
       "kind": "part",
       "canonical": "空气滤网",
-      "aliases": ["滤网", "风网", "air filter"],
+      "aliases": ["滤网", "风网", "过滤网", "air filter", "dust filter", "mesh filter", "filter"],
       "correction_rules": [
         {
           "id": "corr_asr_air_filter",
           "source": "空气绿网",
           "target": "空气滤网",
           "match_basis": "CONTROLLED_ASR_CONFUSION",
-          "reason": "受控零件词表中的近音 ASR 错识别候选。"
+          "reason": "近音 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_air_filter_2",
+          "source": "过滤网",
+          "target": "空气滤网",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "补全标准术语"
         }
       ],
-      "description": "空调回风过滤部件。"
+      "description": "回风过滤部件，脏堵是制冷效果变差和结冰的最常见原因。"
     },
     {
       "id": "part_drain_hose",
       "kind": "part",
       "canonical": "排水管",
-      "aliases": ["水管", "冷凝水管", "drain hose"],
+      "aliases": ["水管", "冷凝水管", "drain hose", "drain pipe", "condensate pipe", "drainpipe"],
       "correction_rules": [
         {
           "id": "corr_asr_drain_hose",
           "source": "排水关",
           "target": "排水管",
           "match_basis": "CONTROLLED_ASR_CONFUSION",
-          "reason": "受控零件词表中的近音 ASR 错识别候选。"
+          "reason": "近音 ASR 误识别"
         }
       ],
-      "description": "冷凝水排水部件。"
+      "description": "将冷凝水从水盘排到室外。堵塞是室内机漏水最常见原因。"
+    },
+    {
+      "id": "part_compressor",
+      "kind": "part",
+      "canonical": "压缩机",
+      "aliases": ["compr", "comp", "pump", "compressor"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_compressor_1",
+          "source": "压缩几",
+          "target": "压缩机",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_compressor_2",
+          "source": "压缩击",
+          "target": "压缩机",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "description": "制冷循环核心部件，称为系统'心脏'。更换费用高，新加坡约 S$600 起。不证明本次已更换，须技师确认。"
+    },
+    {
+      "id": "part_pcb",
+      "kind": "part",
+      "canonical": "电脑板",
+      "aliases": ["主板", "PCB", "控制板", "circuit board", "control board", "mainboard", "printed circuit board", "PCB板"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_pcb_1",
+          "source": "PBC板",
+          "target": "PCB板",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "字母顺序 ASR 误识别"
+        }
+      ],
+      "description": "室内机或室外机的控制核心。新加坡技师通称'PCB'。室内 PCB 更换约 S$200–400，室外约 S$300–600。"
+    },
+    {
+      "id": "part_fan_motor",
+      "kind": "part",
+      "canonical": "风机电机",
+      "aliases": ["马达", "fan motor", "indoor motor", "outdoor motor", "blower motor", "风扇马达", "motor"],
+      "description": "驱动风扇的电机。'风扇马达'为新加坡马来语影响下的口语说法。室内风机电机更换约 S$200–350。"
+    },
+    {
+      "id": "part_expansion_valve",
+      "kind": "part",
+      "canonical": "膨胀阀",
+      "aliases": ["电子膨胀阀", "EEV", "electronic expansion valve", "节流阀", "expansion valve"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_expansion_valve_1",
+          "source": "膨胀法",
+          "target": "膨胀阀",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "description": "将高压液态制冷剂节流降压，现代系统使用电子膨胀阀（EEV）。"
+    },
+    {
+      "id": "part_four_way_valve",
+      "kind": "part",
+      "canonical": "四通阀",
+      "aliases": ["reversing valve", "4-way valve", "换向阀", "four-way valve"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_four_way_valve_1",
+          "source": "四通法",
+          "target": "四通阀",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_four_way_valve_2",
+          "source": "私通阀",
+          "target": "四通阀",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "description": "切换制冷剂流向，用于在制冷和制热模式之间切换。故障可触发 Panasonic F11 代码。"
+    },
+    {
+      "id": "part_condenser",
+      "kind": "part",
+      "canonical": "冷凝器",
+      "aliases": ["condenser coil", "outdoor coil", "散热器", "condenser"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_condenser_1",
+          "source": "冷凝机",
+          "target": "冷凝器",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_condenser_2",
+          "source": "冷凝气",
+          "target": "冷凝器",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "description": "室外机散热换热器，将制冷剂热量排到室外。脏堵会导致高压保护。"
+    },
+    {
+      "id": "part_evaporator",
+      "kind": "part",
+      "canonical": "蒸发器",
+      "aliases": ["evaporator coil", "indoor coil", "cooling coil", "fan coil", "蒸发盘管"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_evaporator_1",
+          "source": "蒸发机",
+          "target": "蒸发器",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_evaporator_2",
+          "source": "蒸汽器",
+          "target": "蒸发器",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "description": "室内机吸热换热器，低压液态制冷剂在此蒸发吸热产生制冷效果。"
+    },
+    {
+      "id": "part_thermistor",
+      "kind": "part",
+      "canonical": "热敏电阻",
+      "aliases": ["sensor", "传感器", "NTC sensor", "NTC热敏电阻", "temp sensor", "温度传感器"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_thermistor_1",
+          "source": "热敏电组",
+          "target": "热敏电阻",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "description": "NTC 电阻温度传感器，监测室温（T1）、蒸发器（T2）、冷凝器（T3）等各点温度。更换约 S$80–130。"
+    },
+    {
+      "id": "part_ipm_module",
+      "kind": "part",
+      "canonical": "IPM模块",
+      "aliases": ["inverter module", "变频模块", "IGBT module", "power module", "IPM"],
+      "description": "驱动变频压缩机的功率电子模块。故障通常触发 P0 错误代码。更换约 S$300–600。"
+    },
+    {
+      "id": "part_drain_pan",
+      "kind": "part",
+      "canonical": "水盘",
+      "aliases": ["drip tray", "水箱", "condensate tray", "drain tray", "drain pan"],
+      "description": "收集蒸发器下方冷凝水的托盘。溢出触发 Daikin A3 / Mitsubishi P5 保护代码。"
+    },
+    {
+      "id": "part_copper_pipe",
+      "kind": "part",
+      "canonical": "铜管",
+      "aliases": ["copper pipe", "冷媒管", "lineset", "细管", "粗管", "liquid line", "suction line", "copper piping"],
+      "description": "连接室内外机的两根铜管。细管（液管）走高压液态制冷剂；粗管（气管）走低压气态制冷剂。R32 系统需使用 G25 级铜管（壁厚≥0.8mm）。"
+    },
+    {
+      "id": "part_stepper_motor",
+      "kind": "part",
+      "canonical": "步进电机",
+      "aliases": ["swing motor", "louver motor", "导风板电机", "stepper motor"],
+      "description": "控制室内机导风板摆动方向的电机。"
+    },
+    {
+      "id": "part_louver",
+      "kind": "part",
+      "canonical": "导风板",
+      "aliases": ["swing louver", "vane", "风叶", "导流板", "flap", "louver"],
+      "description": "引导出风方向的可调节风叶，由步进电机驱动。"
     }
   ]
 }
