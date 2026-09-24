@@ -1,0 +1,322 @@
+{
+  "schema_version": "sbs-rail-report-modules.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_RAIL",
+  "fixed_sections": [
+    {
+      "id": "asset_identification",
+      "title": "资产识别",
+      "fields": ["asset.line", "asset.stock_class", "asset.train_set", "asset.car", "asset.subsystem"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（线路/车型, A）", "LTA NEL/DTL/SPLRT（B）", "Wikipedia（编号方案, C）"],
+        "notes": "身份来源为 A/B/C；官方登记册 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "works_summary",
+      "title": "作业摘要",
+      "fields": ["work.type", "work.date", "work.order_id", "work.location"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit Rail Engineering e-brochure（工作指示, A）", "SBS AR2023/2024（TAMS, A）"],
+        "notes": "工单号格式 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "trigger_fault_findings",
+      "title": "触发与故障发现",
+      "fields": ["trigger", "fault_findings", "work.fault_code"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（状态监测、AVATAR 缺陷示例）"],
+        "notes": "触发/发现类别为 A；故障码表 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "diagnosis",
+      "title": "诊断与根因",
+      "fields": ["diagnosis", "diagnosis.root_cause"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025（2025 年 8 月供电故障根因）"],
+        "notes": "根因字段有 A 级实例支撑。"
+      }
+    },
+    {
+      "id": "work_performed",
+      "title": "完成工作",
+      "fields": ["work_performed"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Rail Engineering e-brochure（按工作指示执行）"],
+        "notes": "动作只能来自转写/技师输入（V1 不变量）。"
+      }
+    },
+    {
+      "id": "parts_materials",
+      "title": "使用或更换的零件与材料",
+      "fields": ["parts_used", "parts.part_number"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit AR2024（MCEM91 本地化维修, A）"],
+        "notes": "零件号方案 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "tests_results",
+      "title": "测试与结果",
+      "fields": ["test_results", "tests.ultrasonic", "tests.laser_geometry", "tests.electrical"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（Rail Rover 超声波/激光/第三轨对中）", "LTA 2017 技术说明（ATI/AVI）"],
+        "notes": "测试能力为 A/B；通过标准 NOT PUBLICLY VERIFIED。"
+      }
+    },
+    {
+      "id": "track_access_record",
+      "title": "轨道准入记录",
+      "fields": ["access.approval", "access.tams_request", "access.lead_time"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2023/AR2024（TAMS 请求→批准）"],
+        "notes": "轨道作业准入为 A。"
+      }
+    },
+    {
+      "id": "completion_state",
+      "title": "完成状态与回役",
+      "fields": ["completion.state", "completion.return_to_service"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit AR2024（翻新车回到载客服务, A）"],
+        "notes": "回役状态存在为 A；状态词表与回役标准 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "safety_ops_notes",
+      "title": "安全与 OPS 备注",
+      "fields": ["safety.rtsa_context", "safety.vanguard_events", "safety.ops"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA NRFF（RTSA 安全义务, B）", "SBS AR2024（VAnGuard 入侵事件, A）"],
+        "notes": "安全义务/事件为 A/B。"
+      }
+    },
+    {
+      "id": "reliability_compliance",
+      "title": "可靠性与合规块",
+      "fields": ["reliability.mkbf_context", "compliance.nrff_submissions", "compliance.ops"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（MKBF 数值, A）", "LTA NRFF（年度维护计划/故障趋势分析, B）"],
+        "notes": "MKBF/合规义务为 A/B；提交格式 NOT PUBLICLY VERIFIED。"
+      }
+    },
+    {
+      "id": "provenance",
+      "title": "溯源",
+      "fields": ["provenance.transcript", "provenance.uploads", "provenance.knowledge_versions"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["V1 事实收据（A, 仓库基线）"],
+        "notes": "溯源为 V1 既有机制（A）。"
+      }
+    }
+  ],
+  "conditional_sections": [
+    {
+      "id": "measurement_record",
+      "title": "测量记录",
+      "fields": ["measurements"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit AR2024（轨道几何/钢轨缺陷测量, A）"],
+        "notes": "数值必须来自检测记录；阈值未公开。"
+      }
+    },
+    {
+      "id": "incident_record",
+      "title": "事件记录",
+      "fields": ["incident.description", "incident.duration", "incident.impact"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025（2025 年 8 月供电故障事件）"],
+        "notes": "事件报告语境为 A。"
+      }
+    },
+    {
+      "id": "regulatory_submission_record",
+      "title": "监管报送记录",
+      "fields": ["regulatory.submission_type", "regulatory.submission_ref"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA NRFF（年度维护计划/故障趋势分析义务）"],
+        "notes": "报送义务为 B；格式 NOT PUBLICLY VERIFIED。"
+      }
+    },
+    {
+      "id": "attachments",
+      "title": "照片/附件",
+      "fields": ["attachments"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["V1 报告模块（A, 仓库基线）"],
+        "notes": "沿用 V1。"
+      }
+    },
+    {
+      "id": "cost_quote",
+      "title": "成本与报价",
+      "fields": ["cost_quote"],
+      "tag": "MANUAL_OR_AUTHORIZED_ONLY",
+      "manual_or_authorized_only": true,
+      "evidence": {
+        "evidence_level": "D",
+        "confidence": "HIGH",
+        "basis": ["V1 手动字段惯例（A, 仓库基线）", "05 §5 手动字段候选（D）"],
+        "notes": "手动输入字段；绝不由知识自动填充。"
+      }
+    },
+    {
+      "id": "warranty",
+      "title": "保修情况",
+      "fields": ["warranty"],
+      "tag": "MANUAL_OR_AUTHORIZED_ONLY",
+      "manual_or_authorized_only": true,
+      "evidence": {
+        "evidence_level": "D",
+        "confidence": "HIGH",
+        "basis": ["V1 手动字段惯例（A, 仓库基线）", "05 §5（D）"],
+        "notes": "手动输入字段。"
+      }
+    }
+  ],
+  "required_fact_fields": [
+    "fault_findings",
+    "work_performed",
+    "test_results",
+    "completion_state"
+  ],
+  "report_types": [
+    {
+      "id": "scheduled_service_record",
+      "title": "定期维护记录",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Rail Engineering e-brochure（预防性维护按工作指示）"],
+        "notes": "定期维护存在为 A；间隔值未公开。"
+      }
+    },
+    {
+      "id": "condition_based_service_record",
+      "title": "状态性维护记录",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（状态监测、MEC）"],
+        "notes": "状态性维护为 A。"
+      }
+    },
+    {
+      "id": "track_inspection_report",
+      "title": "轨道检测报告",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（Rail Rover / 多功能轨道小车）"],
+        "notes": "轨道检测报告语境为 A。"
+      }
+    },
+    {
+      "id": "corrective_work_order_report",
+      "title": "纠正性维修工单报告",
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit Rail Engineering e-brochure（纠正性维护）"],
+        "notes": "工单格式 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "incident_power_fault_report",
+      "title": "事件/供电故障报告",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025（2025 年 8 月供电故障）"],
+        "notes": "事件报告语境为 A。"
+      }
+    },
+    {
+      "id": "midlife_refurbishment_record",
+      "title": "中期翻新进度记录",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（C751A 翻新进度）"],
+        "notes": "翻新项目为 A。"
+      }
+    },
+    {
+      "id": "regulatory_submission_support_record",
+      "title": "监管报送支持记录",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA NRFF（年度维护计划/故障趋势分析）"],
+        "notes": "报送义务为 B；格式未公开。"
+      }
+    }
+  ],
+  "report_type_registry_note": {
+    "tag": "PROVISIONAL — REQUIRES SBS CONFIRMATION",
+    "notes": "SBS 实际使用的报告模板（纸质/PDF/DMS 格式）NOT PUBLICLY VERIFIED；以上报告类型为候选清单，需 SBS 确认。",
+    "evidence": {
+      "evidence_level": "D",
+      "confidence": "LOW",
+      "basis": ["docs 06 §2.4 报告类型注册表（D）", "10_SBS_INFORMATION_GAPS R12"],
+      "notes": "候选清单，非 SBS 事实。"
+    }
+  }
+}

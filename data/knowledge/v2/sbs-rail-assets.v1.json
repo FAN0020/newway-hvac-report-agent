@@ -1,0 +1,468 @@
+{
+  "schema_version": "sbs-rail-assets.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_RAIL",
+  "records": [
+    {
+      "id": "asset_line_nel",
+      "kind": "asset",
+      "asset_type": "line",
+      "canonical": "东北线 NEL",
+      "aliases": ["NEL", "North East Line", "东北线"],
+      "attributes": {
+        "length_km": 22,
+        "stations": 17,
+        "automation": "fully automated driverless（世界首条全自动无人驾驶重轨线）",
+        "signalling": "Alstom Urbalis 300 CBTC",
+        "electrification": "1,500 V DC 架空接触网（OCS）",
+        "notes": "长度/站数为 LTA 公开口径约值。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line page", "SBS Transit AR2024（84.6 km / 81 站）"],
+        "notes": "线路事实为 A/B。"
+      }
+    },
+    {
+      "id": "asset_line_dtl",
+      "kind": "asset",
+      "asset_type": "line",
+      "canonical": "市区线 DTL",
+      "aliases": ["DTL", "Downtown Line", "市区线"],
+      "attributes": {
+        "stations": 35,
+        "automation": "fully automated driverless（最长地下无人驾驶 MRT 线）",
+        "signalling": "Siemens Trainguard Sirius CBTC",
+        "electrification": "750 V DC 第三轨",
+        "notes": "长度存在口径冲突（AR2023 报告 42 km、AR2024 报告 34 km）——不硬编码长度。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA Downtown Line page", "SBS Transit AR2024（35 站）"],
+        "notes": "站数为 B；长度口径冲突 NOT PUBLICLY VERIFIED，故不写死。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "DTL 长度在 SBS 年报中出现 42 km 与 34 km 两个口径；asset 字段需要长度但冲突未解，绝不硬编码。"
+    },
+    {
+      "id": "asset_line_splrt",
+      "kind": "asset",
+      "asset_type": "line",
+      "canonical": "盛港榜鹅轻轨 SPLRT",
+      "aliases": ["SPLRT", "Sengkang LRT", "Punggol LRT", "盛港-榜鹅轻轨"],
+      "attributes": {
+        "stations": 29,
+        "automation": "fully automated driverless",
+        "signalling": "Kyosan APM 固定闭塞",
+        "electrification": "750 V DC 第三轨",
+        "gauge_mm": 1850,
+        "notes": "AR2024 报 29 站；早期资料按盛港 14 + 榜鹅 14（榜鹅后来增至 15 站），以 29 站为准。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（29 站）", "LTA Sengkang-Punggol LRT page", "Wikipedia（Kyosan, B/C）"],
+        "notes": "站数为 A；信号/轨距为 B/C。"
+      }
+    },
+    {
+      "id": "asset_line_jrl",
+      "kind": "asset",
+      "asset_type": "line",
+      "canonical": "裕廊区域线 JRL",
+      "aliases": ["JRL", "Jurong Region Line"],
+      "attributes": {
+        "length_km": 24,
+        "stations": 24,
+        "status": "awarded Nov 2024, opening in stages from 2027",
+        "operator": "Singapore One Rail（SBS Transit + RATP Dev）",
+        "notes": "尚未开通运营；为未来线路上下文。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.4"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "asset_stock_c751a",
+      "kind": "asset",
+      "asset_type": "rolling_stock",
+      "canonical": "Alstom Metropolis C751A",
+      "aliases": ["C751A", "Metropolis C751A"],
+      "attributes": {
+        "line": "NEL",
+        "trainset_count": 25,
+        "car_formation": "6 节编组",
+        "traction": "Alstom ONIX 1500（C）",
+        "fleet_numbers": "7001/7002–7049/7050（三级来源方案）",
+        "status": "中期翻新中：16 列已回役，全部 25 列预计 2026 年前完成",
+        "notes": "翻新含新状态监测系统、座椅、地板、HVAC。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（车型, B）", "SBS Transit AR2024（翻新进展, A）", "Wikipedia（编组/编号, C）"],
+        "notes": "车型/翻新为 A/B；编组与编号方案为 C。"
+      }
+    },
+    {
+      "id": "asset_stock_c751c",
+      "kind": "asset",
+      "asset_type": "rolling_stock",
+      "canonical": "Alstom Metropolis C751C",
+      "aliases": ["C751C", "Metropolis C751C"],
+      "attributes": {
+        "line": "NEL",
+        "trainset_count": 18,
+        "car_formation": "6 节编组",
+        "traction": "Alstom OPTONIX（C）",
+        "fleet_numbers": "7051/7052–7085/7086（三级来源方案）"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（车型, B）", "Wikipedia（编组/编号, C）"],
+        "notes": "车型为 A/B；编组与编号方案为 C。"
+      }
+    },
+    {
+      "id": "asset_stock_c851e",
+      "kind": "asset",
+      "asset_type": "rolling_stock",
+      "canonical": "Alstom Metropolis C851E",
+      "aliases": ["C851E", "Metropolis C851E"],
+      "attributes": {
+        "line": "NEL",
+        "trainset_count": 6,
+        "car_formation": "6 节编组",
+        "traction": "Alstom OPTONIX（C）",
+        "condition_monitoring": "全部 6 列带状态监测",
+        "automatic_track_inspection": "其中 2 列带 ATI"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA news release 27 Jul 2023（C851E）", "SBS Transit AR2024"],
+        "notes": "C851E 为 LTA/SBS 一手（A/B）。"
+      }
+    },
+    {
+      "id": "asset_stock_c951",
+      "kind": "asset",
+      "asset_type": "rolling_stock",
+      "canonical": "Bombardier/Alstom Movia C951",
+      "aliases": ["C951", "C951A", "Movia C951", "Movia C951A"],
+      "attributes": {
+        "line": "DTL",
+        "trainset_count": 92,
+        "car_formation": "3 节编组",
+        "traction": "MITRAC 1000 IGBT-VVVF + 永磁同步电机（C）",
+        "bogie": "FLEXX Metro 3100（C）",
+        "fleet_numbers": "9001–9092（三级来源方案）"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA Downtown Line（车型, B）", "Wikipedia Movia C951（编组/牵引, C）"],
+        "notes": "车型为 A/B；编组/牵引/转向架细节为 C。"
+      }
+    },
+    {
+      "id": "asset_stock_crystal_mover",
+      "kind": "asset",
+      "asset_type": "rolling_stock",
+      "canonical": "MHI Crystal Mover",
+      "aliases": ["Crystal Mover", "C810", "C810A", "C810D"],
+      "attributes": {
+        "line": "SPLRT",
+        "variants": "C810 单节 ×41、C810A 双节 ×16、C810D 双节 ×25",
+        "electrification": "750 V DC 第三轨",
+        "gauge_mm": 1850,
+        "notes": "C810D 至 2028 年替换第一代列车（三级来源）。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA Sengkang-Punggol LRT（车型, B）", "Wikipedia Crystal Mover（编组/替换计划, C）"],
+        "notes": "车型为 B；编组与替换计划为 C（三级）。"
+      }
+    },
+    {
+      "id": "asset_depot_sengkang",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Sengkang 车厂",
+      "aliases": ["Sengkang Depot", "盛港车厂"],
+      "attributes": {
+        "lines": "NEL（OCC）+ SPLRT",
+        "notes": "约 27 公顷；车间可整体举升整列列车；SPLRT 在二层维护；2027 年前扩建（3.5→11.1 公顷）。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Sengkang Depot（B/C）", "SBS Transit AR2024（NEL 车厂语境, A）"],
+        "notes": "车厂为 A/B；机械明细（轮对车床等）NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 车厂机械清单（轮对车床、地坑举升机型号）未公开；asset.depot 字段只需车厂名，机械清单不能编造。"
+    },
+    {
+      "id": "asset_depot_gali_batu",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Gali Batu 车厂",
+      "aliases": ["Gali Batu Depot", "加基武吉车厂"],
+      "attributes": {
+        "lines": "DTL",
+        "notes": "设有 DTL 系统维护工程中心（MEC），监测道岔机与集水泵。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review（Gali Batu MEC）", "LTA Downtown Line（B）"],
+        "notes": "MEC 为 SBS 一手（A）；车厂归属为 B。"
+      }
+    },
+    {
+      "id": "asset_depot_tai_seng",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Tai Seng 设施楼",
+      "aliases": ["Tai Seng Facility Building", "大成设施楼"],
+      "attributes": {
+        "lines": "DTL",
+        "notes": "DTL 设施楼；未来东海岸综合车厂（ECID）相关。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA Downtown Line（B）", "docs 04 §0 修正说明"],
+        "notes": "设施存在为 B；细节 NOT PUBLICLY VERIFIED。"
+      }
+    },
+    {
+      "id": "asset_depot_kim_chuan",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Kim Chuan（未证实为 DTL 车厂）",
+      "aliases": ["Kim Chuan Depot", "金泉车厂"],
+      "attributes": {
+        "notes": "仅出现在规划历史中；作为 DTL 车厂 NOT PUBLICLY VERIFIED（04 修正：不应列为 DTL 车厂）。"
+      },
+      "evidence": {
+        "evidence_level": "D",
+        "confidence": "LOW",
+        "basis": ["docs 04 §0 修正说明", "10_SBS_INFORMATION_GAPS R11"],
+        "notes": "负向/未证实证据；不列入 DTL 车厂登记。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "Kim Chuan 是否为 DTL 车厂未证实；明确标注避免把规划传闻当作事实。"
+    },
+    {
+      "id": "asset_electrification_nel",
+      "kind": "asset",
+      "asset_type": "electrification",
+      "canonical": "NEL 电气化",
+      "aliases": [],
+      "attributes": {
+        "system": "1,500 V DC 架空接触网（OCS）",
+        "notes": "新加坡唯一 OCS 供电的 MRT 线。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（B）", "docs 04 修正说明"],
+        "notes": "电气化事实为 A/B。"
+      }
+    },
+    {
+      "id": "asset_electrification_dtl_splrt",
+      "kind": "asset",
+      "asset_type": "electrification",
+      "canonical": "DTL / SPLRT 电气化",
+      "aliases": [],
+      "attributes": {
+        "system": "750 V DC 第三轨",
+        "notes": "DTL 与 SK/PG LRT 均为 750 V DC 第三轨。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA Downtown Line / Sengkang-Punggol LRT（B）", "SBS AR2024（Rail Rover 第三轨对中, A）"],
+        "notes": "电气化事实为 A/B。"
+      }
+    },
+    {
+      "id": "asset_gauge_mrt",
+      "kind": "asset",
+      "asset_type": "gauge",
+      "canonical": "MRT 标准轨距",
+      "aliases": [],
+      "attributes": {
+        "gauge_mm": 1435,
+        "notes": "标准轨距 1,435 mm（MRT）。"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia（C）"],
+        "notes": "三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_gauge_splrt",
+      "kind": "asset",
+      "asset_type": "gauge",
+      "canonical": "SPLRT 轨距",
+      "aliases": [],
+      "attributes": {
+        "gauge_mm": 1850,
+        "notes": "SPLRT 轨距 1,850 mm（轻轨）。"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Sengkang LRT（C）"],
+        "notes": "三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_station_code_nel",
+      "kind": "asset",
+      "asset_type": "station_code_range",
+      "canonical": "NEL 车站代码",
+      "aliases": [],
+      "attributes": {
+        "pattern": "NE1–NE17",
+        "notes": "NE 前缀车站代码为公开惯例。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit / LTA 系统图（NE 代码惯例）"],
+        "notes": "车站代码惯例为 A/B；完整代码字典未检索。"
+      }
+    },
+    {
+      "id": "asset_station_code_dtl",
+      "kind": "asset",
+      "asset_type": "station_code_range",
+      "canonical": "DTL 车站代码",
+      "aliases": [],
+      "attributes": {
+        "pattern": "DT1–DT35",
+        "notes": "DT 前缀车站代码为公开惯例。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit / LTA 系统图（DT 代码惯例）"],
+        "notes": "车站代码惯例为 A/B。"
+      }
+    },
+    {
+      "id": "asset_station_code_splrt",
+      "kind": "asset",
+      "asset_type": "station_code_range",
+      "canonical": "SPLRT 车站代码",
+      "aliases": [],
+      "attributes": {
+        "pattern": "SKG / PG 系列",
+        "notes": "盛港（SKG）与榜鹅（PG）前缀车站代码为公开惯例。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit / LTA 系统图（SKG/PG 代码惯例）"],
+        "notes": "车站代码惯例为 A/B。"
+      }
+    },
+    {
+      "id": "asset_train_set_numbering",
+      "kind": "asset",
+      "asset_type": "identifier_convention",
+      "canonical": "列车/车厢编号方案",
+      "aliases": [],
+      "attributes": {
+        "fleet_number_ranges": {
+          "C751A": "7001/7002–7049/7050",
+          "C751C": "7051/7052–7085/7086",
+          "C951": "9001–9092"
+        },
+        "car_serial": "5 位数字（7xxxx）",
+        "carriage_types": ["DT", "Mi", "Mp"],
+        "notes": "编号方案来自三级来源（B/C）；SBS 官方登记册未公开。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia 车型页面（编号方案, C）", "docs 04 §2 asset.train_set（B/C）"],
+        "notes": "编号方案为 B/C；官方登记册 REQUIRES SBS CONFIRMATION。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 官方列车/车厢登记册未公开；train_set/car 为身份关键字段（wrong-identity 硬门控），编号方案只作候选提示，必须由技师/系统确认。"
+    },
+    {
+      "id": "asset_mkbf_fy2024",
+      "kind": "asset",
+      "asset_type": "reliability_metric",
+      "canonical": "MKBF 数值（FY2024）",
+      "aliases": [],
+      "attributes": {
+        "definition": "平均行驶里程内发生延误超过 5 分钟（MRT 用 train-km，LRT 用 car-km）",
+        "dtl": "8.13M train-km",
+        "nel": "4.10M train-km",
+        "splrt": "549,000 car-km",
+        "notes": "FY2024 快照；LTA 每月发布，数值会随事件调查调整。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.5-6（数值）", "LTA Rail Service Reliability PDF（定义）"],
+        "notes": "数值为 SBS 一手（A）；定义与每月发布为 LTA（B）。"
+      }
+    },
+    {
+      "id": "asset_network_scale_2024",
+      "kind": "asset",
+      "asset_type": "network_overview",
+      "canonical": "SBS 铁路网络概况（FY2024）",
+      "aliases": [],
+      "attributes": {
+        "network_km": 84.6,
+        "stations": 81,
+        "trains": 198,
+        "market_share": "31.3%",
+        "notes": "FY2024 快照；含 NEL（17 站）、DTL（35 站）、SPLRT（29 站）。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.4"],
+        "notes": "SBS 一手证据（A）；为年度快照。"
+      }
+    },
+    {
+      "id": "asset_regulatory_nrff",
+      "kind": "asset",
+      "asset_type": "regulatory_framework",
+      "canonical": "新铁路融资框架（NRFF）",
+      "aliases": ["NRFF", "New Rail Financing Framework"],
+      "attributes": {
+        "notes": "LTA 拥有铁路运营资产；运营商须开展内部审计、提交年度维护计划与故障趋势分析；OPS 设定服务质量/安全/关键设备可靠性标准；RTSA 下设处罚框架。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA New Rail Financing Framework page"],
+        "notes": "NRFF 义务为 B；提交格式与处罚数值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "NRFF 年度维护计划/故障趋势分析的提交格式与处罚值未公开；合规字段需要义务引用但格式不能编造。"
+    }
+  ]
+}

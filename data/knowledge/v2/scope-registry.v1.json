@@ -1,0 +1,121 @@
+{
+  "schema_version": "scope-registry.v1",
+  "knowledge_version": "2026-09-24",
+  "scopes": {
+    "GLOBAL": {
+      "kind": "global",
+      "children": [
+        "ORGANIZATION"
+      ],
+      "display": "Global"
+    },
+    "ORGANIZATION": {
+      "kind": "organization",
+      "children": [
+        "SBS",
+        "HVAC"
+      ],
+      "display": "Organization"
+    },
+    "SBS": {
+      "kind": "organization",
+      "children": [
+        "SBS_BUS",
+        "SBS_RAIL"
+      ],
+      "display": "SBS"
+    },
+    "SBS_BUS": {
+      "kind": "domain",
+      "parent": "SBS",
+      "display": "SBS / Bus",
+      "upload_allowed": true
+    },
+    "SBS_RAIL": {
+      "kind": "domain",
+      "parent": "SBS",
+      "display": "SBS / Rail",
+      "upload_allowed": true
+    },
+    "HVAC": {
+      "kind": "domain",
+      "parent": "ORGANIZATION",
+      "display": "HVAC",
+      "upload_allowed": false
+    }
+  },
+  "isolation": {
+    "SBS_BUS": {
+      "allowed": [
+        "GLOBAL",
+        "ORGANIZATION",
+        "SBS",
+        "SBS_BUS",
+        "USER_UPLOADED:SBS_BUS"
+      ],
+      "forbidden": [
+        "HVAC",
+        "SBS_RAIL",
+        "USER_UPLOADED:SBS_RAIL",
+        "USER_UPLOADED:HVAC"
+      ]
+    },
+    "SBS_RAIL": {
+      "allowed": [
+        "GLOBAL",
+        "ORGANIZATION",
+        "SBS",
+        "SBS_RAIL",
+        "USER_UPLOADED:SBS_RAIL"
+      ],
+      "forbidden": [
+        "HVAC",
+        "SBS_BUS",
+        "USER_UPLOADED:SBS_BUS",
+        "USER_UPLOADED:HVAC"
+      ]
+    },
+    "HVAC": {
+      "allowed": [
+        "GLOBAL",
+        "ORGANIZATION",
+        "HVAC"
+      ],
+      "forbidden": [
+        "SBS_BUS",
+        "SBS_RAIL",
+        "USER_UPLOADED:SBS_BUS",
+        "USER_UPLOADED:SBS_RAIL"
+      ]
+    }
+  },
+  "knowledge_files": {
+    "GLOBAL": [],
+    "ORGANIZATION": [],
+    "SBS": [],
+    "SBS_BUS": [
+      "v2/sbs-bus-terms.v1.json",
+      "v2/sbs-bus-parts.v1.json",
+      "v2/sbs-bus-assets.v1.json",
+      "v2/sbs-bus-units.v1.json",
+      "v2/sbs-bus-report-modules.v1.json"
+    ],
+    "SBS_RAIL": [
+      "v2/sbs-rail-terms.v1.json",
+      "v2/sbs-rail-parts.v1.json",
+      "v2/sbs-rail-assets.v1.json",
+      "v2/sbs-rail-units.v1.json",
+      "v2/sbs-rail-report-modules.v1.json"
+    ],
+    "HVAC": [
+      "hvac-terms.v1.json",
+      "hvac-parts.v1.json",
+      "report-modules.v1.json"
+    ]
+  },
+  "context_ids": {
+    "SBS/BUS": "SBS_BUS",
+    "SBS/RAIL": "SBS_RAIL",
+    "HVAC": "HVAC"
+  }
+}

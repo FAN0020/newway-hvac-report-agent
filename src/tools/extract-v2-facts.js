@@ -1,0 +1,398 @@
+/**
+ * V2 SBS deterministic fact extractor (BUS / RAIL).
+ *
+ * Extracts v2 facts from technician-entered / dictated text WITHOUT any LLM:
+ * the text is split into sentences and matched against the scoped knowledge
+ * vocabularies (sbs-bus-terms / sbs-bus-parts or sbs-rail-terms /
+ * sbs-rail-parts) plus deterministic rule patterns. Every produced fact
+ * carries support_status = DIRECT_TRANSCRIPT and source = 'manual', and its
+ * `critical` flag comes from the fact-schema catalog
+ * (isCriticalField({ scopeId, field })).
+ *
+ * Contract discipline (§13): only facts explicitly stated in rawText are
+ * produced. A part mentioned without a performed replacement (e.g. "检查电容"
+ * or "手册建议更换电容") never yields parts.replaced; a recommendation
+ * (建议/recommend/应/需...) or a negated action (未更换/没有更换...) is never
+ * read as an occurred action.
+ *
+ * This module is deterministic and side-effect free apart from reading the
+ * registry / vocab JSON files. Imports are node: built-ins or relative paths
+ * only (zero npm runtime dependencies).
+ */
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { isCriticalField, SUPPORT_STATUSES } from '../v2/fact-schemas.js';
+import { loadScopeRegistry, resolveContext } from '../v2/scope.js';
+
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const KNOWLEDGE_V2_DIR = path.join(projectRoot, 'data', 'knowledge', 'v2');
+
+/** V2 deterministic extraction is defined only for the two SBS domains. */
+const SBS_SCOPES = Object.freeze(new Set(['SBS_BUS', 'SBS_RAIL']));
+
+/** Vocab files per scope (canonical/aliases record shape). */
+const VOCAB_FILES_BY_SCOPE = Object.freeze({
+  SBS_BUS: Object.freeze(['sbs-bus-terms.v1.json', 'sbs-bus-parts.v1.json']),
+  SBS_RAIL: Object.freeze(['sbs-rail-terms.v1.json', 'sbs-rail-parts.v1.json']),
+});
+
+/** Upper bound on processed text (mirrors V1 extractor discipline). */
+const MAX_TEXT_LENGTH = 20_000;
+
+/* ------------------------------------------------------------------ *
+ * Sentence splitting
+ * ------------------------------------------------------------------ */
+
+/**
+ * Splits text into trimmed sentences. Terminators: Chinese 。！？；; ,
+ * English !?; and the English period when it is not part of a decimal
+ * number (e.g. "12.5" keeps its dot) and is followed by whitespace / end.
+ * Newlines are always sentence boundaries. Trailing punctuation is removed.
+ *
+ * @param {unknown} text
+ * @returns {string[]}
+ */
+export function splitSentences(text) {
+  const raw = String(text ?? '');
+  if (raw.trim() === '') return [];
+  const sentences = [];
+  let buffer = '';
+  const flush = () => {
+    const cleaned = buffer.replace(/[。！？!?；;.]+$/u, '').trim();
+    if (cleaned !== '') sentences.push(cleaned);
+    buffer = '';
+  };
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === '\n' || ch === '\r') {
+      flush();
+      continue;
+    }
+    buffer += ch;
+    if (/[。！？!?；;]/u.test(ch)) {
+      flush();
+      continue;
+    }
+    if (ch === '.') {
+      const prev = i > 0 ? raw[i - 1] : '';
+      const next = i + 1 < raw.length ? raw[i + 1] : '';
+      const prevIsDigit = /\d/u.test(prev);
+      const nextIsBoundary = next === '' || /\s/u.test(next);
+      if (!prevIsDigit && nextIsBoundary) flush();
+    }
+  }
+  flush();
+  return sentences;
+}
+
+/* ------------------------------------------------------------------ *
+ * Vocabulary loading & matching
+ * ------------------------------------------------------------------ */
+
+/** @type {Map<string, Promise<{ terms: object[], parts: object[] }>>} */
+const vocabCache = new Map();
+
+/**
+ * Loads and parses the scoped vocabulary JSON files (terms + parts).
+ * Results are cached per scope id.
+ *
+ * @param {'SBS_BUS'|'SBS_RAIL'} scopeId
+ * @returns {Promise<{ terms: object[], parts: object[] }>}
+ */
+async function loadScopeVocab(scopeId) {
+  const cached = vocabCache.get(scopeId);
+  if (cached) return cached;
+  const promise = (async () => {
+    const terms = [];
+    const parts = [];
+    for (const file of VOCAB_FILES_BY_SCOPE[scopeId]) {
+      const raw = await fs.readFile(path.join(KNOWLEDGE_V2_DIR, file), 'utf8');
+      const data = JSON.parse(raw);
+      const records = Array.isArray(data?.records) ? data.records : [];
+      if (file.includes('-parts.')) parts.push(...records);
+      else terms.push(...records);
+    }
+    return { terms, parts };
+  })();
+  vocabCache.set(scopeId, promise);
+  try {
+    return await promise;
+  } catch (error) {
+    vocabCache.delete(scopeId);
+    throw error;
+  }
+}
+
+/**
+ * Builds a match index from records: { canonical, patterns[] } entries with
+ * patterns (canonical + aliases) sorted longest-first so the most specific
+ * alias wins.
+ *
+ * @param {object[]} records
+ * @returns {Array<{ canonical: string, patterns: string[] }>}
+ */
+function buildIndex(records) {
+  const entries = [];
+  for (const record of records) {
+    const canonical = String(record?.canonical ?? '');
+    if (!canonical) continue;
+    const aliases = Array.isArray(record?.aliases) ? record.aliases : [];
+    const patterns = [...new Set([canonical, ...aliases].filter((item) => typeof item === 'string' && item !== ''))]
+      .sort((a, b) => b.length - a.length);
+    entries.push({ canonical, patterns });
+  }
+  return entries;
+}
+
+/**
+ * Whether `token` appears in `text`. Pure-ASCII/alphanumeric tokens
+ * (including phrases with spaces, e.g. "MAN A95") are matched with
+ * alphanumeric word boundaries so "A95" does not match inside "A95RC";
+ * CJK/mixed tokens fall back to substring containment.
+ *
+ * @param {string} text
+ * @param {string} token
+ * @returns {boolean}
+ */
+function containsToken(text, token) {
+  if (/^[A-Za-z0-9][A-Za-z0-9 .,\-/:]*$/u.test(token)) {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    return new RegExp(`(^|[^A-Za-z0-9])${escaped}([^A-Za-z0-9]|$)`, 'iu').test(text);
+  }
+  return text.includes(token);
+}
+
+/**
+ * Finds the vocab entries whose canonical/alias appears in the sentence.
+ * At most one match per record (the longest matching alias).
+ *
+ * @param {string} sentence
+ * @param {Array<{ canonical: string, patterns: string[] }>} entries
+ * @returns {Array<{ canonical: string, pattern: string }>}
+ */
+function findMatches(sentence, entries) {
+  const found = [];
+  for (const entry of entries) {
+    for (const pattern of entry.patterns) {
+      if (containsToken(sentence, pattern)) {
+        found.push({ canonical: entry.canonical, pattern });
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/* ------------------------------------------------------------------ *
+ * Rule patterns (deterministic)
+ * ------------------------------------------------------------------ */
+
+/** Maintenance-type keyword rules, ordered so more specific phrases win. */
+const WORK_TYPE_RULES = Object.freeze([
+  { value: 'statutory', re: /法定|statutory|roadworthiness|定期检验|periodic\s*inspection|政府检验/iu },
+  { value: 'condition_based', re: /状态性|视情|预测性|condition[- ]?based|predictive|状态监测|状态维护/iu },
+  { value: 'preventive', re: /预防|保养|定期|scheduled|preventive/iu },
+  { value: 'corrective', re: /纠正|维修|修复|corrective|repair|defect\s*rectification/iu },
+]);
+
+/** Sentences stating a fault / defect (drives work.description). */
+const FAULT_RE = /故障|异常|不工作|失灵|损坏|不良|磨损|磨耗|报错|间歇|不制冷|无法|malfunction|fault|intermittent|not\s+work(?:ing)?|damage|worn|defect/iu;
+
+/** Sentences carrying an explicit fault-code signal (drives work.fault_code). */
+const FAULT_CODE_RE = /故障码|fault\s*code|SPN|FMI|J1939|诊断码|代码|\bcode\b/iu;
+
+/** Root-cause markers (drives diagnosis.root_cause). */
+const ROOT_CAUSE_RE = /原因是|由于|因为|检查发现|检查结果|根因|due\s+to|caused\s+by|root\s+cause/iu;
+
+/** Part replacement explicitly negated — never an occurred action. */
+const NOT_REPLACED_RE = /未\s*(?:更换|替换|换)|没有(?:更换|替换|换)|没换|并未更换|无需更换|不需更换|不(?:更换|替换|换)|not\s*(?:replaced|changed|installed)|no\s*replacement/iu;
+
+/**
+ * Recommendation / requirement / future markers — "建议更换" or "需更换"
+ * states an obligation or plan, not a performed action (§13).
+ */
+const RECOMMENDATION_RE = /建议|推荐|recommend|should|ought|必须|需要|需|应当|应该|应\s*(?:更换|替换|换)|要求|计划|planned?|拟\s*(?:更换|替换|换)|将\s*(?:会|要)?\s*(?:更换|替换|换)|will\s+(?:be\s+)?replac|to\s+be\s+replaced/iu;
+
+/** Performed-replacement verbs ("换" alone is too ambiguous to trust). */
+const REPLACED_RE = /更换|替换|换了|换上|换下|换掉|换装|replaced|installed|replacement\s+(?:done|performed|made)/iu;
+
+/**
+ * Number + measurement unit (scope unit dictionaries from report-builder:
+ * BUS {km, %, bar, kPa, mm, °C, kWh, MWh, g/kWh, V, dB}; RAIL
+ * {km, train-km, car-km, mm, V, %, °C, min}). Capacitance specs (µF/uF/微法)
+ * are part specifications, not measurements, and are intentionally excluded.
+ */
+const MEASUREMENT_RE = /(\d+(?:[.,]\d+)?)\s*(mm|km|cm|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh)/iu;
+
+/** Test-indicator + result words (drives test.result). */
+const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|test|验证|check|检测/iu;
+const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|pass|fail|运转|ready/iu;
+
+/** Explicit "not completed" statements have no defined completion value. */
+const COMPLETION_NOT_DONE_RE = /未完成|尚未完成|没有完成|未解决|尚未解决|没有解决|unresolved|not\s+complet/iu;
+
+const COMPLETION_OUT_OF_SERVICE_RE = /未回役|未恢复|未返回|out\s+of\s+service|not\s+return(?:ed)?\s+to\s+service|退出服务/iu;
+
+const COMPLETION_DONE_RE = /已完成|已解决|完成|解决|回役|恢复服务|恢复运营|恢复使用|重新上路|back\s+in\s+service|return(?:ed)?\s+to\s+service|restored|recommissioned|cleared\s+for\s+passenger|complet(?:e|ed|ion)|resolved|fixed/iu;
+
+const COMPLETION_DEFERRED_RE = /延期|延后|延迟|改期|postpon|deferr/iu;
+
+const COMPLETION_OFFROAD_RE = /off-?road|下线|停运/iu;
+
+const COMPLETION_RESTRICTED_RE = /限速|restricted\s*speed|speed\s+restriction/iu;
+
+/** Safety-critical assertion markers (drives safety.*). */
+const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|重新上路|restored|back\s+in\s+service|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
+
+/**
+ * Infers a measurement sub-field from sentence context; falls back to the
+ * unified measurement.value field.
+ *
+ * @param {string} sentence
+ * @returns {string}
+ */
+function measurementField(sentence) {
+  if (/间隙|gap|间距/iu.test(sentence)) return 'measurement.gap';
+  if (/磨损|磨耗|wear|thickness|深度|深度|depth|胎纹/iu.test(sentence)) return 'measurement.wear';
+  if (/温度|temp|°c|℃/iu.test(sentence)) return 'measurement.temperature';
+  if (/压力|pressure|bar|kpa|psi/iu.test(sentence)) return 'measurement.pressure';
+  return 'measurement.value';
+}
+
+/* ------------------------------------------------------------------ *
+ * Per-sentence extraction
+ * ------------------------------------------------------------------ */
+
+/**
+ * Extracts the candidate facts ({ field, value, unit? }) explicitly stated
+ * in one sentence, using the scoped vocabularies and rule patterns.
+ *
+ * @param {string} sentence
+ * @param {'SBS_BUS'|'SBS_RAIL'} scopeId
+ * @param {{ terms: object[], parts: object[] }} vocab
+ * @returns {Array<{ field: string, value: unknown, unit?: string }>}
+ */
+function factsFromSentence(sentence, scopeId, vocab) {
+  const out = [];
+  const push = (field, value) => out.push({ field, value });
+
+  // --- asset.* (bus model / rail line / rail stock class) ----------
+  if (scopeId === 'SBS_BUS') {
+    const models = buildIndex(vocab.terms.filter((record) => /^term_model_/u.test(String(record?.id ?? ''))));
+    for (const hit of findMatches(sentence, models)) push('asset.bus_model', hit.canonical);
+  } else {
+    const lines = buildIndex(vocab.terms.filter((record) => /^term_line_/u.test(String(record?.id ?? ''))));
+    const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));
+    for (const hit of findMatches(sentence, lines)) push('asset.line', hit.canonical);
+    for (const hit of findMatches(sentence, stocks)) push('asset.stock_class', hit.canonical);
+  }
+
+  // --- work.type ------------------------------------------------------
+  for (const rule of WORK_TYPE_RULES) {
+    if (rule.re.test(sentence)) {
+      push('work.type', rule.value);
+      break;
+    }
+  }
+
+  // --- work.description / work.fault_code (fault sentences) ----------
+  if (FAULT_RE.test(sentence)) {
+    push('work.description', sentence);
+    if (FAULT_CODE_RE.test(sentence)) push('work.fault_code', sentence);
+  }
+
+  // --- diagnosis.root_cause ------------------------------------------
+  if (ROOT_CAUSE_RE.test(sentence)) {
+    push('diagnosis.root_cause', sentence);
+  }
+
+  // --- parts.* --------------------------------------------------------
+  const partsIndex = buildIndex(vocab.parts);
+  const partHits = findMatches(sentence, partsIndex);
+  for (const hit of partHits) push('parts.part_number', hit.canonical);
+  const replaced = !NOT_REPLACED_RE.test(sentence)
+    && !RECOMMENDATION_RE.test(sentence)
+    && REPLACED_RE.test(sentence);
+  if (replaced && partHits.length > 0) {
+    push('parts.replaced', 'true');
+  }
+
+  // --- measurement.* --------------------------------------------------
+  const measure = MEASUREMENT_RE.exec(sentence);
+  if (measure) {
+    out.push({ field: measurementField(sentence), value: measure[1], unit: measure[2] });
+  }
+
+  // --- test.result ----------------------------------------------------
+  if (TEST_INDICATOR_RE.test(sentence) && TEST_RESULT_RE.test(sentence)) {
+    push('test.result', sentence);
+  }
+
+  // --- completion.state ------------------------------------------------
+  if (!COMPLETION_NOT_DONE_RE.test(sentence)) {
+    let state = null;
+    if (COMPLETION_OUT_OF_SERVICE_RE.test(sentence)) state = 'out_of_service';
+    else if (COMPLETION_DONE_RE.test(sentence)) state = 'completed';
+    else if (COMPLETION_DEFERRED_RE.test(sentence)) state = 'deferred';
+    else if (COMPLETION_OFFROAD_RE.test(sentence)) state = 'off-road';
+    else if (COMPLETION_RESTRICTED_RE.test(sentence)) state = 'restricted_speed';
+    if (state) push('completion.state', state);
+  }
+
+  // --- safety.* ---------------------------------------------------------
+  if (SAFETY_RE.test(sentence)) {
+    push('safety.assertion', sentence);
+  }
+
+  return out;
+}
+
+/* ------------------------------------------------------------------ *
+ * Public API
+ * ------------------------------------------------------------------ */
+
+/**
+ * Deterministically extracts v2 SBS facts from technician text.
+ *
+ * @param {{ contextId: string, rawText: string, registry?: object }} params
+ * @returns {Promise<{ facts: Array<{ field: string, value: unknown, unit?: string, support_status: string, source: string, critical: boolean }>, warnings: string[] }>}
+ */
+export async function extractV2Facts({ contextId, rawText, registry } = {}) {
+  const reg = registry || await loadScopeRegistry();
+  const { scopeId } = resolveContext(contextId, reg);
+  if (!SBS_SCOPES.has(scopeId)) {
+    throw new Error(
+      `V2 事实提取仅支持 SBS 域（SBS/BUS、SBS/RAIL）。上下文 "${String(contextId ?? '')}" ` +
+      `解析为作用域 "${scopeId}"，该域不支持确定性 v2 事实提取（HVAC 等非 SBS 域请走 V1 流程）。`,
+    );
+  }
+  const text = String(rawText ?? '').slice(0, MAX_TEXT_LENGTH);
+  const vocab = await loadScopeVocab(scopeId);
+
+  const facts = [];
+  const warnings = [];
+  const seen = new Set();
+  for (const sentence of splitSentences(text)) {
+    const candidates = factsFromSentence(sentence, scopeId, vocab);
+    if (candidates.length === 0) {
+      warnings.push(`未识别: ${sentence}`);
+      continue;
+    }
+    for (const candidate of candidates) {
+      const fact = {
+        field: candidate.field,
+        value: candidate.value,
+        ...(candidate.unit !== undefined ? { unit: candidate.unit } : {}),
+        support_status: SUPPORT_STATUSES.DIRECT_TRANSCRIPT,
+        source: 'manual',
+        critical: isCriticalField({ scopeId, field: candidate.field }),
+      };
+      const key = `${fact.field}|${String(fact.value)}|${fact.unit ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      facts.push(fact);
+    }
+  }
+  return { facts, warnings };
+}

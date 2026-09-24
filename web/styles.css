@@ -102,3 +102,50 @@ footer { padding: 28px 4px; color: var(--muted); font-size: .86rem; }
   .capture-grid, .two-columns, .form-grid { grid-template-columns: 1fr; }
   .question { grid-template-columns: 1fr; }
 }
+
+/* ===== V2 · SBS Bus / Rail panel (additive) ===== */
+#v1-panel[hidden], #v2-panel[hidden] { display: none; }
+.scope-selector { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; justify-content: space-between; }
+.scope-selector-head { display: grid; gap: 2px; }
+.scope-selector h2 { margin: 0; font-size: 1rem; }
+.scope-selector-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.scope-button { padding: 9px 18px; border-radius: 999px; background: #dfeae5; color: var(--deep); border: 1px solid transparent; }
+.scope-button.active { background: var(--deep); color: white; }
+.v2-zone { border-left: 4px solid var(--deep); }
+.v2-form-grid { display: grid; grid-template-columns: 1fr 120px; gap: 12px; align-items: end; margin: 14px 0; }
+.v2-form-grid label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); }
+.v2-progress-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.v2-step-chip { display: inline-flex; gap: 6px; align-items: center; padding: 4px 11px; border-radius: 999px; background: #e7efeb; color: var(--ink); font-size: .78rem; font-weight: 700; }
+.v2-step-chip time { color: var(--muted); font-weight: 400; font-size: .72rem; }
+.v2-step-chip.ready { background: #dcefe5; color: #155c48; }
+.v2-step-chip.failed { background: #fde4de; color: #8d3527; }
+.upload-record { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #f5f8f5; font-size: .88rem; line-height: 1.7; overflow-wrap: anywhere; }
+.upload-record .kv b { color: var(--deep); }
+.upload-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: #f7faf7; }
+.upload-row .name { font-weight: 700; }
+.upload-row .meta { color: var(--muted); font-size: .82rem; }
+.status-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .72rem; font-weight: 700; background: #e7efeb; color: var(--ink); }
+.status-badge.ready { background: #dcefe5; color: #155c48; }
+.status-badge.failed { background: #fde4de; color: #8d3527; }
+.warning-line { margin: 10px 0; padding: 10px 14px; border-left: 4px solid #d79a2c; border-radius: 8px; color: #684915; background: #fff8df; line-height: 1.5; }
+.result-card { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f7faf7; }
+.result-card .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: .82rem; color: var(--muted); }
+.result-card .score { font-weight: 800; color: var(--deep); }
+.result-card .text { margin: 0; font-size: .95rem; line-height: 1.6; overflow-wrap: anywhere; }
+.result-card .prov { margin: 0; color: var(--muted); font-size: .78rem; }
+.fact-table-wrap { border: 1px solid var(--line); border-radius: 12px; padding: 6px 12px; background: #f7faf7; }
+.fact-table { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(160px, 2fr) 70px 170px auto; gap: 8px 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line); font-size: .88rem; overflow-wrap: anywhere; }
+.fact-table.head { font-weight: 700; color: var(--muted); font-size: .78rem; border-bottom: 2px solid var(--line); }
+.fact-table:last-child { border-bottom: 0; }
+.badge-critical { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--accent); color: white; font-size: .72rem; font-weight: 800; }
+.v2-missing { margin: 12px 0; padding: 10px 14px; border-left: 4px solid #d79a2c; background: #fff8df; color: #684915; line-height: 1.5; }
+.gate-item { margin: 8px 0; padding: 10px 12px; border-left: 4px solid var(--accent); background: #fff0ea; color: #8d3527; font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
+.gate-item code { font-size: .78rem; background: #f6ddd5; padding: 1px 6px; border-radius: 6px; }
+.v2-section-missing { color: #9a6b3b; }
+.v2-error-text { color: #8d3527; font-weight: 700; }
+
+@media (max-width: 640px) {
+  .scope-selector { flex-direction: column; align-items: stretch; }
+  .v2-form-grid, .fact-table { grid-template-columns: 1fr; }
+  .fact-table { gap: 4px 8px; }
+}

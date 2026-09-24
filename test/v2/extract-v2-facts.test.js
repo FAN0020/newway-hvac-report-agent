@@ -1,0 +1,228 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { extractV2Facts, splitSentences } from '../../src/tools/extract-v2-facts.js';
+import { isCriticalField } from '../../src/v2/fact-schemas.js';
+import { loadScopeRegistry } from '../../src/v2/scope.js';
+
+/** Reads the real V2 scope registry (data/knowledge/v2/scope-registry.v1.json). */
+const registry = await loadScopeRegistry();
+
+const hasField = (facts, field) => facts.some((fact) => fact.field === field);
+const valueOf = (facts, field) => facts.find((fact) => fact.field === field)?.value;
+
+/* ------------------------------------------------------------------ *
+ * splitSentences
+ * ------------------------------------------------------------------ */
+
+test('splitSentences splits mixed Chinese/English on terminators', () => {
+  assert.deepEqual(splitSentences('Aircon not cooling. 检查发现电容损坏。'), [
+    'Aircon not cooling',
+    '检查发现电容损坏',
+  ]);
+  assert.deepEqual(splitSentences('间隙 3 mm。更换电容。'), ['间隙 3 mm', '更换电容']);
+  assert.deepEqual(splitSentences('C751A 车组报门控故障。\n测试通过。'), [
+    'C751A 车组报门控故障',
+    '测试通过',
+  ]);
+});
+
+test('splitSentences keeps decimal points and untruncated sentences', () => {
+  assert.deepEqual(splitSentences('胎纹深度 3.5 mm'), ['胎纹深度 3.5 mm']);
+  assert.deepEqual(splitSentences('更换了一个35 µF电容'), ['更换了一个35 µF电容']);
+  assert.deepEqual(splitSentences(''), []);
+  assert.deepEqual(splitSentences('   '), []);
+});
+
+/* ------------------------------------------------------------------ *
+ * BUS main text (task scenario)
+ * ------------------------------------------------------------------ */
+
+test('BUS text extracts parts/test/completion with correct support & critical', async () => {
+  const res = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: '客户反映空调不制冷。检查发现运行电容损坏。更换了一个35 µF电容。试机运行正常。问题已解决。',
+    registry,
+  });
+  const { facts } = res;
+  assert.ok(Array.isArray(facts));
+  assert.ok(Array.isArray(res.warnings));
+
+  // parts
+  assert.ok(hasField(facts, 'parts.part_number'), 'parts.part_number missing');
+  assert.equal(valueOf(facts, 'parts.part_number'), '运行电容');
+  assert.ok(hasField(facts, 'parts.replaced'), 'parts.replaced missing');
+  assert.equal(valueOf(facts, 'parts.replaced'), 'true');
+
+  // test + completion
+  assert.equal(valueOf(facts, 'test.result'), '试机运行正常');
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+
+  // root cause + work description (explicit statements)
+  assert.equal(valueOf(facts, 'diagnosis.root_cause'), '检查发现运行电容损坏');
+  assert.ok(hasField(facts, 'work.description'));
+
+  // every fact carries the V2 contract envelope
+  for (const fact of facts) {
+    assert.equal(fact.support_status, 'DIRECT_TRANSCRIPT');
+    assert.equal(fact.source, 'manual');
+    assert.equal(typeof fact.critical, 'boolean');
+    assert.equal(fact.critical, isCriticalField({ scopeId: 'SBS_BUS', field: fact.field }));
+  }
+
+  // critical flags match the schema catalog
+  assert.equal(isCriticalField({ scopeId: 'SBS_BUS', field: 'parts.part_number' }), true);
+  assert.equal(valueOf(facts, 'parts.replaced'), 'true');
+  assert.equal(
+    facts.find((f) => f.field === 'parts.replaced').critical,
+    isCriticalField({ scopeId: 'SBS_BUS', field: 'parts.replaced' }),
+  );
+  assert.equal(facts.find((f) => f.field === 'parts.replaced').critical, true);
+  assert.equal(facts.find((f) => f.field === 'test.result').critical, true);
+  assert.equal(facts.find((f) => f.field === 'completion.state').critical, true);
+  assert.equal(facts.find((f) => f.field === 'work.description').critical, false);
+});
+
+test('BUS model MAN A95 maps to asset.bus_model and work.type', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'MAN A95 巴士预防性保养完成。',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.bus_model'), 'MAN A95');
+  assert.equal(valueOf(facts, 'work.type'), 'preventive');
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.equal(
+    facts.find((f) => f.field === 'asset.bus_model').critical,
+    isCriticalField({ scopeId: 'SBS_BUS', field: 'asset.bus_model' }),
+  );
+});
+
+test('BUS measurement sentence yields measurement fact with unit', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: '检查发现制动片磨损，胎纹深度 3 mm。',
+    registry,
+  });
+  const measurement = facts.find((f) => f.field.startsWith('measurement.'));
+  assert.ok(measurement, 'measurement fact missing');
+  assert.equal(measurement.value, '3');
+  assert.equal(measurement.unit, 'mm');
+  assert.equal(measurement.critical, true);
+});
+
+/* ------------------------------------------------------------------ *
+ * RAIL text (task scenario)
+ * ------------------------------------------------------------------ */
+
+test('RAIL text extracts stock_class/parts/test/completion/safety', async () => {
+  const res = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'C751A 车组报门控故障。检查发现集电靴磨损。更换了集电靴。测试通过。已回役。',
+    registry,
+  });
+  const { facts } = res;
+  assert.ok(Array.isArray(facts));
+  assert.ok(Array.isArray(res.warnings));
+
+  assert.equal(valueOf(facts, 'asset.stock_class'), 'Alstom Metropolis C751A');
+  assert.equal(valueOf(facts, 'parts.part_number'), '集电靴');
+  assert.equal(valueOf(facts, 'parts.replaced'), 'true');
+  assert.equal(valueOf(facts, 'test.result'), '测试通过');
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+
+  // 回役 triggers a safety.* assertion
+  const safety = facts.find((f) => f.field.startsWith('safety.'));
+  assert.ok(safety, 'safety assertion missing (回役 should trigger safety.*)');
+  assert.equal(safety.value, '已回役');
+
+  // envelope + critical per schema for every fact
+  for (const fact of facts) {
+    assert.equal(fact.support_status, 'DIRECT_TRANSCRIPT');
+    assert.equal(fact.source, 'manual');
+    assert.equal(fact.critical, isCriticalField({ scopeId: 'SBS_RAIL', field: fact.field }));
+  }
+  assert.equal(facts.find((f) => f.field === 'test.result').critical, true);
+  assert.equal(facts.find((f) => f.field === 'completion.state').critical, true);
+  assert.equal(safety.critical, true);
+});
+
+test('RAIL NEL maps to asset.line', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'NEL 线路进行预防性维护。',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.line'), '东北线');
+  assert.equal(valueOf(facts, 'work.type'), 'preventive');
+});
+
+/* ------------------------------------------------------------------ *
+ * Contract §13 discipline — no invented actions
+ * ------------------------------------------------------------------ */
+
+test('检查但未更换 → no parts.replaced', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: '检查发现电容轻微磨损，未更换。',
+    registry,
+  });
+  assert.ok(!hasField(facts, 'parts.replaced'), 'negated replacement must not yield parts.replaced');
+  // the part itself is still explicitly mentioned
+  assert.equal(valueOf(facts, 'parts.part_number'), '运行电容');
+});
+
+test('手册建议更换 → no parts.replaced (recommendation ≠ occurred action)', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: '手册建议更换电容。',
+    registry,
+  });
+  assert.ok(!hasField(facts, 'parts.replaced'), 'recommendation must not yield parts.replaced');
+  assert.equal(valueOf(facts, 'parts.part_number'), '运行电容');
+});
+
+test('未回役 → out_of_service, not completed', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'C751A 检查发现集电靴磨损，未回役。',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'completion.state'), 'out_of_service');
+});
+
+/* ------------------------------------------------------------------ *
+ * Errors and empty input
+ * ------------------------------------------------------------------ */
+
+test('HVAC context throws a clear SBS-only error', async () => {
+  await assert.rejects(
+    () => extractV2Facts({ contextId: 'HVAC', rawText: '客户反映空调不制冷。', registry }),
+    /SBS/u,
+  );
+});
+
+test('unknown context id throws', async () => {
+  await assert.rejects(
+    () => extractV2Facts({ contextId: 'NOT/A_CONTEXT', rawText: 'x', registry }),
+    /Unknown V2 context/u,
+  );
+});
+
+test('no matching input → empty facts and unrecognized warning', async () => {
+  const { facts, warnings } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: '今天天气不错。',
+    registry,
+  });
+  assert.deepEqual(facts, []);
+  assert.ok(warnings.some((warning) => warning.includes('未识别: 今天天气不错')));
+});
+
+test('registry may be omitted (loaded internally)', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: '更换了轮胎。',
+  });
+  assert.equal(valueOf(facts, 'parts.part_number'), '轮胎');
+  assert.equal(valueOf(facts, 'parts.replaced'), 'true');
+});

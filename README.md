@@ -1,4 +1,4 @@
-# Newway Systems HVAC Report Agent MVP
+# Newway Systems HVAC Report Agent MVP (V1 + V2 SBS scopes)
 
 This repository is a local-first hackathon MVP with an explicit, token-protected LAN demo mode. The current vertical slice provides:
 
@@ -84,6 +84,24 @@ All `/api/*` routes, including `/api/health`, require the session bearer token. 
 - `POST /api/reports/confirm`: issues a token bound to the current report hash/version, Validator run, technician, and timestamp.
 - `POST /api/reports/save`: writes the confirmed report as JSON; rejects missing or stale tokens.
 - `POST /api/reports/export`: writes and returns copyable text; rejects missing or stale tokens.
+
+## V2: knowledge scopes, user uploads, and SBS Bus/Rail reports
+
+V2 adds three isolated knowledge scopes on top of the unchanged V1 HVAC flow. The browser picks a scope (`HVAC` keeps the original panel; `SBS·Bus` / `SBS·Rail` show the V2 panel). V2 ships without a new eval suite and without new npm dependencies.
+
+Scope isolation is a hard gate: `SBS/BUS` and `SBS/RAIL` queries can never return `HVAC` content (or each other's), and user uploads are bound to their upload scope (`USER_UPLOADED:<scope>`). A blocked cross-domain source yields zero results plus a `CROSS_DOMAIN_BLOCKED` warning.
+
+- `data/knowledge/v2/` — versioned structured knowledge (scope registry + SBS Bus/Rail terms, parts, assets, units, report modules). Every record carries `evidence_level` (A/B/C/D), `confidence`, and `not_publicly_verified` markers for anything that must not be asserted as an SBS fact.
+- `src/v2/` — scope registry & isolation, upload ingestion (UPLOADED→…→READY/FAILED, provenance + scenario metadata), scope-gated retrieval, SBS fact schemas, and the Bus (11 sections) / Rail (12 sections) report builder with deterministic hard gates.
+- `POST /api/v2/scopes` — lists the three leaf scopes and context ids.
+- `POST /api/v2/uploads` — raw-byte document upload (txt/csv/md native; docx via system `unzip`; pdf via system `pdftotext`, otherwise `FAILED` with `PDF_TEXT_LAYER_REQUIRED`). Bound to the upload scope; `HVAC` uploads are rejected.
+- `GET /api/v2/uploads?scope_id=` — lists uploads for a scope.
+- `POST /api/v2/retrieve` — scope-gated retrieval over knowledge + uploads.
+- `POST /api/v2/facts/extract` — deterministic SBS fact extraction from technician text (`provider: manual`, critical fields flagged).
+- `POST /api/v2/reports/build` — builds a Bus/Rail report from facts only; runs `assertNoServiceFactInvention` and `checkHardGates`. A gate violation returns `NEEDS_CONFIRMATION` and the browser blocks the next step (e.g. a manual's "replace ZX-47" recommendation is never rendered as an occurred action).
+- `data/v2-uploads/` — upload store (runtime data, gitignored).
+
+Design and acceptance origins: `docs/v2-research/` (03/04 domain models, 05 facts, 06 report schema, 08 critical-error taxonomy, 09 scope/upload contract).
 
 ## Data and Git boundary
 

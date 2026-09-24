@@ -1,0 +1,178 @@
+{
+  "schema_version": "sbs-rail-units.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_RAIL",
+  "records": [
+    {
+      "id": "unit_km",
+      "kind": "unit",
+      "canonical": "km",
+      "aliases": ["公里", "千米", "kilometre", "kilometer"],
+      "context": "线路长度、轨道距离、train-km/car-km 统计基础",
+      "normalization_rules": [
+        {
+          "source_unit": "km",
+          "target_unit": "m",
+          "factor": 1000,
+          "notes": "1 km = 1000 m（公制定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA 线路页面", "SBS Transit AR2024"],
+        "notes": "km 出现在 LTA/SBS 公开材料中（A/B）。"
+      }
+    },
+    {
+      "id": "unit_train_km",
+      "kind": "unit",
+      "canonical": "train-km",
+      "aliases": ["列车公里", "列公里", "train-kilometre", "train-kilometer"],
+      "context": "MKBF（MRT）的里程口径：列车行驶里程（train-km）",
+      "normalization_rules": [
+        {
+          "source_unit": "train-km",
+          "target_unit": "km",
+          "factor": 1,
+          "notes": "train-km 为运营里程口径；与车辆里程表不同，不可混用"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA Rail Service Reliability PDF（MKBF 定义）", "SBS Transit AR2024（数值）"],
+        "notes": "train-km 为 LTA/SBS 公开口径（A/B）。"
+      }
+    },
+    {
+      "id": "unit_car_km",
+      "kind": "unit",
+      "canonical": "car-km",
+      "aliases": ["车厢公里", "车公里", "car-kilometre", "car-kilometer"],
+      "context": "MKBF（LRT）的里程口径：车厢行驶里程（car-km）",
+      "normalization_rules": [
+        {
+          "source_unit": "car-km",
+          "target_unit": "km",
+          "factor": 1,
+          "notes": "car-km 为 LRT 运营里程口径；MRT 用 train-km，LRT 用 car-km，两者不可互换"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA Rail Service Reliability PDF（MKBF 定义）", "SBS Transit AR2024（SPLRT 549,000 car-km）"],
+        "notes": "car-km 为 LTA/SBS 公开口径（A/B）。"
+      }
+    },
+    {
+      "id": "unit_mm",
+      "kind": "unit",
+      "canonical": "mm",
+      "aliases": ["毫米", "millimetre", "millimeter"],
+      "context": "轮对/轮缘磨耗、钢轨缺陷深度、轨距几何、第三轨对中偏差、集电靴/受电弓滑板磨耗",
+      "normalization_rules": [
+        {
+          "source_unit": "mm",
+          "target_unit": "m",
+          "factor": 0.001,
+          "notes": "1 mm = 0.001 m（公制定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（Rail Rover 钢轨缺陷/轨距几何, A）"],
+        "notes": "mm 类测量能力为 A；阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 轮对/钢轨/第三轨的数值阈值未公开；单位归一化仅处理换算，不含阈值。"
+    },
+    {
+      "id": "unit_volt",
+      "kind": "unit",
+      "canonical": "V",
+      "aliases": ["伏", "伏特", "volt", "kV", "千伏", "DC"],
+      "context": "电气化电压（NEL 1,500 V DC OCS；DTL/SPLRT 750 V DC 第三轨）",
+      "normalization_rules": [
+        {
+          "source_unit": "kV",
+          "target_unit": "V",
+          "factor": 1000,
+          "notes": "1 kV = 1000 V（定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA NEL/DTL/SPLRT（电气化电压, B）", "SBS AR2024（供电系统, A）"],
+        "notes": "电气化电压为 A/B。"
+      }
+    },
+    {
+      "id": "unit_percent",
+      "kind": "unit",
+      "canonical": "%",
+      "aliases": ["百分比", "percent", "百分之"],
+      "context": "制动效率、设备可靠性率、OPS 指标等",
+      "normalization_rules": [
+        {
+          "source_unit": "%",
+          "target_unit": "fraction",
+          "factor": 0.01,
+          "notes": "百分比与小数互为转换（公制定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA NRFF OPS（服务质量/可靠性指标, B）"],
+        "notes": "% 为新加坡交通部门公开口径（B）。"
+      }
+    },
+    {
+      "id": "unit_celsius",
+      "kind": "unit",
+      "canonical": "°C",
+      "aliases": ["摄氏度", "度", "degree Celsius", "degrees"],
+      "context": "车轴温度、齿轮箱温度等车载监测（AVI 路侧传感器监测车轴/齿轮箱温度）",
+      "normalization_rules": [
+        {
+          "source_unit": "°C",
+          "target_unit": "K",
+          "factor": 1,
+          "offset": 273.15,
+          "notes": "°C 与 K 差 273.15（定义）；通常保留 °C 记录"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA 2017 技术说明（AVI 监测车轴/齿轮箱温度, B）"],
+        "notes": "温度监测能力为 B；阈值未公开。"
+      }
+    },
+    {
+      "id": "unit_minute",
+      "kind": "unit",
+      "canonical": "min",
+      "aliases": ["分钟", "minute", "minutes", "mins"],
+      "context": "MKBF 的延误阈值定义（延误超过 5 分钟）、事件持续时间",
+      "normalization_rules": [
+        {
+          "source_unit": "min",
+          "target_unit": "h",
+          "factor": 0.016666666666666666,
+          "notes": "60 min = 1 h（定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA Rail Service Reliability PDF（>5 分钟延误定义）"],
+        "notes": "分钟为 MKBF 定义的一部分（B）。"
+      }
+    }
+  ]
+}

@@ -1,0 +1,287 @@
+{
+  "schema_version": "sbs-rail-parts.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_RAIL",
+  "records": [
+    {
+      "id": "part_pantograph",
+      "kind": "part",
+      "canonical": "受电弓",
+      "aliases": ["pantograph", "集电弓", "受电弓滑板"],
+      "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:mm|毫米)$"],
+      "risk": "SAFETY",
+      "description": "架空接触网（OCS）取电的受电弓（NEL 1,500 V DC OCS）。滑板磨耗以 mm 记录；阈值未公开。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用受电弓维护惯例（C）", "LTA NEL（OCS, B）"],
+        "notes": "受电弓为可比行业部件（C）；NEL OCS 为 A/B。滑板磨耗阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 受电弓滑板磨耗阈值未公开；规格模式只校验格式，不含阈值。"
+    },
+    {
+      "id": "part_collector_shoe",
+      "kind": "part",
+      "canonical": "集电靴",
+      "aliases": ["collector shoe", "受流器", "第三轨受流靴", "集电滑块"],
+      "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:mm|毫米)$"],
+      "risk": "SAFETY",
+      "description": "第三轨供电的集电靴/受流器（DTL、SK/PG LRT 750 V DC 第三轨）。Rail Rover 测量第三轨对中（A）。磨耗阈值未公开。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS AR2024（Rail Rover 第三轨对中, A）", "LTA DTL/SPLRT（第三轨, B）"],
+        "notes": "集电靴为 A/B 语境部件；磨耗阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 集电靴磨耗阈值未公开；不能写具体数值。"
+    },
+    {
+      "id": "part_point_machine",
+      "kind": "part",
+      "canonical": "道岔机",
+      "aliases": ["point machine", "转辙机", "道岔", "MCEM91", "switch machine"],
+      "risk": "SAFETY",
+      "description": "道岔转辙机。SBS 在 NEL 车厂设 MCEM91 道岔机维护中心（本地化维护/维修/大修，A）。道岔机为安全关键信号设备。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（MCEM91 维护中心）"],
+        "notes": "SBS 一手证据（A）；部件号未公开。"
+      }
+    },
+    {
+      "id": "part_wheelset",
+      "kind": "part",
+      "canonical": "轮对",
+      "aliases": ["wheelset", "车轮", "轮组", "车轴"],
+      "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:mm|毫米)$"],
+      "risk": "SAFETY",
+      "description": "列车轮对（车轮+车轴）。轮对磨耗/轮缘参数为可比标准（RSSB GMRT2466、KLD 轮对参数, C）；SBS 阈值未公开。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["RSSB GMRT2466（C）", "KLD Labs 轮对参数（C）"],
+        "notes": "轮对为可比行业部件（C）；SBS 磨耗阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 轮对/轮缘磨耗阈值（mm）未公开；measurement.* 字段需要阈值但绝不能编造。"
+    },
+    {
+      "id": "part_bogie",
+      "kind": "part",
+      "canonical": "转向架",
+      "aliases": ["bogie", "转向架总成", "FLEXX Metro 3100", "B25"],
+      "risk": "LOW",
+      "description": "列车转向架。C951 用 FLEXX Metro 3100（C），C751A 用 B25（C）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Bombardier Movia C951（FLEXX Metro 3100, C）", "Wikipedia Alstom Metropolis C751A（B25, C）"],
+        "notes": "转向架型号为制造商/三级知识（C）。"
+      }
+    },
+    {
+      "id": "part_traction_motor",
+      "kind": "part",
+      "canonical": "牵引电机",
+      "aliases": ["traction motor", "牵引电动机", "主电机"],
+      "risk": "LOW",
+      "description": "牵引电机。OEM 牵引系列为 ONIX/OPTONIX（Alstom）、MITRAC（Bombardier, C）；C951 用永磁同步电机（C）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia（ONIX/OPTONIX/MITRAC, C）", "LTA DTL（MITRAC 1000 IGBT-VVVF, B）"],
+        "notes": "牵引电机为制造商/三级知识（C）+ LTA（B）。"
+      }
+    },
+    {
+      "id": "part_brake_disc",
+      "kind": "part",
+      "canonical": "制动盘/闸瓦",
+      "aliases": ["brake disc", "brake pad", "闸瓦", "制动闸瓦", "制动盘"],
+      "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:mm|毫米)$"],
+      "risk": "LOW",
+      "description": "列车制动摩擦件。磨耗阈值（mm）为可比标准（RSSB GMRT2466, C）；SBS 阈值未公开。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["RSSB GMRT2466（C）", "EN 15380（C）"],
+        "notes": "制动摩擦件为可比行业部件（C）；阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 制动磨耗阈值未公开；只提供规格格式，不含阈值。"
+    },
+    {
+      "id": "part_train_door",
+      "kind": "part",
+      "canonical": "列车车门",
+      "aliases": ["train door", "车门", "door system", "车门机构"],
+      "risk": "LOW",
+      "description": "列车车门机构（含门控）。车门循环计数维护为可比行业惯例（C）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用车门循环计数维护惯例（C）", "EN 15380（C）"],
+        "notes": "车门为可比行业部件（C）。"
+      }
+    },
+    {
+      "id": "part_rail",
+      "kind": "part",
+      "canonical": "钢轨",
+      "aliases": ["rail", "track rail", "钢轨", "轨道"],
+      "risk": "LOW",
+      "description": "钢轨。Rail Rover 用超声波检测钢轨内部缺陷（A）；缺陷判定阈值未公开。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（Rail Rover 超声波检测, A）"],
+        "notes": "钢轨检测能力为 A；缺陷阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 钢轨缺陷判定阈值未公开；测试结果字段需要阈值但绝不能编造。"
+    },
+    {
+      "id": "part_third_rail",
+      "kind": "part",
+      "canonical": "第三轨",
+      "aliases": ["third rail", "接触轨", "导电轨"],
+      "risk": "SAFETY",
+      "description": "第三轨供电轨（DTL、SK/PG LRT 750 V DC）。Rail Rover 测量第三轨对中（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS AR2024（Rail Rover 第三轨对中, A）", "LTA DTL/SPLRT（750V DC, B）"],
+        "notes": "第三轨为 A/B。"
+      }
+    },
+    {
+      "id": "part_ocs",
+      "kind": "part",
+      "canonical": "架空接触网组件",
+      "aliases": ["OCS", "overhead catenary", "接触网", "catenary", "架空线"],
+      "risk": "SAFETY",
+      "description": "架空接触网组件（NEL 1,500 V DC OCS，新加坡唯一 OCS 线路）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（OCS, B）", "docs 04 修正说明"],
+        "notes": "OCS 为 A/B。"
+      }
+    },
+    {
+      "id": "part_voltage_transformer",
+      "kind": "part",
+      "canonical": "电压互感器",
+      "aliases": ["voltage transformer", "PT", "电压变压器", "VT"],
+      "risk": "SAFETY",
+      "description": "电压互感器。2025 年 8 月 NEL+SPLRT 大范围供电故障的根因之一为故障电压互感器+开关柜组件（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review", "LTA Rail Reliability Taskforce"],
+        "notes": "SBS 一手证据（A）；部件号未公开。"
+      }
+    },
+    {
+      "id": "part_switchboard",
+      "kind": "part",
+      "canonical": "开关柜组件",
+      "aliases": ["switchboard components", "开关柜", "配电柜"],
+      "risk": "SAFETY",
+      "description": "开关柜组件。2025 年 8 月供电故障根因之一（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "part_train_hvac",
+      "kind": "part",
+      "canonical": "列车空调机组",
+      "aliases": ["train HVAC", "空调机组", "air-conditioning", "列车空调"],
+      "risk": "LOW",
+      "description": "列车空调机组。C751A 中期翻新含新 HVAC（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（翻新含 HVAC）"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "part_seat",
+      "kind": "part",
+      "canonical": "座椅",
+      "aliases": ["seats", "座椅", "车厢座椅"],
+      "risk": "LOW",
+      "description": "车厢座椅。C751A 中期翻新更换新座椅（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "part_flooring",
+      "kind": "part",
+      "canonical": "地板",
+      "aliases": ["flooring", "车厢地板", "地板材料"],
+      "risk": "LOW",
+      "description": "车厢地板。C751A 中期翻新更换新地板（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "part_signal_equipment",
+      "kind": "part",
+      "canonical": "信号设备",
+      "aliases": ["signalling equipment", "信号系统设备", "信号机", "联锁设备"],
+      "risk": "SAFETY",
+      "description": "信号系统设备（CBTC/联锁等）。信号子系统故障必须标记，不得静默归一化（04 §2.1）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA NEL/DTL（CBTC, B）", "SBS AR2024（LTSS 信号支持, A）"],
+        "notes": "信号设备为 A/B 语境；具体设备清单未公开。"
+      }
+    },
+    {
+      "id": "part_radio_tetra",
+      "kind": "part",
+      "canonical": "TETRA 电台",
+      "aliases": ["TETRA radio", "摩托罗拉TETRA", "无线电台", "Motorola TETRA"],
+      "risk": "LOW",
+      "description": "DTL+SPLRT 的 Motorola TETRA 无线电系统，15 年 LTSS 支持（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（Motorola LTSS）"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "part_sump_pump",
+      "kind": "part",
+      "canonical": "集水泵",
+      "aliases": ["sump pump", "污水泵", "集水井泵"],
+      "risk": "LOW",
+      "description": "隧道/车站集水泵。Gali Batu MEC 监测道岔机与集水泵（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review（MEC 监测道岔机与集水泵）"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    }
+  ]
+}

@@ -1,0 +1,360 @@
+{
+  "schema_version": "sbs-bus-parts.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_BUS",
+  "records": [
+    {
+      "id": "part_run_capacitor",
+      "kind": "part",
+      "canonical": "运行电容",
+      "aliases": ["电容", "启动电容", "电容器", "capacitor", "run capacitor", "fan capacitor", "motor capacitor", "compressor capacitor"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_run_capacitor_bus",
+          "source": "运刑电容",
+          "target": "运行电容",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "allowed_spec_patterns": ["^[0-9]+(?:\\.[0-9]+)?\\s*(?:µF|uF|微法)$"],
+      "risk": "CRITICAL_VALUE",
+      "description": "巴士电气系统（风机、压缩机等）中的运行/启动电容。仅提供名称与规格格式候选，不证明本次已更换。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["V1 hvac-parts.v1.json 模式（A, 仓库基线）", "SAE J1939 电气系统惯例（C）"],
+        "notes": "电容部件在巴士电气系统中为行业通用（C）；SBS 电气部件目录未公开。"
+      }
+    },
+    {
+      "id": "part_air_dryer",
+      "kind": "part",
+      "canonical": "空气干燥器",
+      "aliases": ["干燥瓶", "干燥罐", "air dryer", "brake air dryer", "空气干燥筒"],
+      "risk": "LOW",
+      "description": "气制动系统空气干燥器，过滤压缩空气中的水分与杂质。更换或维护记录必须来自转写/技师输入。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["UK DVSA 气制动系统维护惯例（C）", "ISO 14224 维护数据模型（C）"],
+        "notes": "气制动空气干燥器为可比行业部件（C）；SBS 部件号未公开。"
+      }
+    },
+    {
+      "id": "part_brake_pad",
+      "kind": "part",
+      "canonical": "制动片",
+      "aliases": ["刹车片", "刹车皮", "brake pad", "brake lining", "闸片", "brake shoes"],
+      "risk": "LOW",
+      "description": "制动摩擦片（盘式/鼓式）。法定检验含制动效率检查（B）。磨损厚度阈值未公开，不得写入具体数值。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 制动系统检查类别（B）"],
+        "notes": "制动检查类别为 B；磨损阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 制动片磨损更换阈值（mm）未公开；parts 记录需要规格格式用于校验，但阈值绝不能编造。"
+    },
+    {
+      "id": "part_brake_drum_disc",
+      "kind": "part",
+      "canonical": "制动鼓/制动盘",
+      "aliases": ["brake drum", "brake disc", "刹车鼓", "刹车盘", "rotor", "制动盘"],
+      "risk": "LOW",
+      "description": "制动鼓/制动盘（刹车旋转件）。法定检验含制动效率检查（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 制动系统检查类别（B）"],
+        "notes": "制动检查类别为 B；SBS 部件号未公开。"
+      }
+    },
+    {
+      "id": "part_tyre",
+      "kind": "part",
+      "canonical": "轮胎",
+      "aliases": ["tyre", "tire", "车胎", "呔", "bus tyre"],
+      "allowed_spec_patterns": ["^[0-9]{3}\\s*/\\s*[0-9]{2,3}\\s*R\\s*[0-9]{2}(?:\\.[0-9])?$", "^[0-9]+(?:\\.[0-9]+)?\\s*(?:mm|毫米)$"],
+      "risk": "LOW",
+      "description": "轮胎（尺寸格式如 275/70R22.5；胎纹深度以 mm 记录）。胎纹深度具体阈值未公开。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 车轮系统检查类别（B）", "行业轮胎尺寸惯例（C）"],
+        "notes": "车轮检查为 B；胎纹深度阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 胎纹深度更换阈值（mm）未公开；规格模式只校验格式，不含 SBS 阈值。"
+    },
+    {
+      "id": "part_engine_air_filter",
+      "kind": "part",
+      "canonical": "发动机空气滤清器",
+      "aliases": ["空气滤网", "空气滤芯", "air filter", "engine air filter", "进气滤芯", "滤芯"],
+      "risk": "LOW",
+      "description": "发动机进气空气滤清器。脏堵影响燃烧与排放。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）", "行业通用发动机维护惯例（C）"],
+        "notes": "可比行业部件（C）；SBS 部件号未公开。"
+      }
+    },
+    {
+      "id": "part_fuel_filter",
+      "kind": "part",
+      "canonical": "燃油滤清器",
+      "aliases": ["燃油滤芯", "柴油滤芯", "fuel filter", "diesel filter"],
+      "risk": "LOW",
+      "description": "燃油/柴油滤清器。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）"],
+        "notes": "可比行业部件（C）。"
+      }
+    },
+    {
+      "id": "part_oil_filter",
+      "kind": "part",
+      "canonical": "机油滤清器",
+      "aliases": ["机油滤芯", "oil filter", "engine oil filter"],
+      "risk": "LOW",
+      "description": "发动机机油滤清器。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）"],
+        "notes": "可比行业部件（C）。"
+      }
+    },
+    {
+      "id": "part_door_control_module",
+      "kind": "part",
+      "canonical": "门控模块",
+      "aliases": ["门控制器", "door control module", "DCM", "车门控制单元", "door controller"],
+      "risk": "LOW",
+      "description": "巴士车门控制模块/车门控制器。法定检验含车门锁扣/铰链检查（B）；门控电子模块为电气系统部件（A 级 Stratio 监测电气系统的背景）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["LTA OneMotoring 车身检查类别（车门, B）", "SBS AR2024 Stratio 电气系统监测（A, 背景）"],
+        "notes": "车门检查为 B；门控模块部件级知识为可比行业（C），SBS 部件号未公开。"
+      }
+    },
+    {
+      "id": "part_starter_motor",
+      "kind": "part",
+      "canonical": "起动机",
+      "aliases": ["starter", "启动马达", "starter motor", "启动机"],
+      "risk": "LOW",
+      "description": "发动机起动机（24V 电气系统）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）", "行业通用 24V 电气惯例（C）"],
+        "notes": "可比行业部件（C）。"
+      }
+    },
+    {
+      "id": "part_alternator",
+      "kind": "part",
+      "canonical": "发电机",
+      "aliases": ["交流发电机", "alternator", "24V发电机", "充电发电机"],
+      "risk": "LOW",
+      "description": "发动机驱动的交流发电机（24V 电气系统充电）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）"],
+        "notes": "可比行业部件（C）。"
+      }
+    },
+    {
+      "id": "part_shock_absorber",
+      "kind": "part",
+      "canonical": "减震器",
+      "aliases": ["避震器", "悬挂减震器", "shock absorber", "absorber", "damper"],
+      "risk": "LOW",
+      "description": "悬挂系统减震器。法定检验车轮系统类别含减震器检查（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 车轮系统检查类别（B）"],
+        "notes": "减震器在法定检验类别中（B）。"
+      }
+    },
+    {
+      "id": "part_wheel_bearing",
+      "kind": "part",
+      "canonical": "轮毂轴承",
+      "aliases": ["轮轴承", "wheel bearing", "轴承", "hub bearing"],
+      "risk": "LOW",
+      "description": "轮毂轴承。法定检验车轮系统类别含轮毂轴承检查（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 车轮系统检查类别（B）"],
+        "notes": "轮毂轴承在法定检验类别中（B）。"
+      }
+    },
+    {
+      "id": "part_steering_box",
+      "kind": "part",
+      "canonical": "转向机",
+      "aliases": ["转向器", "steering gear", "steering box", "方向机", "转向助力"],
+      "risk": "LOW",
+      "description": "转向机/转向器。法定检验转向系统类别（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 转向系统检查类别（B）"],
+        "notes": "转向系统在法定检验类别中（B）。"
+      }
+    },
+    {
+      "id": "part_headlamp",
+      "kind": "part",
+      "canonical": "前大灯",
+      "aliases": ["headlamp", "headlight", "大灯", "车头灯"],
+      "risk": "LOW",
+      "description": "前大灯。法定检验视觉与指示类别含前大灯检查（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 视觉与指示检查类别（B）"],
+        "notes": "前大灯在法定检验类别中（B）。"
+      }
+    },
+    {
+      "id": "part_wiper",
+      "kind": "part",
+      "canonical": "雨刮",
+      "aliases": ["雨刮器", "雨刮片", "wiper", "windscreen wiper", "刮水器"],
+      "risk": "LOW",
+      "description": "挡风玻璃雨刮。法定检验视觉与指示类别含雨刮检查（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 视觉与指示检查类别（B）"],
+        "notes": "雨刮在法定检验类别中（B）。"
+      }
+    },
+    {
+      "id": "part_exhaust_system",
+      "kind": "part",
+      "canonical": "排气系统",
+      "aliases": ["exhaust", "排气管", "消声器", "muffler", "催化器", "catalytic converter", "排烟系统"],
+      "risk": "MEASUREMENT",
+      "description": "排气系统（含消声器/催化器）。法定检验推进系统类别含尾气排放与噪声检查（B）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 推进系统检查类别（排放+噪声, B）"],
+        "notes": "排放/噪声检查为 B；排放数值阈值未公开。"
+      }
+    },
+    {
+      "id": "part_hv_battery",
+      "kind": "part",
+      "canonical": "高压电池组",
+      "aliases": ["HV battery", "动力电池", "traction battery", "高压电池", "电池组"],
+      "risk": "SAFETY",
+      "description": "电动巴士高压动力电池。SBS 技师经 WSQ NESS 认证处理 HV 电池与充电系统（A）。电池部件号与规格未公开。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（NESS 课程覆盖 HV 电池）"],
+        "notes": "HV 电池处理为 SBS 一手证据（A）；具体电池型号/部件号 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 电动巴士电池的具体型号与部件号未公开；part_number 字段需要精确匹配，不能用行业推测值。"
+    },
+    {
+      "id": "part_charging_system",
+      "kind": "part",
+      "canonical": "充电系统",
+      "aliases": ["charging system", "充电器", "charger", "充电桩", "charging infrastructure", "车载充电机"],
+      "risk": "SAFETY",
+      "description": "电动巴士充电系统（车载充电机/充电基础设施）。Sengkang West 车厂为新加坡首个电动巴士车厂（约 500 车位、240 个充电器）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（Sengkang West 电动巴士车厂）"],
+        "notes": "充电基础设施为 SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "part_bus_hvac",
+      "kind": "part",
+      "canonical": "巴士空调机组",
+      "aliases": ["巴士空调", "bus aircon", "bus HVAC", "空调机组", "air-conditioning unit", "车顶空调"],
+      "risk": "LOW",
+      "description": "巴士车厢空调机组。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用巴士空调部件惯例（C）"],
+        "notes": "可比行业部件（C）；SBS 空调维护细节未公开。"
+      }
+    },
+    {
+      "id": "part_gearbox",
+      "kind": "part",
+      "canonical": "变速箱",
+      "aliases": ["波箱", "gearbox", "transmission", "ZF EcoLife", "ZF Ecomat", "Voith DIWA", "自动变速箱"],
+      "risk": "LOW",
+      "description": "巴士自动变速箱（可比车型常用 ZF EcoLife/Ecomat 或 Voith DIWA）。为制造商级知识（C），不代表 SBS 使用。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["制造商变速器资料（C）", "docs 03 §4 底盘/发动机/变速箱属性（C）"],
+        "notes": "制造商/可比行业知识（C）；SBS 车队实际配置未公开。"
+      }
+    },
+    {
+      "id": "part_engine",
+      "kind": "part",
+      "canonical": "发动机",
+      "aliases": ["引擎", "engine", "柴油发动机", "D 2066 LUH", "D9B", "DC9", "OM 457"],
+      "risk": "LOW",
+      "description": "巴士发动机（可比车型常用 MAN D 2066 LUH、Volvo D9B、Scania DC9 等）。为制造商级知识（C）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["制造商发动机资料（C）", "docs 03 §4 底盘/发动机/变速箱属性（C）"],
+        "notes": "制造商/可比行业知识（C）；SBS 车队实际配置未公开。"
+      }
+    },
+    {
+      "id": "part_retarder",
+      "kind": "part",
+      "canonical": "缓速器",
+      "aliases": ["retarder", "电涡流缓速器", "液压缓速器", "intarder"],
+      "risk": "LOW",
+      "description": "辅助制动缓速器（常见于重型巴士，延长行车制动寿命）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用重型巴士制动惯例（C）", "ISO 14224 制动系统模型（C）"],
+        "notes": "可比行业部件（C）。"
+      }
+    },
+    {
+      "id": "part_belt",
+      "kind": "part",
+      "canonical": "皮带",
+      "aliases": ["传动皮带", "fan belt", "serpentine belt", "发电机皮带", "V-belt"],
+      "risk": "LOW",
+      "description": "发动机附件传动皮带（发电机、风扇等）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）"],
+        "notes": "可比行业部件（C）。"
+      }
+    }
+  ]
+}

@@ -1,0 +1,299 @@
+{
+  "schema_version": "sbs-bus-report-modules.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_BUS",
+  "fixed_sections": [
+    {
+      "id": "vehicle_identification",
+      "title": "车辆识别",
+      "fields": ["asset.registration_no", "asset.model", "asset.odometer", "asset.depot", "asset.package", "asset.route_service"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Bus registration（VRN, B）", "SBS Transit AR2024（车厂/配套, A）"],
+        "notes": "身份来源为 B/A；内部车队编号 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "works_summary",
+      "title": "作业摘要",
+      "fields": ["work.type", "work.date", "work.work_order_id", "work.trigger"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit AR2024（工作流存在, A）", "LTA OneMotoring（触发类型, B）"],
+        "notes": "工单号格式 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "inspection_findings",
+      "title": "检查发现",
+      "fields": ["inspection_findings", "work.fault_code"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring 检查类别（B）"],
+        "notes": "法定检查类别为 B；故障码表 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "diagnosis",
+      "title": "诊断与根因",
+      "fields": ["diagnosis", "diagnosis.root_cause"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "LOW",
+        "basis": ["ISO 14224 维护数据模型（C）"],
+        "notes": "根因字段模型为可比行业（C）；SBS 诊断流程未公开。"
+      }
+    },
+    {
+      "id": "work_performed",
+      "title": "完成工作",
+      "fields": ["work_performed", "work.work_instructions_ref"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Green Efforts（平板工作指示, A）"],
+        "notes": "动作只能来自转写/技师输入，绝不由知识填充（V1 不变量）。"
+      }
+    },
+    {
+      "id": "parts_used",
+      "title": "使用或更换的零件与材料",
+      "fields": ["parts_used", "parts.part_number", "parts.quantity"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit Green Efforts（零件信息访问, A）"],
+        "notes": "零件号方案 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "test_results",
+      "title": "测试与结果",
+      "fields": ["test_results", "test.brake_efficiency", "test.emissions", "test.electrical"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（制动效率/排放/噪声检查, B）"],
+        "notes": "法定测试类别为 B；通过阈值 NOT PUBLICLY VERIFIED，不得编造。"
+      }
+    },
+    {
+      "id": "completion_status",
+      "title": "完成状态",
+      "fields": ["completion_status", "completion.state", "completion.return_to_service"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "LOW",
+        "basis": ["可比 CMMS 工单生命周期（C）", "14 CFR 43.9（C）"],
+        "notes": "SBS 状态词表与回役标准 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "safety_hv_notes",
+      "title": "安全与 HV 备注",
+      "fields": ["safety.hv_isolation", "safety.ness_cert", "safety.safety_device_findings"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（NESS 认证, A）", "WSHC 车辆风险因素（B）"],
+        "notes": "项目存在为 A/B；程序文本 NOT PUBLICLY VERIFIED。"
+      }
+    },
+    {
+      "id": "compliance_audit",
+      "title": "合规与审计",
+      "fields": ["compliance.inspection_due_date", "compliance.licence_package_refs", "compliance.lta_standards"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（检验义务, B）", "SBS AR2022（符合 LTA 维护标准, A）"],
+        "notes": "义务存在为 A/B；记录格式 NOT PUBLICLY VERIFIED。"
+      }
+    },
+    {
+      "id": "provenance",
+      "title": "溯源",
+      "fields": ["provenance.transcript", "provenance.uploads", "provenance.knowledge_versions"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["V1 事实收据（A, 仓库基线）"],
+        "notes": "溯源为 V1 既有机制（A）。"
+      }
+    }
+  ],
+  "conditional_sections": [
+    {
+      "id": "measurement_record",
+      "title": "维修前后读数",
+      "fields": ["measurements"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA OneMotoring（测量型检查, B）"],
+        "notes": "数值必须由技师确认；阈值未公开。"
+      }
+    },
+    {
+      "id": "statutory_inspection_record",
+      "title": "法定检验记录",
+      "fields": ["statutory_inspection"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（公共巴士 6 个月检验）"],
+        "notes": "法定检验义务为 B。"
+      }
+    },
+    {
+      "id": "attachments",
+      "title": "照片/附件",
+      "fields": ["attachments"],
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["V1 报告模块（A, 仓库基线）"],
+        "notes": "沿用 V1。"
+      }
+    },
+    {
+      "id": "cost_quote",
+      "title": "成本与报价",
+      "fields": ["cost_quote"],
+      "tag": "MANUAL_OR_AUTHORIZED_ONLY",
+      "manual_or_authorized_only": true,
+      "evidence": {
+        "evidence_level": "D",
+        "confidence": "HIGH",
+        "basis": ["V1 手动字段惯例（A, 仓库基线）", "05 §5 手动字段候选（D）"],
+        "notes": "手动输入字段；绝不由知识自动填充。"
+      }
+    },
+    {
+      "id": "warranty",
+      "title": "保修情况",
+      "fields": ["warranty"],
+      "tag": "MANUAL_OR_AUTHORIZED_ONLY",
+      "manual_or_authorized_only": true,
+      "evidence": {
+        "evidence_level": "D",
+        "confidence": "HIGH",
+        "basis": ["V1 手动字段惯例（A, 仓库基线）", "05 §5（D）"],
+        "notes": "手动输入字段。"
+      }
+    },
+    {
+      "id": "customer_feedback",
+      "title": "相关方意见/确认",
+      "fields": ["customer_feedback"],
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "D",
+        "confidence": "MEDIUM",
+        "basis": ["V1 报告模块（A, 仓库基线）"],
+        "notes": "沿用 V1 字段；巴士语境下含义由 SBS 确认。"
+      }
+    }
+  ],
+  "required_fact_fields": [
+    "inspection_findings",
+    "work_performed",
+    "test_results",
+    "completion_status"
+  ],
+  "report_types": [
+    {
+      "id": "daily_preuse_record",
+      "title": "每日/出车前记录",
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Sustainability Report 2024（数字化出车前检查表, A）"],
+        "notes": "检查表条目未公开。"
+      }
+    },
+    {
+      "id": "periodic_inspection_record",
+      "title": "定期检验记录",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（法定检验频率）"],
+        "notes": "法定检验记录义务为 B。"
+      }
+    },
+    {
+      "id": "corrective_work_order_report",
+      "title": "纠正性维修工单报告",
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "MEDIUM",
+        "basis": ["SBS Transit AR2024（缺陷整改）"],
+        "notes": "工单格式 REQUIRES SBS CONFIRMATION。"
+      }
+    },
+    {
+      "id": "condition_based_service_report",
+      "title": "状态性维护报告",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（Stratio 状态监测）"],
+        "notes": "状态性维护为 A。"
+      }
+    },
+    {
+      "id": "breakdown_incident_report",
+      "title": "故障/事件报告",
+      "tag": "PROVISIONAL",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "LOW",
+        "basis": ["可比行业故障/事件报告惯例（C）"],
+        "notes": "SBS 事件报告模板未公开。"
+      }
+    },
+    {
+      "id": "statutory_inspection_support_record",
+      "title": "法定检验认证支持记录",
+      "tag": "CONFIRMED BY EVIDENCE",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（检验与道路适行性）"],
+        "notes": "检验义务为 B。"
+      }
+    }
+  ],
+  "report_type_registry_note": {
+    "tag": "PROVISIONAL — REQUIRES SBS CONFIRMATION",
+    "notes": "SBS 实际使用的报告模板（纸质/PDF/DMS 格式）NOT PUBLICLY VERIFIED；以上报告类型为候选清单，需 SBS 确认。",
+    "evidence": {
+      "evidence_level": "D",
+      "confidence": "LOW",
+      "basis": ["docs 06 §2.4 报告类型注册表（D）", "10_SBS_INFORMATION_GAPS B10"],
+      "notes": "候选清单，非 SBS 事实。"
+    }
+  }
+}

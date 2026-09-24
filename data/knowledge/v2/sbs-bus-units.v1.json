@@ -1,0 +1,208 @@
+{
+  "schema_version": "sbs-bus-units.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_BUS",
+  "records": [
+    {
+      "id": "unit_km",
+      "kind": "unit",
+      "canonical": "km",
+      "aliases": ["公里", "千米", "kilometre", "kilometer"],
+      "context": "里程表（odometer）、里程/时间触发的定期维护、bus-km 统计",
+      "normalization_rules": [
+        {
+          "source_unit": "km",
+          "target_unit": "m",
+          "factor": 1000,
+          "notes": "1 km = 1000 m（公制定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（bus-km 指标）", "LTA OneMotoring"],
+        "notes": "km/bus-km 出现在 SBS/LTA 公开材料中（A/B）。"
+      }
+    },
+    {
+      "id": "unit_percent",
+      "kind": "unit",
+      "canonical": "%",
+      "aliases": ["百分比", "percent", "百分之"],
+      "context": "制动效率、排放水平、QoS 完成率（≥96% 计划里程）、事故率等",
+      "normalization_rules": [
+        {
+          "source_unit": "%",
+          "target_unit": "fraction",
+          "factor": 0.01,
+          "notes": "百分比与小数互为转换（公制定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（制动效率/排放检查）", "LTA BCM（QoS ≥96%）", "SBS AR2024（0.142/100k bus-km）"],
+        "notes": "% 出现在新加坡交通部门与 SBS 公开材料中（A/B）。具体阈值未公开，仅单位定义。"
+      }
+    },
+    {
+      "id": "unit_bar_kpa",
+      "kind": "unit",
+      "canonical": "bar",
+      "aliases": ["巴", "kPa", "千帕", "bar", "pascal"],
+      "context": "制动气路压力等",
+      "normalization_rules": [
+        {
+          "source_unit": "bar",
+          "target_unit": "kPa",
+          "factor": 100,
+          "notes": "1 bar = 100 kPa（定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224（C）", "UK DVSA 制动测试惯例（C）"],
+        "notes": "bar/kPa 为行业通用压力单位（C）；SBS 制动压力数值阈值未公开。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 制动气路压力具体数值未公开；单位归一化只处理单位换算，绝不能引入 SBS 压力阈值。"
+    },
+    {
+      "id": "unit_mm",
+      "kind": "unit",
+      "canonical": "mm",
+      "aliases": ["毫米", "millimetre", "millimeter"],
+      "context": "胎纹深度、制动片厚度、部件尺寸等",
+      "normalization_rules": [
+        {
+          "source_unit": "mm",
+          "target_unit": "m",
+          "factor": 0.001,
+          "notes": "1 mm = 0.001 m（公制定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用长度单位惯例（C）", "UK DVSA（C）"],
+        "notes": "mm 为通用单位（C）；胎纹/制动片阈值未公开。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 胎纹深度/制动片厚度阈值未公开；单位归一化仅处理换算，不含阈值。"
+    },
+    {
+      "id": "unit_celsius",
+      "kind": "unit",
+      "canonical": "°C",
+      "aliases": ["摄氏度", "度", "degree Celsius", "degrees"],
+      "context": "冷却液温度、HV 电池温度、电气部件温度等",
+      "normalization_rules": [
+        {
+          "source_unit": "°C",
+          "target_unit": "K",
+          "factor": 1,
+          "offset": 273.15,
+          "notes": "°C 与 K 差 273.15（定义）；通常保留 °C 记录"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用温度单位惯例（C）"],
+        "notes": "°C 为通用单位（C）；SBS 温度阈值未公开。"
+      }
+    },
+    {
+      "id": "unit_kwh_mwh",
+      "kind": "unit",
+      "canonical": "kWh",
+      "aliases": ["千瓦时", "兆瓦时", "kilowatt-hour", "megawatt-hour", "度电"],
+      "context": "电动巴士能耗/充电电量（如 SBS 公开材料中的 MWh 级充电量）",
+      "normalization_rules": [
+        {
+          "source_unit": "MWh",
+          "target_unit": "kWh",
+          "factor": 1000,
+          "notes": "1 MWh = 1000 kWh（定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review / Sustainability Report（MWh 充电量）"],
+        "notes": "kWh/MWh 出现在 SBS 公开材料中（A）。"
+      }
+    },
+    {
+      "id": "unit_g_kwh",
+      "kind": "unit",
+      "canonical": "g/kWh",
+      "aliases": ["克每千瓦时", "grams per kilowatt-hour"],
+      "context": "排放强度（SBS 公开材料引述从 0.46 g/kWh 降至 0.25 g/kWh）",
+      "normalization_rules": [],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（0.46→0.25 g/kWh）"],
+        "notes": "g/kWh 出现在 SBS 公开材料中（A）。数值示例仅供上下文，非维护阈值。"
+      }
+    },
+    {
+      "id": "unit_volt",
+      "kind": "unit",
+      "canonical": "V",
+      "aliases": ["伏", "伏特", "volt", "kV", "千伏"],
+      "context": "电动巴士 HV 系统电压（NESS 认证处理）、24V 电气系统",
+      "normalization_rules": [
+        {
+          "source_unit": "kV",
+          "target_unit": "V",
+          "factor": 1000,
+          "notes": "1 kV = 1000 V（定义）"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（NESS HV 系统认证）"],
+        "notes": "HV 电压背景为 A 级；具体电压数值未公开。"
+      }
+    },
+    {
+      "id": "unit_db",
+      "kind": "unit",
+      "canonical": "dB",
+      "aliases": ["分贝", "decibel"],
+      "context": "法定检验噪声检查",
+      "normalization_rules": [],
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring（噪声检查）"],
+        "notes": "噪声单位为新加坡法定检验语境（B）；数值阈值未公开。"
+      }
+    },
+    {
+      "id": "unit_bus_km",
+      "kind": "unit",
+      "canonical": "bus-km",
+      "aliases": ["车公里", "巴士公里", "bus-kilometre", "bus-kilometer"],
+      "context": "安全指标（每 10 万 bus-km 事故数）、BCM QoS 计划里程",
+      "normalization_rules": [
+        {
+          "source_unit": "bus-km",
+          "target_unit": "km",
+          "factor": 1,
+          "notes": "bus-km 为车队运营里程口径，与普通 km 数值等价但语境不同；不可与车辆里程表混用"
+        }
+      ],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（0.142 事故/100k bus-km）", "LTA BCM（QoS）"],
+        "notes": "bus-km 出现在 SBS/LTA 公开材料中（A/B）。"
+      }
+    }
+  ]
+}

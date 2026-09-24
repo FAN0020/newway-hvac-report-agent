@@ -496,3 +496,468 @@ el['auth-token'].addEventListener('keydown', (event) => {
 });
 el['refresh-health'].addEventListener('click', () => refreshHealth().catch(() => {}));
 initializeSession();
+
+// =====================================================================
+// V2 · SBS Bus / SBS Rail panel (additive — V1 flow and ids untouched)
+// Reuses V1 module-level sessionToken / api() / node() / requireLogin().
+// =====================================================================
+const V2_SCOPE_DEFAULTS = Object.freeze({
+  HVAC: Object.freeze({ contextId: 'HVAC', scopeId: 'HVAC', display: 'HVAC', v2: false }),
+  SBS_BUS: Object.freeze({ contextId: 'SBS/BUS', scopeId: 'SBS_BUS', display: 'SBS / Bus', v2: true }),
+  SBS_RAIL: Object.freeze({ contextId: 'SBS/RAIL', scopeId: 'SBS_RAIL', display: 'SBS / Rail', v2: true }),
+});
+
+const v2Ids = [
+  'v1-panel', 'v2-panel', 'scope-selector-status', 'scope-selector-buttons',
+  'v2-upload-scope-hint', 'v2-upload-file', 'v2-upload-submit', 'v2-uploader',
+  'v2-upload-status', 'v2-upload-progress', 'v2-upload-record', 'v2-upload-list',
+  'v2-retrieve-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk', 'v2-retrieve-submit',
+  'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
+  'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status',
+  'v2-facts-table-wrap', 'v2-facts-table', 'v2-report-output', 'v2-report-banner',
+  'v2-report-missing', 'v2-report-gates', 'v2-report-sections',
+];
+const v2El = Object.fromEntries(v2Ids.map((id) => [id, document.getElementById(id)]));
+
+const v2 = {
+  scopeId: 'HVAC',
+  contextId: 'HVAC',
+  display: 'HVAC',
+  scopes: [],
+  scopesLoaded: false,
+  facts: [],
+  knowledgeHits: [],
+  uploadTimer: null,
+  reportBlocked: false,
+};
+
+const V2_UPLOAD_STEPS = ['UPLOADED', 'PROCESSING', 'PARSED', 'CHUNKED', 'INDEXED'];
+
+function v2SetStatus(id, text) {
+  v2El[id].textContent = text;
+}
+
+function v2UpdateScopeSelector() {
+  for (const button of v2El['scope-selector-buttons'].querySelectorAll('.scope-button')) {
+    const scopeId = button.dataset.scopeId;
+    button.classList.toggle('active', scopeId === v2.scopeId);
+    const info = V2_SCOPE_DEFAULTS[scopeId];
+    if (info && v2.scopes.length) {
+      const found = v2.scopes.find((scope) => scope.scope_id === scopeId);
+      if (found && found.display) button.textContent = found.display;
+    }
+  }
+  const info = V2_SCOPE_DEFAULTS[v2.scopeId];
+  v2El['scope-selector-status'].textContent = info.v2
+    ? `当前作用域：${info.display}（V2 面板）`
+    : `当前作用域：${info.display}（V1 面板）`;
+}
+
+function v2SetScopeHints() {
+  v2El['v2-upload-scope-hint'].textContent = `上传文档将进入作用域 ${v2.display}（仅该作用域检索可见）。`;
+  const others = v2.scopeId === 'SBS_BUS' ? 'HVAC 或 Rail' : 'HVAC 或 Bus';
+  v2El['v2-retrieve-scope-hint'].textContent = `当前检索范围：${v2.display}，不会返回 ${others} 内容。`;
+}
+
+function v2SetScope(scopeId) {
+  const info = V2_SCOPE_DEFAULTS[scopeId];
+  if (!info) return;
+  v2.scopeId = scopeId;
+  v2.contextId = info.contextId;
+  v2.display = info.display;
+  v2.facts = [];
+  v2.knowledgeHits = [];
+  v2.reportBlocked = false;
+  v2StopUploadAnimation();
+  v2UpdateScopeSelector();
+  v2El['v1-panel'].hidden = info.v2;
+  v2El['v2-panel'].hidden = !info.v2;
+  if (!info.v2) return;
+  v2El['v2-report-build'].disabled = true;
+  v2El['v2-report-output'].hidden = true;
+  v2El['v2-facts-table-wrap'].hidden = true;
+  v2El['v2-upload-record'].hidden = true;
+  v2El['v2-upload-progress'].hidden = true;
+  v2El['v2-retrieve-results'].replaceChildren();
+  v2El['v2-retrieve-warnings'].replaceChildren();
+  v2SetScopeHints();
+  v2El['v2-upload-status'].className = 'live-status';
+  v2El['v2-facts-status'].className = 'live-status';
+  v2SetStatus('v2-upload-status', '尚未选择文档。');
+  v2SetStatus('v2-retrieve-status', '');
+  v2SetStatus('v2-facts-status', '');
+  v2RefreshScopes();
+  v2RefreshUploads();
+}
+
+async function v2RefreshScopes() {
+  if (v2.scopesLoaded) return;
+  try {
+    const result = await api('/api/v2/scopes');
+    v2.scopes = Array.isArray(result.data?.scopes) ? result.data.scopes : [];
+    v2.scopesLoaded = true;
+    v2UpdateScopeSelector();
+  } catch (error) {
+    v2SetStatus('v2-upload-status', `作用域信息暂不可用（${error.message}）；仍按默认作用域运行。`);
+  }
+}
+
+function v2StatusBadge(status) {
+  const ready = status === 'READY';
+  const failed = status === 'FAILED';
+  return node('span', `status-badge ${ready ? 'ready' : failed ? 'failed' : ''}`, status || 'UNKNOWN');
+}
+
+function v2UploadRow(upload) {
+  const row = node('div', 'upload-row');
+  const name = node('span', 'name', upload.filename || upload.upload_id || '—');
+  const at = String(upload.provenance?.uploaded_at || '').slice(0, 19).replace('T', ' ');
+  const meta = node('span', 'meta', `${upload.scope_id || '—'} · ${upload.chunk_count ?? 0} 块 · ${at || '—'}`);
+  row.append(name, v2StatusBadge(upload.status), meta);
+  return row;
+}
+
+async function v2RefreshUploads() {
+  if (!sessionToken) {
+    v2El['v2-upload-list'].replaceChildren(node('p', 'empty-note', '登录后加载本作用域上传记录。'));
+    return;
+  }
+  v2SetStatus('v2-upload-status', '正在加载上传记录…');
+  try {
+    const listPath = `/api/v2/uploads?scope_id=${encodeURIComponent(v2.scopeId)}`;
+    const result = await api(listPath);
+    const uploads = Array.isArray(result.data?.uploads) ? result.data.uploads : [];
+    v2El['v2-upload-list'].replaceChildren(
+      uploads.length ? uploads.map(v2UploadRow) : [node('p', 'empty-note', '本作用域还没有上传记录。')],
+    );
+    if (v2El['v2-upload-status'].textContent === '正在加载上传记录…') v2SetStatus('v2-upload-status', '');
+  } catch (error) {
+    v2SetStatus('v2-upload-status', `上传记录加载失败：${error.message}`);
+  }
+}
+
+async function v2UploadFile(file) {
+  if (!sessionToken) throw new Error('尚未建立演示会话。');
+  const uploadPath = '/api/v2/uploads';
+  const headers = {
+    authorization: `Bearer ${sessionToken}`,
+    'x-file-name': file.name,
+    'x-scope-id': v2.scopeId,
+    'x-mime-type': file.type || 'application/octet-stream',
+    'x-uploader': v2El['v2-uploader'].value.trim() || 'demo-technician',
+    'x-scenario': 'demo',
+    'content-type': 'application/octet-stream',
+  };
+  const response = await fetch(uploadPath, { method: 'POST', headers, body: file });
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
+  }
+  if (response.status === 401) requireLogin('口令无效或会话已失效，请重新输入。');
+  if (!response.ok || result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR') {
+    const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
+    error.result = result;
+    throw error;
+  }
+  return result;
+}
+
+function v2UploadStepChip(status, extra = '') {
+  const ready = status === 'READY';
+  const failed = status === 'FAILED';
+  const chip = node('span', `v2-step-chip ${ready ? 'ready' : failed ? 'failed' : ''}`);
+  chip.append(document.createTextNode(status), node('time', '', extra));
+  return chip;
+}
+
+function v2StopUploadAnimation() {
+  if (v2.uploadTimer) {
+    clearInterval(v2.uploadTimer);
+    v2.uploadTimer = null;
+  }
+}
+
+function v2StartUploadAnimation() {
+  v2StopUploadAnimation();
+  const box = v2El['v2-upload-progress'];
+  box.hidden = false;
+  box.replaceChildren();
+  let index = 0;
+  const step = () => {
+    if (index < V2_UPLOAD_STEPS.length) {
+      box.append(v2UploadStepChip(V2_UPLOAD_STEPS[index], new Date().toLocaleTimeString()));
+      index += 1;
+    }
+  };
+  step();
+  v2.uploadTimer = setInterval(step, 400);
+}
+
+function v2RenderUploadRecord(upload) {
+  const box = v2El['v2-upload-record'];
+  box.hidden = false;
+  const lines = [
+    ['upload_id', upload.upload_id],
+    ['filename', upload.filename],
+    ['scope_id', upload.scope_id],
+    ['chunk_count', upload.chunk_count],
+    ['token_count', upload.indexed?.token_count ?? '—'],
+    ['sha256（前 8 位）', upload.sha256 ? upload.sha256.slice(0, 8) : '—'],
+    ['size_bytes', upload.size_bytes],
+  ];
+  box.replaceChildren(...lines.map(([label, value]) => {
+    const line = node('div', 'kv');
+    line.append(node('b', '', `${label}：`), document.createTextNode(String(value ?? '—')));
+    return line;
+  }));
+}
+
+v2El['v2-upload-file'].addEventListener('change', () => {
+  const file = v2El['v2-upload-file'].files?.[0];
+  v2El['v2-upload-submit'].disabled = !file;
+  v2El['v2-upload-status'].className = 'live-status';
+  if (!file) {
+    v2SetStatus('v2-upload-status', '尚未选择文档。');
+    return;
+  }
+  v2SetStatus('v2-upload-status', `已选择 ${file.name}（${(file.size / 1024).toFixed(1)} KB）。`);
+  if (!v2El['v2-uploader'].value.trim() && el['technician-name']?.value) {
+    v2El['v2-uploader'].value = el['technician-name'].value;
+  }
+});
+
+v2El['v2-upload-submit'].addEventListener('click', async () => {
+  const file = v2El['v2-upload-file'].files?.[0];
+  if (!file) {
+    v2SetStatus('v2-upload-status', '请先选择要上传的文档。');
+    return;
+  }
+  v2El['v2-upload-submit'].disabled = true;
+  v2El['v2-upload-file'].disabled = true;
+  v2El['v2-upload-record'].hidden = true;
+  v2SetStatus('v2-upload-status', '正在上传并入库（服务端执行 上传→解析→分块→索引→就绪 状态机）…');
+  v2StartUploadAnimation();
+  try {
+    const result = await v2UploadFile(file);
+    const upload = result.data?.upload;
+    if (!upload) throw new Error('服务端未返回 upload 记录。');
+    if (upload.status === 'FAILED') {
+      v2El['v2-upload-progress'].append(v2UploadStepChip('FAILED', new Date().toLocaleTimeString()));
+      const reason = upload.errors?.[0]?.message || '文档处理失败。';
+      v2SetStatus('v2-upload-status', `上传失败：${reason}`);
+      v2El['v2-upload-status'].className = 'live-status v2-error-text';
+    } else {
+      v2El['v2-upload-progress'].append(v2UploadStepChip('READY', new Date().toLocaleTimeString()));
+      v2RenderUploadRecord(upload);
+      v2SetStatus('v2-upload-status', `上传完成：${upload.filename} 已就绪。`);
+      v2El['v2-upload-status'].className = 'live-status';
+    }
+    v2RefreshUploads();
+  } catch (error) {
+    v2SetStatus('v2-upload-status', `上传失败：${error.message}`);
+    v2El['v2-upload-status'].className = 'live-status v2-error-text';
+  } finally {
+    v2StopUploadAnimation();
+    v2El['v2-upload-submit'].disabled = false;
+    v2El['v2-upload-file'].disabled = false;
+  }
+});
+
+function v2RenderRetrieveWarnings(warnings) {
+  const box = v2El['v2-retrieve-warnings'];
+  if (!Array.isArray(warnings) || warnings.length === 0) {
+    box.replaceChildren();
+    return;
+  }
+  const blocked = warnings.includes('CROSS_DOMAIN_BLOCKED');
+  const note = blocked ? node('p', 'warning-line', '已阻止跨域内容：本次检索不会返回其他作用域（HVAC / 另一 SBS 域）的内容。') : null;
+  const detail = node('p', 'hint', `服务端警告：${warnings.join('、')}`);
+  box.replaceChildren(...(note ? [note, detail] : [detail]));
+}
+
+function v2RenderRetrieveResults(results) {
+  const box = v2El['v2-retrieve-results'];
+  if (!results.length) {
+    box.replaceChildren(node('p', 'empty-note', '没有检索到结果。'));
+    return;
+  }
+  box.replaceChildren(...results.map((item) => {
+    const card = node('div', 'result-card');
+    const head = node('div', 'head');
+    head.append(
+      node('span', 'status-badge', item.source === 'upload' ? '上传' : '知识库'),
+      node('span', '', item.scope_id || '—'),
+      node('span', 'score', `score ${Number(item.score || 0).toFixed(2)}`),
+    );
+    const full = String(item.text || '');
+    const text = node('p', 'text', full.slice(0, 120) + (full.length > 120 ? '…' : ''));
+    const prov = node('p', 'prov', `来源：${item.provenance?.file || item.doc_id || '—'}${item.provenance?.uploader ? ` · 上传者：${item.provenance.uploader}` : ''}`);
+    card.append(head, text, prov);
+    return card;
+  }));
+}
+
+v2El['v2-retrieve-submit'].addEventListener('click', async () => {
+  const query = v2El['v2-retrieve-query'].value.trim();
+  const topK = Math.max(1, Math.min(20, Math.floor(Number(v2El['v2-retrieve-topk'].value) || 5)));
+  v2El['v2-retrieve-submit'].disabled = true;
+  v2El['v2-retrieve-results'].replaceChildren();
+  v2El['v2-retrieve-warnings'].replaceChildren();
+  v2SetStatus('v2-retrieve-status', '正在检索…');
+  try {
+    const result = await api('/api/v2/retrieve', {
+      context_id: v2.contextId,
+      query,
+      top_k: topK,
+      include_uploads: true,
+    });
+    v2.knowledgeHits = (result.data?.results || []).map((item) => item.text);
+    v2RenderRetrieveWarnings(result.warnings || []);
+    v2RenderRetrieveResults(result.data?.results || []);
+    v2SetStatus('v2-retrieve-status', `检索完成：${(result.data?.results || []).length} 条结果。`);
+  } catch (error) {
+    v2.knowledgeHits = [];
+    v2SetStatus('v2-retrieve-status', `检索失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`);
+  } finally {
+    v2El['v2-retrieve-submit'].disabled = false;
+  }
+});
+
+function v2RenderFacts(facts) {
+  const table = v2El['v2-facts-table'];
+  if (!facts.length) {
+    table.replaceChildren(node('p', 'empty-note', '未提取到事实。'));
+    return;
+  }
+  const head = node('div', 'fact-table head');
+  head.append(node('span', '', '字段'), node('span', '', '值'), node('span', '', '单位'), node('span', '', '支持状态'), node('span', '', ''));
+  const rows = facts.map((fact) => {
+    const row = node('div', 'fact-table');
+    row.append(
+      node('span', '', fact.field || '—'),
+      node('span', '', typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value ?? '—')),
+      node('span', '', fact.unit || '—'),
+      node('span', '', fact.support_status || '—'),
+      fact.critical ? node('span', 'badge-critical', 'critical') : node('span', '', ''),
+    );
+    return row;
+  });
+  table.replaceChildren(head, ...rows);
+}
+
+v2El['v2-facts-extract'].addEventListener('click', async () => {
+  const raw = v2El['v2-facts-text'].value.trim();
+  if (!raw) {
+    v2SetStatus('v2-facts-status', '请先输入口述或手动内容。');
+    return;
+  }
+  v2El['v2-facts-extract'].disabled = true;
+  v2El['v2-facts-status'].className = 'live-status';
+  v2El['v2-report-output'].hidden = true;
+  v2SetStatus('v2-facts-status', '正在提取事实…');
+  try {
+    const result = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: raw });
+    v2.facts = Array.isArray(result.data?.facts) ? result.data.facts : [];
+    v2.reportBlocked = false;
+    v2RenderFacts(v2.facts);
+    v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
+    v2El['v2-report-build'].disabled = v2.facts.length === 0;
+    v2SetStatus('v2-facts-status', `已提取 ${v2.facts.length} 条事实。`);
+  } catch (error) {
+    v2.facts = [];
+    v2El['v2-report-build'].disabled = true;
+    v2SetStatus('v2-facts-status', `事实提取失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`);
+  } finally {
+    v2El['v2-facts-extract'].disabled = false;
+  }
+});
+
+function v2RenderReport(result) {
+  const report = result.data?.report || {};
+  const gates = result.data?.gates || {};
+  const violations = Array.isArray(gates.violations) ? gates.violations : [];
+  const needsConfirm = result.status === 'NEEDS_CONFIRMATION' || violations.length > 0;
+  v2El['v2-report-output'].hidden = false;
+
+  const banner = v2El['v2-report-banner'];
+  banner.className = `validator-banner ${needsConfirm ? 'fail' : 'pass'}`;
+  banner.textContent = needsConfirm ? '报告存在硬门禁违规，未确认。' : '报告已通过硬门禁校验。';
+
+  const missing = Array.isArray(report.missing_required_fields) ? report.missing_required_fields : [];
+  const missingBox = v2El['v2-report-missing'];
+  missingBox.textContent = missing.length
+    ? `缺失必填字段：${missing.join('、')}（请补充后再确认）。`
+    : '必填字段已全部覆盖。';
+  missingBox.hidden = missing.length === 0;
+
+  v2El['v2-report-gates'].replaceChildren(...(violations.length ? violations.map((violation) => {
+    const item = node('p', 'gate-item');
+    item.append(
+      node('strong', '', `[${violation.class}]`),
+      node('code', '', violation.field || ''),
+      document.createTextNode(` ${violation.detail || ''}`),
+    );
+    return item;
+  }) : []));
+
+  const sections = Array.isArray(report.sections) ? report.sections : [];
+  v2El['v2-report-sections'].replaceChildren(...sections.map((section) => {
+    const block = node('div', 'report-section-block');
+    const content = Array.isArray(section.content) && section.content.length ? section.content : ['未提供/待确认'];
+    const isMissing = section.required === true && content.every((line) => line === '未提供/待确认');
+    block.append(node('h3', isMissing ? 'v2-section-missing' : '', `${section.title}${section.required ? '（必填）' : ''}`));
+    for (const line of content) block.append(node('p', '', line));
+    return block;
+  }));
+}
+
+v2El['v2-report-build'].addEventListener('click', async () => {
+  if (!v2.facts.length) return;
+  v2El['v2-report-build'].disabled = true;
+  v2SetStatus('v2-facts-status', '正在生成报告…');
+  try {
+    const result = await api('/api/v2/reports/build', {
+      context_id: v2.contextId,
+      facts: v2.facts,
+      knowledge_hits: v2.knowledgeHits,
+    });
+    v2RenderReport(result);
+    if (result.status === 'NEEDS_CONFIRMATION') {
+      v2.reportBlocked = true;
+      v2SetStatus('v2-facts-status', '报告存在硬门禁违规，未确认。');
+      v2El['v2-report-build'].disabled = true;
+    } else {
+      v2SetStatus('v2-facts-status', `报告已生成（${result.data?.report?.reportVersion || 'v2'}），未包含硬门禁违规。`);
+    }
+  } catch (error) {
+    v2SetStatus('v2-facts-status', `报告生成失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`);
+  } finally {
+    if (!v2.reportBlocked) v2El['v2-report-build'].disabled = false;
+  }
+});
+
+v2El['scope-selector-buttons'].addEventListener('click', (event) => {
+  const button = event.target.closest('.scope-button');
+  if (!button) return;
+  v2SetScope(button.dataset.scopeId);
+});
+
+function v2WatchLogin() {
+  const gate = document.getElementById('auth-gate');
+  if (!gate) return;
+  new MutationObserver(() => {
+    if (gate.hidden && !v2El['v2-panel'].hidden && sessionToken) {
+      v2RefreshScopes();
+      v2RefreshUploads();
+    }
+  }).observe(gate, { attributes: true, attributeFilter: ['hidden'] });
+}
+
+function v2Init() {
+  v2UpdateScopeSelector();
+  v2WatchLogin();
+}
+
+v2Init();

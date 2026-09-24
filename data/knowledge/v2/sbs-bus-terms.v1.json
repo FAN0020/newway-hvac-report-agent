@@ -1,0 +1,717 @@
+{
+  "schema_version": "sbs-bus-terms.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_BUS",
+  "records": [
+    {
+      "id": "term_model_man_a95",
+      "kind": "term",
+      "canonical": "MAN A95",
+      "aliases": ["A95", "MAN A95 Double Decker", "曼恩A95", "A95双层巴士"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_a95_1",
+          "source": "A九十五",
+          "target": "A95",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "口述字母数字组合的常见 ASR 误识别"
+        }
+      ],
+      "risk": "LOW",
+      "description": "MAN A95 双层巴士车型（Euro V / Euro VI / Euro VI 三门变体在新加坡服役）。车型名称仅作术语识别，不代表特定车辆在役状态。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia MAN Lion's City fleet census", "Land Transport Guru bus model tables"],
+        "notes": "车型清单来自可比行业/三级来源（B/C）；SBS 官方未发布逐车型在役清册。ASR 纠正规则为推断（D），非 SBS 事实。"
+      }
+    },
+    {
+      "id": "term_model_man_a22",
+      "kind": "term",
+      "canonical": "MAN A22",
+      "aliases": ["A22", "MAN A22 Single Deck", "曼恩A22", "A22单层巴士"],
+      "risk": "LOW",
+      "description": "MAN A22 单层巴士车型，新加坡多运营商使用。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia MAN Lion's City", "Land Transport Guru"],
+        "notes": "三级来源（B/C）；SBS 官方清册未公开。"
+      }
+    },
+    {
+      "id": "term_model_man_a24",
+      "kind": "term",
+      "canonical": "MAN A24",
+      "aliases": ["A24", "MAN A24 Articulated", "曼恩A24", "A24铰接巴士"],
+      "risk": "LOW",
+      "description": "MAN A24 铰接（通道）巴士，SBS 用于义顺支线。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia MAN Lion's City", "Land Transport Guru"],
+        "notes": "三级来源（B/C）；'SBS 约12辆在义顺支线'为三级来源转述，未与 SBS 核实。"
+      }
+    },
+    {
+      "id": "term_model_volvo_b9tl",
+      "kind": "term",
+      "canonical": "Volvo B9TL",
+      "aliases": ["B9TL", "沃尔沃B9TL", "Volvo B9TL Wright", "Volvo B9TL CDGE"],
+      "risk": "LOW",
+      "description": "Volvo B9TL 双层巴士，新加坡常见 Wright / CDGE 车身。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Volvo B9TL", "Land Transport Guru"],
+        "notes": "三级来源（B/C）。"
+      }
+    },
+    {
+      "id": "term_model_scania_k230ub",
+      "kind": "term",
+      "canonical": "Scania K230UB",
+      "aliases": ["K230UB", "斯堪尼亚K230UB", "Scania K Series"],
+      "risk": "LOW",
+      "description": "Scania K230UB 单层巴士车型。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Scania K series", "Land Transport Guru"],
+        "notes": "三级来源（B/C）。"
+      }
+    },
+    {
+      "id": "term_model_mb_citaro_o530",
+      "kind": "term",
+      "canonical": "MB Citaro O530",
+      "aliases": ["Citaro O530", "Citaro", "奔驰Citaro", "Mercedes-Benz Citaro O530", "O530"],
+      "risk": "LOW",
+      "description": "Mercedes-Benz Citaro O530 单层巴士车型。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Mercedes-Benz Citaro", "Land Transport Guru"],
+        "notes": "三级来源（B/C）。"
+      }
+    },
+    {
+      "id": "term_model_byd_k9",
+      "kind": "term",
+      "canonical": "BYD K9",
+      "aliases": ["K9", "比亚迪K9", "BYD K9 Electric", "比亚迪电动巴士"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_k9_1",
+          "source": "K九",
+          "target": "K9",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "口述字母数字组合的常见 ASR 误识别"
+        }
+      ],
+      "risk": "LOW",
+      "description": "BYD K9 纯电动巴士，新加坡首批电动巴士之一。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru BYD K series fleet table", "Wikipedia BYD K series"],
+        "notes": "新加坡交通领域三级来源（B）；'仅 SBS 运营、驻 Seletar'为三级来源转述。ASR 纠正规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_model_byd_k9rc",
+      "kind": "term",
+      "canonical": "BYD K9RC",
+      "aliases": ["K9RC", "比亚迪K9RC", "BYD K9RC Double Decker"],
+      "risk": "LOW",
+      "description": "BYD K9RC 双层电动巴士（演示车/试用）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "LOW",
+        "basis": ["Land Transport Guru BYD K series fleet table"],
+        "notes": "三级来源（B）；演示/试用性质，非批量在役（负向证据）。"
+      }
+    },
+    {
+      "id": "term_model_byd_bc12a04",
+      "kind": "term",
+      "canonical": "BYD BC12A04",
+      "aliases": ["BC12A04", "比亚迪BC12A04", "BYD B12"],
+      "risk": "LOW",
+      "description": "BYD BC12A04 12 米纯电动巴士。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru BYD fleet table"],
+        "notes": "三级来源（B）。"
+      }
+    },
+    {
+      "id": "term_model_linkker_lm312",
+      "kind": "term",
+      "canonical": "Linkker LM312",
+      "aliases": ["LM312", "Linkker", "林克LM312"],
+      "risk": "LOW",
+      "description": "Linkker LM312 芬兰产纯电动巴士，新加坡多运营商共用。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru electric bus table"],
+        "notes": "三级来源（B）。"
+      }
+    },
+    {
+      "id": "term_model_zhongtong_n12",
+      "kind": "term",
+      "canonical": "Zhongtong N12",
+      "aliases": ["N12", "中通N12", "Zhongtong N Series"],
+      "risk": "LOW",
+      "description": "Zhongtong N12 中国产纯电动巴士，新加坡全运营商使用。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru electric bus table"],
+        "notes": "三级来源（B）。"
+      }
+    },
+    {
+      "id": "term_model_adl_enviro500",
+      "kind": "term",
+      "canonical": "ADL Enviro500 MMC",
+      "aliases": ["Enviro500", "Enviro500 MMC", "ADL Enviro500", "亚历山大丹尼士Enviro500"],
+      "risk": "LOW",
+      "description": "Alexander Dennis Enviro500 MMC 双层巴士（含三门变体）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Alexander Dennis Enviro500", "Land Transport Guru"],
+        "notes": "三级来源（B/C）。"
+      }
+    },
+    {
+      "id": "term_maintenance_preventive",
+      "kind": "term",
+      "canonical": "预防性维护",
+      "aliases": ["预防维护", "定期保养", "定期维护", "preventive maintenance", "scheduled maintenance", "preventive servicing"],
+      "risk": "LOW",
+      "description": "按计划进行的定期维护。SBS 公开表述存在'从预防性向状态性维护转变'的措辞。具体间隔值（km/月）未公开。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Sustainability Report 2024", "SBS Transit AR2024 Operations Review"],
+        "notes": "SBS 措辞确认该维护类型存在；间隔数值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "预防性维护的间隔数值（km/月/模型/车厂）未公开，但 work.type 字段需要该类型词才能正确分类维保类型。"
+    },
+    {
+      "id": "term_maintenance_corrective",
+      "kind": "term",
+      "canonical": "纠正性维护",
+      "aliases": ["故障维修", "纠正维护", "修复", "corrective maintenance", "defect rectification", "repair"],
+      "risk": "LOW",
+      "description": "针对已发现缺陷/故障进行的修复性维护。SBS 公开材料提及缺陷整改（defect rectification）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review", "SBS Transit Sustainability Report 2024"],
+        "notes": "维护类型存在性有 SBS 证据；内部字段格式未公开。"
+      }
+    },
+    {
+      "id": "term_maintenance_condition_based",
+      "kind": "term",
+      "canonical": "状态性维护",
+      "aliases": ["视情维护", "预测性维护", "condition-based maintenance", "predictive maintenance", "condition monitoring", "状态监测维护"],
+      "risk": "LOW",
+      "description": "基于状态监测数据触发的维护。SBS 全车队部署 Stratio 状态监测系统（200+ 参数：制动、油液、电气系统）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review", "SBS Transit Sustainability Report 2024"],
+        "notes": "Stratio 系统与'状态性维护'措辞均为 SBS 一手证据。"
+      }
+    },
+    {
+      "id": "term_maintenance_statutory",
+      "kind": "term",
+      "canonical": "法定检验",
+      "aliases": ["法定维护", "定期检验", "政府检验", "statutory inspection", "periodic inspection", "LTA检验", "roadworthiness inspection"],
+      "risk": "LOW",
+      "description": "依新加坡法规执行的检验/维护义务。公共巴士（omnibus）每 6 个月一次法定检验（不受车龄影响）；CNG/双燃料巴士每 3 个月。检验在 LTA 授权检验中心（JIC/STA/VICOM）进行。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection"],
+        "notes": "检验频率与类别为新加坡交通部门公开信息（B）。"
+      }
+    },
+    {
+      "id": "term_inspection_structure",
+      "kind": "term",
+      "canonical": "结构检查",
+      "aliases": ["结构完整性", "车架", "chassis frame", "structural integrity", "structural check", "大梁"],
+      "risk": "LOW",
+      "description": "法定检验类别之一：车架/结构完整性检查。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "检验类别为 LTA 公开清单（B）。"
+      }
+    },
+    {
+      "id": "term_inspection_wheel",
+      "kind": "term",
+      "canonical": "车轮系统检查",
+      "aliases": ["轮胎检查", "tyres", "悬挂", "suspension", "减震器", "shock absorber", "轮毂轴承", "wheel bearing", "车轮定位", "alignment", "wheel system"],
+      "risk": "LOW",
+      "description": "法定检验类别之一：轮胎、悬挂、减震器、轮毂轴承、车轮定位。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "检验类别为 LTA 公开清单（B）。胎纹深度数值阈值未公开。"
+      }
+    },
+    {
+      "id": "term_inspection_brake",
+      "kind": "term",
+      "canonical": "制动系统检查",
+      "aliases": ["刹车检查", "service brake", "parking brake", "手刹", "brake system", "制动效率"],
+      "risk": "LOW",
+      "description": "法定检验类别之一：行车制动与驻车制动效率检查。通过/不通过判定必须有测试结果支持，不得仅凭知识推断。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "类别为 LTA 公开清单（B）；制动效率数值阈值未公开。"
+      }
+    },
+    {
+      "id": "term_inspection_steering",
+      "kind": "term",
+      "canonical": "转向系统检查",
+      "aliases": ["转向检查", "steering system", "方向机", "转向拉杆", "drive shafts", "传动轴"],
+      "risk": "LOW",
+      "description": "法定检验类别之一：转向系统（含传动轴/稳定性）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "检验类别为 LTA 公开清单（B）。"
+      }
+    },
+    {
+      "id": "term_inspection_body",
+      "kind": "term",
+      "canonical": "车身检查",
+      "aliases": ["车身", "安全带", "seat belts", "挡风玻璃", "windscreen", "车门锁扣", "door latch", "车门铰链", "door hinges", "body"],
+      "risk": "LOW",
+      "description": "法定检验类别之一：安全带、挡风玻璃、车门锁扣/铰链等车身项目。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "检验类别为 LTA 公开清单（B）。"
+      }
+    },
+    {
+      "id": "term_inspection_lighting",
+      "kind": "term",
+      "canonical": "灯光与指示检查",
+      "aliases": ["灯光检查", "前大灯", "headlamps", "反射器", "reflectors", "后视镜", "mirrors", "转向灯", "indicators", "雨刮", "wipers", "喇叭", "horn", "visual and indication"],
+      "risk": "LOW",
+      "description": "法定检验类别之一：前大灯、反射器、后视镜、指示灯、雨刮、喇叭等视觉与指示项目。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "检验类别为 LTA 公开清单（B）。"
+      }
+    },
+    {
+      "id": "term_inspection_propulsion",
+      "kind": "term",
+      "canonical": "推进系统检查",
+      "aliases": ["排放检查", "exhaust emissions", "噪声检查", "noise check", "排气", "propulsion system", "动力系统"],
+      "risk": "MEASUREMENT",
+      "description": "法定检验类别之一：尾气排放与噪声检查（按 NEA 要求）。数值型结果需要测试记录支持。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Vehicle Inspection checklist"],
+        "notes": "检验类别为 LTA 公开清单（B）；排放/噪声数值阈值未公开。"
+      }
+    },
+    {
+      "id": "term_capacitance_uf",
+      "kind": "term",
+      "canonical": "µF",
+      "aliases": ["微法", "uf", "电容量", "法拉"],
+      "correction_rules": [
+        {
+          "id": "corr_spoken_35_uf_bus",
+          "source": "三十五微法",
+          "target": "35 µF",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述规格格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_25_uf_bus",
+          "source": "二十五微法",
+          "target": "25 µF",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述规格格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_45_uf_bus",
+          "source": "四十五微法",
+          "target": "45 µF",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述规格格式候选；数值必须由技师确认"
+        }
+      ],
+      "risk": "CRITICAL_VALUE",
+      "description": "电容量单位（用于巴士电气系统电容）。数值或单位修复必须由技师确认。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["V1 hvac-terms.v1.json 模式（A, 仓库基线）", "SAE J1939 电气系统惯例（C）"],
+        "notes": "µF 单位惯例为行业通用（C）；SBS 内部电气部件规格未公开。"
+      }
+    },
+    {
+      "id": "term_pressure_bar_kpa",
+      "kind": "term",
+      "canonical": "bar",
+      "aliases": ["巴", "kPa", "千帕", "气压", "brake pressure", "制动气压"],
+      "correction_rules": [
+        {
+          "id": "corr_spoken_1bar_bus",
+          "source": "一巴",
+          "target": "1 bar",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述压力格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_15bar_bus",
+          "source": "一点五巴",
+          "target": "1.5 bar",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述压力格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_100kpa_bus",
+          "source": "一百千帕",
+          "target": "100 kPa",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述压力格式候选；数值必须由技师确认"
+        }
+      ],
+      "risk": "CRITICAL_VALUE",
+      "description": "压力单位（制动气路等）。数值或单位修复必须由技师确认。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["ISO 14224 维护数据模型（C）", "UK DVSA 制动测试惯例（C）"],
+        "notes": "bar/kPa 在巴士制动系统中为行业惯例（C）；SBS 制动压力阈值未公开，此处仅提供单位格式候选。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 制动气压的具体数值阈值（kPa/bar）未公开；记录单位格式候选是为了口述数值归一化，但绝不能把未确认数值写成 SBS 阈值。"
+    },
+    {
+      "id": "term_temperature_celsius",
+      "kind": "term",
+      "canonical": "°C",
+      "aliases": ["摄氏度", "度", "degree Celsius", "温度"],
+      "correction_rules": [
+        {
+          "id": "corr_spoken_50c_bus",
+          "source": "五十度",
+          "target": "50 °C",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述温度格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_85c_bus",
+          "source": "八十五度",
+          "target": "85 °C",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述温度格式候选；数值必须由技师确认"
+        }
+      ],
+      "risk": "CRITICAL_VALUE",
+      "description": "温度单位（冷却液、HV 电池等）。数值或单位修复必须由技师确认。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用单位惯例（C）"],
+        "notes": "摄氏度为通用单位（C）；SBS 温度阈值未公开。"
+      }
+    },
+    {
+      "id": "term_length_mm",
+      "kind": "term",
+      "canonical": "mm",
+      "aliases": ["毫米", "millimetre", "millimeter"],
+      "correction_rules": [
+        {
+          "id": "corr_spoken_10mm_bus",
+          "source": "十毫米",
+          "target": "10 mm",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述长度格式候选；数值必须由技师确认"
+        },
+        {
+          "id": "corr_spoken_3mm_bus",
+          "source": "三毫米",
+          "target": "3 mm",
+          "match_basis": "CONTROLLED_EXACT_PHRASE",
+          "reason": "常用口述长度格式候选；数值必须由技师确认"
+        }
+      ],
+      "risk": "CRITICAL_VALUE",
+      "description": "长度单位（胎纹深度、部件尺寸等）。数值或单位修复必须由技师确认。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["行业通用单位惯例（C）", "UK DVSA 轮胎检查（C）"],
+        "notes": "mm 为通用单位（C）；胎纹深度阈值未公开。"
+      }
+    },
+    {
+      "id": "term_spoken_bus",
+      "kind": "term",
+      "canonical": "巴士",
+      "aliases": ["bus", "公共巴士", "公交", "bus services"],
+      "risk": "LOW",
+      "description": "新加坡对公共汽车的通用叫法（'巴士'），区别于'公交车'等中国大陆用语。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit 官网用语", "LTA OneMotoring"],
+        "notes": "新加坡交通部门与运营商公开用语（B）。"
+      }
+    },
+    {
+      "id": "term_spoken_bus_captain",
+      "kind": "term",
+      "canonical": "车长",
+      "aliases": ["bus captain", "巴士车长", "司机", "巴士司机", "driver", "bus driver"],
+      "risk": "LOW",
+      "description": "SBS 对巴士司机的正式称呼为'车长'（Bus Captain）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（Bus Captain 安全系统）"],
+        "notes": "SBS 一手用语（A）。"
+      }
+    },
+    {
+      "id": "term_spoken_gearbox",
+      "kind": "term",
+      "canonical": "变速箱",
+      "aliases": ["波箱", "gearbox", "transmission", "变速箱总成"],
+      "risk": "LOW",
+      "description": "变速箱。新加坡口语常称'波箱'。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["新加坡华语口语惯例（C/D）"],
+        "notes": "'波箱'为新马华语口语（C/D 推断），非 SBS 官方术语。"
+      }
+    },
+    {
+      "id": "term_spoken_brake_pad",
+      "kind": "term",
+      "canonical": "制动片",
+      "aliases": ["刹车片", "刹车皮", "brake pad", "brake lining", "闸片"],
+      "risk": "LOW",
+      "description": "制动片。新加坡口语常称'刹车皮'。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["新加坡华语口语惯例（C/D）", "LTA OneMotoring 制动检查类别（B）"],
+        "notes": "'刹车皮'为新马华语口语（C/D）；制动检查为 LTA 类别（B）。"
+      }
+    },
+    {
+      "id": "term_spoken_tyre",
+      "kind": "term",
+      "canonical": "轮胎",
+      "aliases": ["tyre", "tire", "车胎", "呔", "爆呔"],
+      "risk": "LOW",
+      "description": "轮胎。新加坡口语受粤语影响称'呔'（如'爆呔'=爆胎）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["新加坡华语口语惯例（C/D）"],
+        "notes": "'呔'为新马华语口语（C/D 推断），非 SBS 官方术语。"
+      }
+    },
+    {
+      "id": "term_spoken_overheat",
+      "kind": "term",
+      "canonical": "过热",
+      "aliases": ["水滚", "水温高", "overheat", "overheating", "engine overheat", "发动机过热"],
+      "risk": "LOW",
+      "description": "发动机过热。新加坡口语称'水滚'（冷却液沸腾）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["新马华语口语惯例（C/D）"],
+        "notes": "'水滚'为新马华语口语（C/D 推断），非 SBS 官方术语。"
+      }
+    },
+    {
+      "id": "term_high_voltage_isolation",
+      "kind": "term",
+      "canonical": "高压隔离",
+      "aliases": ["HV isolation", "高压断电", "high-voltage isolation", "断电隔离", "高压系统隔离"],
+      "risk": "SAFETY",
+      "description": "电动巴士高压系统维修前的高压隔离/断电。SBS 通过 WSQ NESS 认证技师处理 HV 系统、电池与充电系统。具体隔离程序文本未公开。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（NESS 认证）"],
+        "notes": "NESS 培训项目存在为 A 级证据；隔离程序细节 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 高压隔离的具体程序步骤未公开；需要该术语用于 safety.* 字段的硬门控识别，但程序文本必须由 SBS 提供后才能作为规范引用。"
+    },
+    {
+      "id": "term_hv_battery",
+      "kind": "term",
+      "canonical": "高压电池",
+      "aliases": ["动力电池", "高压电池组", "HV battery", "traction battery", "电池组"],
+      "risk": "SAFETY",
+      "description": "电动巴士高压动力电池。SBS 技师经 NESS 认证处理 HV 电池与充电系统。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（NESS 课程覆盖 HV 电池）"],
+        "notes": "HV 电池处理能力为 SBS 一手证据（A）；电池部件号与规格未公开。"
+      }
+    },
+    {
+      "id": "term_return_to_service",
+      "kind": "term",
+      "canonical": "回役",
+      "aliases": ["恢复服务", "恢复运营", "重新上路", "return to service", "back in service", "回厂"],
+      "risk": "COMPLETION",
+      "description": "车辆维修完成后恢复运营的状态。回役必须由技师确认，绝不能从手册或知识推断。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit 公开材料中'回役'类状态用语", "V1 完成状态纪律（A, 仓库基线）"],
+        "notes": "状态存在性为 A；具体回役标准 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 回役/放行标准（谁确认、依据什么检查）未公开；completion/return-to-service 字段需要该词用于硬门控，但标准值绝不能编造。"
+    },
+    {
+      "id": "term_completion_state",
+      "kind": "term",
+      "canonical": "完成状态",
+      "aliases": ["completed", "已完成", "deferred", "延期", "off-road", "停驶", "封车", "完成", "未完成"],
+      "risk": "COMPLETION",
+      "description": "维保工单完成状态词（完成/延期/停驶等）。SBS 实际状态词表未公开；此处仅提供通用词，具体状态枚举需 SBS 确认。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "LOW",
+        "basis": ["可比 CMMS 工单生命周期（C）", "14 CFR 43.9 签署放行模型（C）"],
+        "notes": "状态词为可比行业惯例（C）；SBS 状态枚举 REQUIRES SBS CONFIRMATION。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 工单完成/延期/停驶状态词表未公开；completion_state 字段必须精确匹配状态枚举，不能用推断词替代。"
+    },
+    {
+      "id": "term_negation_not_replaced",
+      "kind": "term",
+      "canonical": "未更换",
+      "aliases": ["没换", "没有换", "did not replace", "not replaced", "未修复", "没修", "未换", "没有更换"],
+      "risk": "NEGATION",
+      "description": "否定语义：'未更换'不得被删除、反转或补全为'已更换'。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "HIGH",
+        "basis": ["V1 NEGATION 风险标签（A, 仓库基线）", "行业通用否定语义纪律（C）"],
+        "notes": "否定语义硬门控沿用 V1 基线。"
+      }
+    },
+    {
+      "id": "term_action_replace",
+      "kind": "term",
+      "canonical": "更换",
+      "aliases": ["replace", "replacement", "换掉", "拆换", "换新", "replaced"],
+      "risk": "ACTION",
+      "description": "动作词'更换'。知识/手册中的'应更换 X'绝不能自动变成'已更换 X'的事实——必须有转写或技师输入支持。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["V1 不变量：知识从不创造服务事实（A, 仓库基线）", "docs 09 §3.3 不变量"],
+        "notes": "动作-事实隔离为 V1/契约级不变量（A）。"
+      }
+    },
+    {
+      "id": "term_fault_code_j1939",
+      "kind": "term",
+      "canonical": "J1939 故障码",
+      "aliases": ["SAE J1939", "SPN", "FMI", "diagnostic fault code", "OBD", "EOBD", "故障码"],
+      "risk": "LOW",
+      "description": "重型车辆行业通用诊断故障码体系（SAE J1939 PGN/SPN/FMI）。注意：这是可比行业标准（C），不得声称 SBS 使用该体系。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["SAE J1939 标准（C）"],
+        "notes": "可比行业标准（C），NOT an SBS fact；SBS 内部故障码表未公开。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 是否使用 J1939/自有故障码表未公开；work.fault_code 字段需要精确匹配 SBS 码表，但此处只能提供行业背景词，绝不能声称 SBS 使用。"
+    },
+    {
+      "id": "term_stratio",
+      "kind": "term",
+      "canonical": "Stratio",
+      "aliases": ["Stratio 状态监测", "Stratio telematics", "车联网状态监测"],
+      "risk": "MEASUREMENT",
+      "description": "SBS 部署的 AI/ML 状态监测系统，监测 200+ 参数（制动、油液、电气系统）。涉及该系统的数值必须来自监测记录。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "SBS 一手证据（A）。具体参数清单与阈值未公开。"
+      }
+    },
+    {
+      "id": "term_diagnostic_expert",
+      "kind": "term",
+      "canonical": "诊断专家",
+      "aliases": ["Diagnostic Expert", "诊断技师", "diagnostic expert career scheme"],
+      "risk": "LOW",
+      "description": "SBS 为巴士技师设立的'诊断专家'职涯计划（基于状态/预测性维护与 AI 诊断工具）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review"],
+        "notes": "SBS 一手证据（A）；职责文本未公开。"
+      }
+    },
+    {
+      "id": "term_bus_stop",
+      "kind": "term",
+      "canonical": "巴士站",
+      "aliases": ["bus stop", "车站", "巴士车站", "公交站"],
+      "risk": "LOW",
+      "description": "巴士站。新加坡巴士站有 5 位数字站码。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit NextBus（5 位站码，如 52039）"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    }
+  ]
+}

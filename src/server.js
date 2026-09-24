@@ -26,6 +26,17 @@ import { saveConfirmedReport } from './tools/save-confirmed-report.js';
 import { toolEnvelope } from './tools/tool-envelope.js';
 import { validateReportDraft } from './tools/validate-report-draft.js';
 import { validateReportInput } from './tools/validate-report-input.js';
+import { extractV2Facts } from './tools/extract-v2-facts.js';
+import { loadScopeRegistry, resolveContext } from './v2/scope.js';
+import { createUploadStore, ingestDocument } from './v2/upload.js';
+import { createRetriever } from './v2/retrieval.js';
+import {
+  assertNoServiceFactInvention,
+  buildBusReportSections,
+  buildRailReportSections,
+  checkHardGates,
+  planV2Report,
+} from './v2/report-builder.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -34,11 +45,30 @@ const tempRoot = path.join(projectRoot, '.tmp', 'stt');
 const runtimeRoot = path.join(projectRoot, 'runtime', 'stt', `${process.platform}-${process.arch}`);
 const maxAudioBytes = 20 * 1024 * 1024;
 const maxJsonBytes = 512 * 1024;
+const maxUploadBytes = 20 * 1024 * 1024;
 
 const artifacts = new ArtifactStore({ root: dataRoot });
 const reports = new ReportStore({ root: dataRoot });
 const whisper = new WhisperProvider({ runtimeRoot, tempRoot });
 const ollama = new OllamaProvider();
+
+// V2 wiring: one upload store and one lazily-loaded scope registry shared by
+// every /api/v2/* route. Uploads land under data/v2-uploads (auto-mkdir in
+// createUploadStore.put; directory is gitignored except for .gitkeep).
+const v2UploadStore = createUploadStore({ baseDir: path.join(projectRoot, 'data', 'v2-uploads') });
+let v2RegistryPromise = null;
+function ensureV2Registry() {
+  v2RegistryPromise ??= loadScopeRegistry();
+  return v2RegistryPromise;
+}
+
+function resolveV2ContextOrThrow(contextId, registry) {
+  try {
+    return resolveContext(contextId, registry);
+  } catch (error) {
+    throw Object.assign(new Error(error.message), { code: 'UNKNOWN_CONTEXT', status: 400 });
+  }
+}
 
 function writeJson(response, statusCode, value) {
   const body = Buffer.from(`${JSON.stringify(value, null, 2)}\n`);
@@ -75,6 +105,11 @@ async function readJson(request) {
   } catch (error) {
     throw Object.assign(new Error(`Invalid JSON request: ${error.message}`), { code: 'INVALID_JSON', status: 400 });
   }
+}
+
+/** Collects raw request bytes (binary uploads, not JSON); routed by URL so readJson paths are untouched. */
+async function readRawBody(request, limit = maxUploadBytes) {
+  return readBody(request, limit);
 }
 
 async function handleApi(request, response, url, traceId, config) {
@@ -294,6 +329,134 @@ async function handleApi(request, response, url, traceId, config) {
       store: reports,
       traceId,
     }));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v2/scopes') {
+    const registry = await ensureV2Registry();
+    const scopes = Object.entries(registry?.scopes || {})
+      .filter(([, entry]) => entry?.kind === 'domain')
+      .map(([scopeId, entry]) => ({
+        scope_id: scopeId,
+        display: String(entry?.display ?? scopeId),
+        upload_allowed: entry?.upload_allowed === true,
+      }));
+    writeJson(response, 200, toolEnvelope('v2_scopes', traceId, 'PASS', {
+      scopes,
+      contexts: { ...(registry?.context_ids || {}) },
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/uploads') {
+    const registry = await ensureV2Registry();
+    const scopeId = String(request.headers['x-scope-id'] || '').trim();
+    const scopeEntry = registry?.scopes?.[scopeId];
+    if (!scopeEntry || typeof scopeEntry !== 'object') {
+      throw Object.assign(new Error(`Unknown V2 scope "${scopeId}" for upload.`), { code: 'UNKNOWN_SCOPE', status: 400 });
+    }
+    if (scopeEntry.upload_allowed !== true) {
+      writeJson(response, 200, toolEnvelope('v2_upload', traceId, 'FAIL', {}, {
+        error_code: 'UPLOAD_NOT_ALLOWED',
+        warnings: [`Scope "${scopeId}" does not allow user uploads.`],
+      }));
+      return;
+    }
+    const filename = String(request.headers['x-file-name'] || '').trim();
+    if (!filename) {
+      throw Object.assign(new Error('X-File-Name header is required for uploads.'), { code: 'FILE_NAME_REQUIRED', status: 400 });
+    }
+    const uploader = String(request.headers['x-uploader'] || '').trim() || 'demo-technician';
+    const scenario = String(request.headers['x-scenario'] || '').trim() || 'demo';
+    const mimeType = String(request.headers['x-mime-type'] || '').trim() || undefined;
+    const buffer = await readRawBody(request);
+    const record = await ingestDocument({
+      scopeId,
+      filename,
+      buffer,
+      mimeType,
+      metadata: { uploader, source: 'user-upload', scenario },
+      store: v2UploadStore,
+    });
+    writeJson(response, 201, toolEnvelope('v2_upload', traceId, 'PASS', { upload: record }));
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/v2/uploads') {
+    const scopeId = String(url.searchParams.get('scope_id') || '').trim();
+    const uploads = scopeId ? await v2UploadStore.list({ scopeId }) : [];
+    writeJson(response, 200, toolEnvelope('v2_uploads', traceId, 'PASS', { uploads }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/retrieve') {
+    const input = await readJson(request);
+    const registry = await ensureV2Registry();
+    resolveV2ContextOrThrow(input.context_id, registry);
+    const retriever = createRetriever({ registry, uploadStore: v2UploadStore });
+    const result = await retriever({
+      contextId: input.context_id,
+      query: input.query,
+      topK: input.top_k,
+      includeUploads: input.include_uploads,
+    });
+    writeJson(response, 200, toolEnvelope('v2_retrieve', traceId, 'PASS', result));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/facts/extract') {
+    const input = await readJson(request);
+    const registry = await ensureV2Registry();
+    const contextId = String(input.context_id || '').trim();
+    const resolved = resolveV2ContextOrThrow(contextId, registry);
+    if (resolved.scopeId === 'HVAC') {
+      writeJson(response, 200, toolEnvelope('v2_facts_extract', traceId, 'FAIL', {}, {
+        error_code: 'UNSUPPORTED_SCOPE',
+        warnings: [`Context "${contextId}" resolves to HVAC; deterministic V2 fact extraction is only available for SBS/BUS and SBS/RAIL (HVAC stays on the V1 flow).`],
+      }));
+      return;
+    }
+    const result = await extractV2Facts({ contextId, rawText: input.raw_text, registry });
+    writeJson(response, 200, toolEnvelope('v2_facts_extract', traceId, 'PASS', {
+      facts: result.facts,
+      warnings: result.warnings,
+      context_id: contextId,
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/build') {
+    const input = await readJson(request);
+    const registry = await ensureV2Registry();
+    const contextId = String(input.context_id || '').trim();
+    const resolved = resolveV2ContextOrThrow(contextId, registry);
+    if (resolved.scopeId === 'HVAC') {
+      writeJson(response, 200, toolEnvelope('v2_report_build', traceId, 'FAIL', {}, {
+        error_code: 'UNSUPPORTED_SCOPE',
+        warnings: [`Context "${contextId}" resolves to HVAC; V2 report building is only available for SBS/BUS and SBS/RAIL.`],
+      }));
+      return;
+    }
+    const facts = Array.isArray(input.facts) ? input.facts : [];
+    const factsReceiptId = input.facts_receipt_id ? String(input.facts_receipt_id) : undefined;
+    const knowledgeHits = Array.isArray(input.knowledge_hits) ? input.knowledge_hits : [];
+    const build = resolved.scopeId === 'SBS_BUS' ? buildBusReportSections : buildRailReportSections;
+    const report = build({ facts, factsReceiptId });
+    const plan = planV2Report({ scopeId: resolved.scopeId, facts, factsReceiptId });
+    const violations = [
+      ...assertNoServiceFactInvention({ facts, knowledgeHits }),
+      ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
+    ];
+    writeJson(response, 200, toolEnvelope('v2_report_build', traceId, violations.length ? 'NEEDS_CONFIRMATION' : 'PASS', {
+      report: {
+        scope_id: resolved.scopeId,
+        context_id: contextId,
+        reportVersion: report.reportVersion,
+        sections: report.sections,
+        missing_required_fields: plan.missing_required_fields,
+      },
+      gates: { violations },
+    }, { retryable: false }));
     return;
   }
 

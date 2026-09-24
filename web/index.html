@@ -15,6 +15,18 @@
       <p class="lead">语音和报告保存在运行服务的电脑。AI 负责整理，不替代维修、安全或报价判断；只有技师确认过的当前版本才能正式保存或导出。</p>
     </header>
 
+    <section id="scope-selector" class="scope-selector" aria-labelledby="scope-selector-title">
+      <div class="scope-selector-head">
+        <h2 id="scope-selector-title">选择作业域</h2>
+        <p id="scope-selector-status" class="live-status">当前作用域：HVAC（V1 面板）</p>
+      </div>
+      <div id="scope-selector-buttons" class="scope-selector-buttons" role="group" aria-label="作业域">
+        <button type="button" class="scope-button active" data-scope-id="HVAC">HVAC</button>
+        <button type="button" class="scope-button" data-scope-id="SBS_BUS">SBS·Bus</button>
+        <button type="button" class="scope-button" data-scope-id="SBS_RAIL">SBS·Rail</button>
+      </div>
+    </section>
+
     <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
       <div>
         <div class="step">临时演示会话</div>
@@ -31,6 +43,7 @@
 
     <div id="network-warning" class="network-warning" role="note">仅用于可信局域网演示，不是公网或生产部署。</div>
 
+    <div id="v1-panel">
     <section class="status-card" aria-labelledby="health-title">
       <div><h2 id="health-title">本地运行状态</h2><p id="health-summary">正在检查本地组件…</p></div>
       <button id="refresh-health" class="secondary">重新检查</button>
@@ -141,6 +154,64 @@
       <p id="confirmation-status" class="live-status" role="status">尚未确认。未确认或内容变化后的旧确认不能保存或导出。</p>
       <textarea id="export-output" rows="12" readonly hidden aria-label="导出的报告文本"></textarea>
     </section>
+    </div>
+
+    <div id="v2-panel" hidden aria-label="SBS V2 面板">
+      <section class="v2-zone" aria-labelledby="v2-upload-title">
+        <div class="step">V2 · A · 文档入库</div>
+        <h2 id="v2-upload-title">上传检修文档（作用域隔离）</h2>
+        <p id="v2-upload-scope-hint" class="hint"></p>
+        <div class="controls">
+          <label class="file-button">选择文档<input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label>
+          <button id="v2-upload-submit" type="button" disabled>上传文档</button>
+        </div>
+        <div class="v2-form-grid">
+          <label>上传者（X-Uploader）<input id="v2-uploader" autocomplete="off" placeholder="例如：陈师傅"></label>
+        </div>
+        <p id="v2-upload-status" class="live-status" role="status">尚未选择文档。</p>
+        <div id="v2-upload-progress" class="v2-progress-row" hidden></div>
+        <div id="v2-upload-record" class="upload-record" hidden></div>
+        <h3>本作用域上传记录</h3>
+        <div id="v2-upload-list" class="stack"></div>
+      </section>
+
+      <section class="v2-zone" aria-labelledby="v2-retrieve-title">
+        <div class="step">V2 · B · 知识检索</div>
+        <h2 id="v2-retrieve-title">作用域门控检索</h2>
+        <p id="v2-retrieve-scope-hint" class="hint"></p>
+        <div class="v2-form-grid">
+          <label>查询内容<textarea id="v2-retrieve-query" rows="2" placeholder="例如：车门无法关闭 或 更换牵引电机碳刷"></textarea></label>
+          <label>Top K<input id="v2-retrieve-topk" type="number" min="1" max="20" step="1" value="5"></label>
+        </div>
+        <div class="controls"><button id="v2-retrieve-submit" type="button">检索</button></div>
+        <p id="v2-retrieve-status" class="live-status" role="status"></p>
+        <div id="v2-retrieve-warnings" class="stack"></div>
+        <div id="v2-retrieve-results" class="stack"></div>
+      </section>
+
+      <section class="v2-zone" aria-labelledby="v2-facts-title">
+        <div class="step">V2 · C · 事实与报告</div>
+        <h2 id="v2-facts-title">SBS 事实提取与报告预览</h2>
+        <label for="v2-facts-text">口述 / 手动输入现场内容</label>
+        <textarea id="v2-facts-text" rows="8" placeholder="例如（Bus）：车牌号 SBS 1234，作业类型保养，更换了左前门锁执行器，测试车门开合正常，完成状态 completed。"></textarea>
+        <div class="controls">
+          <button id="v2-facts-extract" type="button">提取事实</button>
+          <button id="v2-report-build" type="button" disabled>生成报告</button>
+        </div>
+        <p id="v2-facts-status" class="live-status" role="status"></p>
+        <div id="v2-facts-table-wrap" hidden>
+          <h3>提取到的事实</h3>
+          <div id="v2-facts-table" class="fact-table-wrap"></div>
+        </div>
+        <div id="v2-report-output" hidden>
+          <h3>报告预览</h3>
+          <p id="v2-report-banner" class="validator-banner" role="status"></p>
+          <p id="v2-report-missing" class="v2-missing"></p>
+          <div id="v2-report-gates" class="stack"></div>
+          <div id="v2-report-sections" class="report-paper"></div>
+        </div>
+      </section>
+    </div>
 
     <footer>当前 MVP 使用合成测试验证流程边界，不代表真实业务准确率或生产可用性。</footer>
   </main>

@@ -1,0 +1,658 @@
+{
+  "schema_version": "sbs-bus-assets.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_BUS",
+  "records": [
+    {
+      "id": "asset_bus_model_man_a95",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "MAN A95",
+      "aliases": ["A95", "MAN A95 Double Decker"],
+      "attributes": {
+        "body_type": "double-deck",
+        "engine": "D 2066 LUH-32/51",
+        "gearbox": "ZF EcoLife",
+        "euro_class": "Euro V / Euro VI",
+        "notes": "三级来源统计：约 200 辆 Euro V、362 辆 Euro VI、50 辆 Euro VI 三门（新加坡全运营商口径）；为购置总数非当前在役数。"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia MAN Lion's City", "Land Transport Guru fleet tables", "docs 03 §4 车型属性（C）"],
+        "notes": "底盘/发动机/变速箱/Euro 属性为制造商/三级来源（C）；SBS 官方未发布逐车型清册。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 当前各车型在役清册未公开；记录仅提供车型级属性用于识别，数量/配置不能当作 SBS 事实。"
+    },
+    {
+      "id": "asset_bus_model_man_a22",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "MAN A22",
+      "aliases": ["A22", "MAN A22 Single Deck"],
+      "attributes": {
+        "body_type": "single-deck",
+        "engine": "D 2066 LUH",
+        "gearbox": "ZF EcoLife",
+        "euro_class": "Euro V / Euro VI"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia MAN Lion's City", "Land Transport Guru"],
+        "notes": "制造商/三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_man_a24",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "MAN A24",
+      "aliases": ["A24", "MAN A24 Articulated"],
+      "attributes": {
+        "body_type": "articulated",
+        "engine": "D 2066 LUH",
+        "gearbox": "ZF EcoLife",
+        "euro_class": "Euro VI",
+        "notes": "三级来源转述：SBS 约 12 辆用于义顺支线。"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia MAN Lion's City", "Land Transport Guru"],
+        "notes": "制造商/三级来源（C）；'SBS 约12辆'未与 SBS 核实。"
+      }
+    },
+    {
+      "id": "asset_bus_model_volvo_b9tl",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "Volvo B9TL",
+      "aliases": ["B9TL", "Volvo B9TL Wright", "Volvo B9TL CDGE"],
+      "attributes": {
+        "body_type": "double-deck",
+        "body_maker": "Wright / CDGE",
+        "engine": "Volvo D9B-310",
+        "gearbox": "ZF EcoLife",
+        "euro_class": "Euro V"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Volvo B9TL", "Land Transport Guru", "docs 03 §4（C）"],
+        "notes": "制造商/三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_scania_k230ub",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "Scania K230UB",
+      "aliases": ["K230UB", "Scania K Series"],
+      "attributes": {
+        "body_type": "single-deck",
+        "engine": "Scania DC9",
+        "gearbox": "ZF EcoLife",
+        "euro_class": "Euro V"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Scania K series", "Land Transport Guru", "docs 03 §4（C）"],
+        "notes": "制造商/三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_mb_citaro_o530",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "MB Citaro O530",
+      "aliases": ["Citaro O530", "Citaro", "Mercedes-Benz Citaro O530", "O530"],
+      "attributes": {
+        "body_type": "single-deck",
+        "engine": "Mercedes-Benz OM 457 hLA",
+        "gearbox": "Voith DIWA",
+        "euro_class": "Euro III–V"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Mercedes-Benz Citaro", "Land Transport Guru", "docs 03 §4（C）"],
+        "notes": "制造商/三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_byd_k9",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "BYD K9",
+      "aliases": ["K9", "BYD K9 Electric", "比亚迪K9"],
+      "attributes": {
+        "body_type": "single-deck",
+        "propulsion": "battery-electric",
+        "battery_chem": "LFP（三级来源）",
+        "euro_class": "ZEV（零排放）",
+        "notes": "三级来源转述：仅 SBS 运营、以 Seletar 车厂为基地（2020 年 7 月起服务），约 20 辆。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru BYD K series fleet table", "Wikipedia BYD K series"],
+        "notes": "新加坡交通领域三级来源（B）；'仅 SBS 运营'未与 SBS 核实。"
+      }
+    },
+    {
+      "id": "asset_bus_model_byd_k9rc",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "BYD K9RC",
+      "aliases": ["K9RC", "BYD K9RC Double Decker"],
+      "attributes": {
+        "body_type": "double-deck",
+        "propulsion": "battery-electric",
+        "euro_class": "ZEV",
+        "notes": "演示/试用性质，非批量在役（负向证据）。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "LOW",
+        "basis": ["Land Transport Guru BYD K series fleet table"],
+        "notes": "三级来源（B）；演示车不列入生产车队。"
+      }
+    },
+    {
+      "id": "asset_bus_model_byd_bc12a04",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "BYD BC12A04",
+      "aliases": ["BC12A04", "比亚迪BC12A04"],
+      "attributes": {
+        "body_type": "single-deck",
+        "propulsion": "battery-electric",
+        "euro_class": "ZEV",
+        "notes": "三级来源统计约 300 辆（全运营商口径）。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru BYD fleet table"],
+        "notes": "三级来源（B）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_linkker_lm312",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "Linkker LM312",
+      "aliases": ["LM312", "Linkker"],
+      "attributes": {
+        "body_type": "single-deck",
+        "propulsion": "battery-electric",
+        "euro_class": "ZEV",
+        "notes": "三级来源统计约 20 辆（多运营商共用）。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru electric bus table"],
+        "notes": "三级来源（B）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_zhongtong_n12",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "Zhongtong N12",
+      "aliases": ["N12", "中通N12"],
+      "attributes": {
+        "body_type": "single-deck",
+        "propulsion": "battery-electric",
+        "euro_class": "ZEV",
+        "notes": "三级来源统计约 120 辆（全运营商口径）。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru electric bus table"],
+        "notes": "三级来源（B）。"
+      }
+    },
+    {
+      "id": "asset_bus_model_adl_enviro500",
+      "kind": "asset",
+      "asset_type": "bus_model",
+      "canonical": "ADL Enviro500 MMC",
+      "aliases": ["Enviro500", "Enviro500 MMC", "ADL Enviro500"],
+      "attributes": {
+        "body_type": "double-deck",
+        "euro_class": "Euro VI",
+        "notes": "三级来源统计：约 50 辆三门变体（全运营商口径）。"
+      },
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Alexander Dennis Enviro500", "Land Transport Guru"],
+        "notes": "制造商/三级来源（C）。"
+      }
+    },
+    {
+      "id": "asset_registration_byd_k9",
+      "kind": "asset",
+      "asset_type": "registration_range",
+      "canonical": "BYD K9 登记号段",
+      "aliases": [],
+      "attributes": {
+        "range": "SG3050Z–SG3069X",
+        "count": 20,
+        "notes": "来自三级来源车队表；未与 LTA 登记册交叉核对，可能不完整或过时。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru BYD K series fleet table", "docs 03 §4 登记号段（B/C, tertiary）"],
+        "notes": "登记号段为新加坡交通领域三级来源（B/C）；不作为权威登记册。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 车辆登记号段未由官方发布；VRN 是身份关键字段（wrong-identity 硬门控），号段仅作候选提示，必须由技师确认。"
+    },
+    {
+      "id": "asset_registration_man_a95",
+      "kind": "asset",
+      "asset_type": "registration_range",
+      "canonical": "MAN A95 登记号段",
+      "aliases": [],
+      "attributes": {
+        "range": "SG5921Y–SG5998B",
+        "notes": "来自三级来源车队表；未与 LTA 登记册交叉核对。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["Land Transport Guru MAN fleet table", "docs 03 §4 登记号段（B/C, tertiary）"],
+        "notes": "登记号段为新加坡交通领域三级来源（B/C）。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "同 asset_registration_byd_k9：号段仅作候选，VRN 必须由技师确认。"
+    },
+    {
+      "id": "asset_registration_volvo_b9tl",
+      "kind": "asset",
+      "asset_type": "registration_range",
+      "canonical": "Volvo B9TL 登记号段",
+      "aliases": [],
+      "attributes": {
+        "range": "见三级来源车队表（未在此逐段列出）",
+        "notes": "docs 03 §4 提及 'B9TL Wright ranges' 但未给出具体号段。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "LOW",
+        "basis": ["docs 03 §4 登记号段（B/C, tertiary）"],
+        "notes": "具体号段未在研究中记录；不作为识别依据。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "B9TL 具体登记号段未公开；此处明确不提供硬编码号段，避免把推断当作事实。"
+    },
+    {
+      "id": "asset_depot_seletar",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Seletar 车厂",
+      "aliases": ["Seletar Bus Depot", "SEDEP", "实里达车厂"],
+      "attributes": {
+        "depot_status": "operating",
+        "notes": "三级来源转述 BYD K9 以此为基地；SBS 设电动巴士卫星培训中心（AR2025）。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review（Seletar 电动巴士培训中心）", "Land Transport Guru（SEDEP）"],
+        "notes": "车厂名称为 A 级；SBS 未发布完整车厂登记册。"
+      }
+    },
+    {
+      "id": "asset_depot_ulu_pandan",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Ulu Pandan 车厂",
+      "aliases": ["Ulu Pandan Bus Depot", "乌鲁班丹车厂"],
+      "attributes": {
+        "depot_status": "operating",
+        "notes": "SBS 在此部署 AI 自动化轮胎管理（AR2025）。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review"],
+        "notes": "车厂名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_depot_hougang",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Hougang 车厂",
+      "aliases": ["Hougang Bus Depot", "后港车厂"],
+      "attributes": {"depot_status": "operating"},
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2022–2025 Operations Review（车厂名称列表）"],
+        "notes": "车厂名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_depot_bedok_north",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Bedok North 车厂",
+      "aliases": ["Bedok North Bus Depot", "勿洛北车厂"],
+      "attributes": {"depot_status": "operating"},
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2022–2025 Operations Review"],
+        "notes": "车厂名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_depot_sengkang_west",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Sengkang West 车厂",
+      "aliases": ["Sengkang West Bus Depot", "盛港西车厂"],
+      "attributes": {
+        "depot_status": "operating",
+        "notes": "新加坡首个电动巴士车厂：约 500 车位、240 个电动充电器；LTA 于 2024 年 10 月移交，SBS 接管。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review", "SBS Transit Sustainability Report 2024"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "asset_depot_soon_lee",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Soon Lee 车厂",
+      "aliases": ["Soon Lee Bus Depot", "顺里车厂"],
+      "attributes": {
+        "depot_status": "exited",
+        "notes": "2024 年因 Jurong West 巴士配套到期而退出。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "SBS 一手证据（A）；已退出车厂不应作为当前作业车厂。"
+      }
+    },
+    {
+      "id": "asset_depot_ang_mo_kio",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "Ang Mo Kio 车厂",
+      "aliases": ["Ang Mo Kio Bus Depot", "宏茂桥车厂"],
+      "attributes": {
+        "depot_status": "exited",
+        "notes": "2025 年 1 月因土地租约到期退出。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2022–2025 Operations Review"],
+        "notes": "SBS 一手证据（A）；已退出车厂不应作为当前作业车厂。"
+      }
+    },
+    {
+      "id": "asset_depot_registry_note",
+      "kind": "asset",
+      "asset_type": "depot",
+      "canonical": "车厂登记册说明",
+      "aliases": [],
+      "attributes": {
+        "notes": "SBS 公开称'七个巴士车厂'（Green Efforts），但未发布单一完整登记册；上述名单由年报/新闻/巴士站名拼合。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Green Efforts（七个车厂）", "SBS Transit AR2022–2025"],
+        "notes": "'七个车厂'为 A 级；完整登记册 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 未发布完整车厂登记册；asset.depot 字段需要车厂清单做校验，但清单完整性必须由 SBS 确认。"
+    },
+    {
+      "id": "asset_package_bedok",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Bedok 巴士配套",
+      "aliases": ["Bedok Bus Package"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（8 个 BCM 配套）", "LTA Bus Contracting Model"],
+        "notes": "配套名称为 A/B 级。"
+      }
+    },
+    {
+      "id": "asset_package_bishan_toa_payoh",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Bishan-Toa Payoh 巴士配套",
+      "aliases": ["Bishan–Toa Payoh Bus Package"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_clementi",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Clementi 巴士配套",
+      "aliases": ["Clementi Bus Package", "金文泰巴士配套"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_serangoon_eunos",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Serangoon-Eunos 巴士配套",
+      "aliases": ["Serangoon–Eunos Bus Package", "实龙岗-友诺士巴士配套"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_sengkang_hougang",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Sengkang-Hougang 巴士配套",
+      "aliases": ["Sengkang–Hougang Bus Package", "盛港-后港巴士配套"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_tampines",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Tampines 巴士配套",
+      "aliases": ["Tampines Bus Package", "淡滨尼巴士配套"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_seletar",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Seletar 巴士配套",
+      "aliases": ["Seletar Bus Package", "实里达巴士配套"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_bukit_merah",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Bukit Merah 巴士配套",
+      "aliases": ["Bukit Merah Bus Package", "红山巴士配套"],
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "配套名称为 A 级。"
+      }
+    },
+    {
+      "id": "asset_package_jurong_west",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "Jurong West 巴士配套",
+      "aliases": ["Jurong West Bus Package", "裕廊西巴士配套"],
+      "attributes": {
+        "package_status": "expired_for_sbs",
+        "notes": "到期后 SBS 退出 Soon Lee 车厂。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review"],
+        "notes": "SBS 一手证据（A）；配套状态随时间变化。"
+      }
+    },
+    {
+      "id": "asset_package_note",
+      "kind": "asset",
+      "asset_type": "lta_bus_package",
+      "canonical": "巴士配套说明",
+      "aliases": [],
+      "attributes": {
+        "notes": "SBS 运营 14 个 LTA 巴士配套中的 8 个（BCM，市场份额 54.3%）；配套与车厂/线路的映射未公开。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.2", "LTA Bus Contracting Model（B）"],
+        "notes": "8/14 配套与份额为 A/B 级；配套↔车厂↔线路映射 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "配套与车厂/线路的对应关系未公开；asset.package 字段需要配套清单校验，但映射关系必须由 SBS 确认。"
+    },
+    {
+      "id": "asset_route_examples",
+      "kind": "asset",
+      "asset_type": "route_service",
+      "canonical": "巴士线路号示例",
+      "aliases": [],
+      "attributes": {
+        "examples": ["146", "296", "298X", "405", "660M", "675", "676", "677", "CDS 675"],
+        "suffix_conventions": ["A", "B", "G", "W", "M", "T", "e"],
+        "notes": "后缀用于支线/快线/夜间等变体；仅作示例，非完整线路清单。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit NextBus", "SBS Transit AR2024 Operations Review"],
+        "notes": "线路号为 SBS 一手公开信息（A）。"
+      }
+    },
+    {
+      "id": "asset_bus_stop_code",
+      "kind": "asset",
+      "asset_type": "bus_stop_code",
+      "canonical": "巴士站码",
+      "aliases": [],
+      "attributes": {
+        "format": "5 位数字",
+        "examples": ["52039", "22191"],
+        "notes": "示例来自 SBS NextBus 下拉清单。"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit NextBus"],
+        "notes": "SBS 一手公开信息（A）；完整站码登记册未检索。"
+      }
+    },
+    {
+      "id": "asset_vrn_convention",
+      "kind": "asset",
+      "asset_type": "identifier_convention",
+      "canonical": "车辆登记号（VRN）",
+      "aliases": ["registration number", "车牌", "注册号码", "VRN"],
+      "attributes": {
+        "notes": "VRN 为法定车辆身份；'Omnibus'（公共巴士）登记类别仅限公共运输运营商注册。SBS 内部车队编号惯例未公开。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA OneMotoring — Bus registration"],
+        "notes": "VRN/Omnibus 类别为 B；内部车队编号 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 内部车队编号（internal_fleet_no）惯例未公开；05 事实模式中该字段 REQUIRES SBS CONFIRMATION，不能编造编号格式。"
+    },
+    {
+      "id": "asset_fleet_overview_2024",
+      "kind": "asset",
+      "asset_type": "fleet_overview",
+      "canonical": "SBS 巴士车队概况（FY2024）",
+      "aliases": [],
+      "attributes": {
+        "fleet_total": 3329,
+        "deck_mix": "约 61% 单层 / 39% 双层 / 10 辆铰接",
+        "euro_mix": "约 10 辆中 9 辆达 Euro 5 或以上",
+        "cleaner_energy": "110 辆（85 电动 + 25 柴油混动）",
+        "snapshot": "FY2024 快照，随时间变化"
+      },
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.3-4"],
+        "notes": "SBS 一手证据（A）；为年度快照，不作恒定事实。"
+      }
+    },
+    {
+      "id": "asset_service_qos_metrics",
+      "kind": "asset",
+      "asset_type": "regulatory_metric",
+      "canonical": "BCM 服务质量指标",
+      "aliases": ["QoS", "Quality-of-Service", "BSRF", "Excess Wait Time", "On-Time Adherence"],
+      "attributes": {
+        "notes": "BCM QoS：每月每条服务完成计划里程 ≥96%；安全指标：每月每 10 万 bus-km 事故 <0.50。"
+      },
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA Bus Contracting Model page"],
+        "notes": "LTA 公开指标（B）。"
+      }
+    }
+  ]
+}

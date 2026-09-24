@@ -1,0 +1,583 @@
+{
+  "schema_version": "sbs-rail-terms.v1",
+  "knowledge_version": "2026-09-24",
+  "scope": "SBS_RAIL",
+  "records": [
+    {
+      "id": "term_line_nel",
+      "kind": "term",
+      "canonical": "东北线",
+      "aliases": ["NEL", "North East Line", "North-East Line", "东北地铁线"],
+      "risk": "LOW",
+      "description": "新加坡地铁东北线，SBS 运营；世界首条全自动无人驾驶重轨线（LTA）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit 官网/AR2024", "LTA North East Line page"],
+        "notes": "线路事实为 A/B。"
+      }
+    },
+    {
+      "id": "term_line_dtl",
+      "kind": "term",
+      "canonical": "市区线",
+      "aliases": ["DTL", "Downtown Line", "市区地铁线"],
+      "risk": "LOW",
+      "description": "新加坡地铁市区线，SBS 运营；最长地下无人驾驶 MRT 线（LTA）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit 官网/AR2024", "LTA Downtown Line page"],
+        "notes": "线路事实为 A/B。"
+      }
+    },
+    {
+      "id": "term_line_splrt",
+      "kind": "term",
+      "canonical": "盛港榜鹅轻轨",
+      "aliases": ["SPLRT", "Sengkang LRT", "Punggol LRT", "Sengkang–Punggol LRT", "盛港轻轨", "榜鹅轻轨"],
+      "risk": "LOW",
+      "description": "盛港-榜鹅轻轨（Sengkang-Punggol LRT），SBS 运营，全自动无人驾驶。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit 官网/AR2024", "LTA Sengkang-Punggol LRT page"],
+        "notes": "线路事实为 A/B。"
+      }
+    },
+    {
+      "id": "term_line_jrl",
+      "kind": "term",
+      "canonical": "裕廊区域线",
+      "aliases": ["JRL", "Jurong Region Line", "裕廊线"],
+      "risk": "LOW",
+      "description": "裕廊区域线，2024 年 11 月授予 Singapore One Rail（SBS Transit + RATP Dev）联营；24 km、24 站，2027 年起分段开通。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.4"],
+        "notes": "SBS 一手证据（A）；开通时间未到，线路尚未运营。"
+      }
+    },
+    {
+      "id": "term_sig_cbtc",
+      "kind": "term",
+      "canonical": "CBTC",
+      "aliases": ["communications-based train control", "基于通信的列车控制", "移动闭塞"],
+      "risk": "LOW",
+      "description": "基于通信的列车控制系统（CBTC）术语。NEL 用 Alstom Urbalis 300 CBTC，DTL 用 Siemens Trainguard Sirius CBTC。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA NEL/DTL pages", "SBS Transit AR2024（Trainguard Sirius）"],
+        "notes": "信号术语为 A/B。"
+      }
+    },
+    {
+      "id": "term_sig_urbalis",
+      "kind": "term",
+      "canonical": "Urbalis 300",
+      "aliases": ["Alstom Urbalis 300", "URBALIS", "阿尔斯通Urbalis"],
+      "risk": "LOW",
+      "description": "NEL 的 Alstom Urbalis 300 CBTC 信号系统。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line page", "docs 04 修正说明（A/B）"],
+        "notes": "信号系统归属为 A/B。"
+      }
+    },
+    {
+      "id": "term_sig_trainguard",
+      "kind": "term",
+      "canonical": "Trainguard Sirius",
+      "aliases": ["Siemens Trainguard Sirius", "西门子Trainguard", "Trainguard", "Sirius CBTC"],
+      "risk": "LOW",
+      "description": "DTL 的 Siemens Trainguard Sirius CBTC 信号系统，由西门子多年代维保（LTSS）支持。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（Trainguard Sirius LTSS）"],
+        "notes": "SBS 一手证据（A）+ LTA（B）。"
+      }
+    },
+    {
+      "id": "term_sig_apm_fixed_block",
+      "kind": "term",
+      "canonical": "APM 固定闭塞",
+      "aliases": ["Kyosan APM", "fixed-block signalling", "固定闭塞信号", "Automated People Mover fixed block", "APM"],
+      "risk": "LOW",
+      "description": "SPLRT 使用的 Kyosan Electric APM 固定闭塞信号系统。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA Sengkang-Punggol LRT page", "Wikipedia Sengkang LRT（Kyosan, 三级）"],
+        "notes": "信号系统归属为 B（含三级来源）；非 Thales SelTrac（04 修正）。"
+      }
+    },
+    {
+      "id": "term_sig_goa4",
+      "kind": "term",
+      "canonical": "GoA4",
+      "aliases": ["Grade of Automation 4", "UTO", "unattended train operation", "无人驾驶", "全自动无人驾驶", "driverless"],
+      "risk": "LOW",
+      "description": "自动驾驶等级 4（全自动无人驾驶）。NEL/DTL/SPLRT 均为无人驾驶。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA NEL/DTL/SPLRT pages"],
+        "notes": "LTA 公开描述（B）。"
+      }
+    },
+    {
+      "id": "term_subsys_traction",
+      "kind": "term",
+      "canonical": "牵引系统",
+      "aliases": ["traction", "牵引", "牵引传动", "ONIX", "OPTONIX", "MITRAC", "牵引电机"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_traction_1",
+          "source": "迁引",
+          "target": "牵引",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "MEASUREMENT",
+      "description": "列车牵引系统。NEL 车型用 Alstom ONIX/OPTONIX 牵引（C），DTL C951 用 Bombardier MITRAC 1000 IGBT-VVVF（B/C）。翻新车加装牵引相关状态监测（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（翻新车状态监测, A）", "LTA C851E 发布（OPTONIX, B）", "Wikipedia（ONIX/OPTONIX/MITRAC, C）"],
+        "notes": "子系统术语为 A/B；OEM 牵引系列为 C。ASR 规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_subsys_bogie",
+      "kind": "term",
+      "canonical": "转向架",
+      "aliases": ["bogie", "转向架系统", "B25", "FLEXX Metro 3100", "bogie frame"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_bogie_1",
+          "source": "转向家",
+          "target": "转向架",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "LOW",
+      "description": "列车转向架。C951 用 FLEXX Metro 3100（C），C751A 用 B25（C）。轮对/转向架磨耗阈值为可比标准（RSSB GMRT2466, C），SBS 阈值未公开。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["Wikipedia Bombardier Movia C951（FLEXX Metro 3100, C）", "RSSB GMRT2466（C）"],
+        "notes": "转向架部件知识为 C；SBS 阈值未公开。ASR 规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_subsys_brake",
+      "kind": "term",
+      "canonical": "制动系统",
+      "aliases": ["brake", "刹车", "列车制动", "闸瓦", "brake system"],
+      "risk": "LOW",
+      "description": "列车制动系统。制动磨耗阈值（mm）未公开（可比 RSSB GMRT2466, C）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["RSSB GMRT2466（C）", "EN 15380（C）"],
+        "notes": "制动子系统为可比行业（C）；SBS 阈值未公开。"
+      }
+    },
+    {
+      "id": "term_subsys_door",
+      "kind": "term",
+      "canonical": "车门",
+      "aliases": ["train door", "车门系统", "列车车门", "door system", "屏蔽门"],
+      "risk": "LOW",
+      "description": "列车车门（及站台屏蔽门语境）。SBS 翻新车更换内饰但车门子系统为通用列车子系统（C）。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["EN 15380 功能组（C）", "SBS AR2024（翻新项目背景, A）"],
+        "notes": "车门子系统为可比行业（C）。"
+      }
+    },
+    {
+      "id": "term_subsys_pantograph",
+      "kind": "term",
+      "canonical": "受电弓",
+      "aliases": ["pantograph", "集电弓", "弓网"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_pantograph_1",
+          "source": "输电弓",
+          "target": "受电弓",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "SAFETY",
+      "description": "架空接触网（OCS）取电的受电弓。NEL 为新加坡唯一 1,500 V DC 架空接触网线路（A/B），使用受电弓；DTL/SPLRT 为第三轨（集电靴）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（OCS, B）", "SBS AR2024（Rail Rover 第三轨校准语境, A）"],
+        "notes": "受电弓/OCS 归属为 A/B。ASR 规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_subsys_collector_shoe",
+      "kind": "term",
+      "canonical": "集电靴",
+      "aliases": ["collector shoe", "受流器", "第三轨受流靴", "集电滑块"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_collector_shoe_1",
+          "source": "接电靴",
+          "target": "集电靴",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "SAFETY",
+      "description": "第三轨供电的集电靴/受流器。DTL 与 SK/PG LRT 为 750 V DC 第三轨（A/B）；Rail Rover 测量第三轨对中（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS AR2024（Rail Rover 第三轨对中, A）", "LTA DTL/SPLRT（750V DC 第三轨, B）"],
+        "notes": "集电靴/第三轨为 A/B。ASR 规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_subsys_point_machine",
+      "kind": "term",
+      "canonical": "道岔机",
+      "aliases": ["point machine", "转辙机", "道岔", "MCEM91", "switch machine"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_point_machine_1",
+          "source": "倒查机",
+          "target": "道岔机",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "SAFETY",
+      "description": "道岔转辙机。SBS 在 NEL 车厂设 MCEM91 道岔机维护中心（本地化维护/维修/大修，A）。道岔为安全关键信号设备。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（MCEM91 维护中心）"],
+        "notes": "SBS 一手证据（A）。ASR 规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_subsys_track",
+      "kind": "term",
+      "canonical": "轨道",
+      "aliases": ["track", "钢轨", "rail", "轨枕", "道床", "扣件"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_track_1",
+          "source": "刚轨",
+          "target": "钢轨",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "近音 ASR 误识别"
+        }
+      ],
+      "risk": "LOW",
+      "description": "轨道/钢轨。Rail Rover 用超声波检测钢轨内部缺陷、激光测量轨距几何（A）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review（Rail Rover）"],
+        "notes": "轨道检测能力为 A；具体缺陷阈值未公开。ASR 规则为推断（D）。"
+      }
+    },
+    {
+      "id": "term_subsys_third_rail",
+      "kind": "term",
+      "canonical": "第三轨",
+      "aliases": ["third rail", "接触轨", "导电轨"],
+      "risk": "SAFETY",
+      "description": "第三轨供电系统。DTL 与 SK/PG LRT 为 750 V DC 第三轨（A/B）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS AR2024（Rail Rover 第三轨对中, A）", "LTA DTL/SPLRT（750V DC, B）"],
+        "notes": "第三轨供电为 A/B。"
+      }
+    },
+    {
+      "id": "term_subsys_ocs",
+      "kind": "term",
+      "canonical": "架空接触网",
+      "aliases": ["OCS", "overhead catenary system", "架空线", "接触网", "catenary"],
+      "risk": "SAFETY",
+      "description": "架空接触网系统。NEL 为 1,500 V DC 架空接触网，新加坡唯一 OCS MRT 线（A/B）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（OCS, B）", "docs 04 修正说明"],
+        "notes": "OCS/1,500V 为 A/B。"
+      }
+    },
+    {
+      "id": "term_stock_c751a",
+      "kind": "term",
+      "canonical": "Alstom Metropolis C751A",
+      "aliases": ["C751A", "Metropolis C751A", "阿尔斯通C751A", "C751A 系列"],
+      "risk": "LOW",
+      "description": "NEL 第一代列车 Alstom Metropolis C751A（25 列 6 节编组，ONIX 1500 牵引）。正进行中期翻新（16 列已回役，余下预计 2026 年前完成）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（车型, B）", "SBS AR2024（翻新进展, A）", "Wikipedia（编组/牵引, C）"],
+        "notes": "车型为 A/B；编组细节为 C。"
+      }
+    },
+    {
+      "id": "term_stock_c751c",
+      "kind": "term",
+      "canonical": "Alstom Metropolis C751C",
+      "aliases": ["C751C", "Metropolis C751C", "阿尔斯通C751C"],
+      "risk": "LOW",
+      "description": "NEL 列车 Alstom Metropolis C751C（18 列 6 节编组，OPTONIX 牵引）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA North East Line（车型, B）", "Wikipedia（编组, C）"],
+        "notes": "车型为 A/B；编组细节为 C。"
+      }
+    },
+    {
+      "id": "term_stock_c851e",
+      "kind": "term",
+      "canonical": "Alstom Metropolis C851E",
+      "aliases": ["C851E", "Metropolis C851E", "阿尔斯通C851E"],
+      "risk": "LOW",
+      "description": "NEL 新一代列车 Alstom Metropolis C851E（6 列 6 节编组，OPTONIX 牵引；全部 6 列带状态监测，其中 2 列带自动轨道检测）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA news release 27 Jul 2023（C851E）", "SBS AR2024"],
+        "notes": "C851E 为 LTA/SBS 一手（A/B）。"
+      }
+    },
+    {
+      "id": "term_stock_c951",
+      "kind": "term",
+      "canonical": "Movia C951",
+      "aliases": ["C951", "Bombardier Movia C951", "C951A", "Movia C951A", "庞巴迪Movia C951"],
+      "risk": "LOW",
+      "description": "DTL 列车 Bombardier/Alstom Movia C951/C951A（92 列 3 节编组，MITRAC 1000 IGBT-VVVF、永磁同步电机，FLEXX Metro 3100 转向架）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["LTA Downtown Line（车型, B）", "SBS AR2024（C951 翻新/维护语境, A）", "Wikipedia（C951, C）"],
+        "notes": "车型为 A/B；编组/牵引细节为 C。"
+      }
+    },
+    {
+      "id": "term_stock_crystal_mover",
+      "kind": "term",
+      "canonical": "Crystal Mover",
+      "aliases": ["Crystal Mover", "C810", "C810A", "C810D", "MHI Crystal Mover", "三菱Crystal Mover", "三菱重工Crystal Mover"],
+      "risk": "LOW",
+      "description": "SPLRT 用三菱重工 Crystal Mover 轻轨列车（C810 单节、C810A/C810D 双节；C810D 至 2028 年替换第一代）。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "MEDIUM",
+        "basis": ["LTA Sengkang-Punggol LRT（车型, B）", "Wikipedia Crystal Mover（编组, C）"],
+        "notes": "车型为 B；编组/替换计划为 C（三级）。"
+      }
+    },
+    {
+      "id": "term_mkbf",
+      "kind": "term",
+      "canonical": "MKBF",
+      "aliases": ["Mean Kilometres Between Failure", "平均故障间隔里程", "平均两次故障间行驶里程", "Mean Distance Travelled Between Delays"],
+      "risk": "MEASUREMENT",
+      "description": "LTA 可靠性指标：列车发生延误超过 5 分钟之间行驶的平均里程（MRT 用 train-km，LRT 用 car-km）。SBS 年报使用该指标。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["LTA Rail Service Reliability PDF（定义）", "SBS Transit AR2024（数值）"],
+        "notes": "MKBF 定义/数值为 A/B。"
+      }
+    },
+    {
+      "id": "term_maint_type_corrective",
+      "kind": "term",
+      "canonical": "纠正性维护",
+      "aliases": ["corrective maintenance", "故障维修", "corrective"],
+      "risk": "LOW",
+      "description": "按工单指示与程序进行的纠正性维护（SBS Rail Engineering 手册用语）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Rail Engineering e-brochure"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_maint_type_preventive",
+      "kind": "term",
+      "canonical": "预防性维护",
+      "aliases": ["preventive maintenance", "定期保养", "预防维护"],
+      "risk": "LOW",
+      "description": "按工单指示与程序进行的预防性维护（SBS Rail Engineering 手册用语）。间隔值未公开。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit Rail Engineering e-brochure"],
+        "notes": "SBS 一手证据（A）；间隔值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 铁路预防性维护的日/公里间隔值未公开；work.type 需要该类型词分类，但间隔值绝不能编造。"
+    },
+    {
+      "id": "term_maint_type_condition_based",
+      "kind": "term",
+      "canonical": "状态性维护",
+      "aliases": ["condition-based maintenance", "predictive maintenance", "视情维护", "状态监测"],
+      "risk": "LOW",
+      "description": "基于车载状态监测/MEC 触发的维护（翻新车状态监测、Gali Batu MEC 监测道岔机与集水泵）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024/AR2025（状态监测、MEC）"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_maint_type_midlife_refurb",
+      "kind": "term",
+      "canonical": "中期翻新",
+      "aliases": ["mid-life refurbishment", "中期改造", "翻新", "refurbishment"],
+      "risk": "LOW",
+      "description": "列车中期翻新项目（如 NEL C751A 全部 25 列至 2026 年完成翻新，加装状态监测、新座椅/地板/HVAC）。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.6"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_return_to_service",
+      "kind": "term",
+      "canonical": "恢复运营",
+      "aliases": ["return to passenger service", "return to service", "回役", "恢复载客服务"],
+      "risk": "COMPLETION",
+      "description": "列车翻新/维修后恢复载客服务的状态。必须由技师/运营方确认，绝不能由知识推断。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024（翻新车'回到载客服务'）"],
+        "notes": "状态存在性为 A；具体回役标准 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 列车回役标准（谁确认、依据什么）未公开；return-to-service 为硬门控字段，标准值绝不能编造。"
+    },
+    {
+      "id": "term_negation_not_returned",
+      "kind": "term",
+      "canonical": "未恢复服务",
+      "aliases": ["not returned to service", "未回役", "未恢复运营", "没有恢复载客"],
+      "risk": "NEGATION",
+      "description": "否定语义：'未恢复服务/未回役'不得被删除、反转或补全为'已恢复'。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["V1 NEGATION 风险标签（A, 仓库基线）", "SBS AR2024 回役语境（A）"],
+        "notes": "否定语义硬门控沿用 V1 基线（A）。"
+      }
+    },
+    {
+      "id": "term_tams",
+      "kind": "term",
+      "canonical": "TAMS",
+      "aliases": ["Track Access Management System", "轨道准入管理系统", "轨道作业准入"],
+      "risk": "SAFETY",
+      "description": "轨道作业准入管理系统（请求→批准）。DTL 于 2023 年上线，正在扩展至 NEL/SPLRT/JRL。轨道作业前必须记录经授权的准入。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2023/AR2024 Operations Review"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_vanguard",
+      "kind": "term",
+      "canonical": "VAnGuard",
+      "aliases": ["VAnGuard", "track intrusion detection", "轨道入侵检测", "入侵检测系统"],
+      "risk": "SAFETY",
+      "description": "轨道入侵检测系统（覆盖 29 个轻轨站；检测到入侵时 OCC 切断牵引电源）。入侵事件必须作为事件报告，不得掩盖。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.8-10"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_power_fault_severity",
+      "kind": "term",
+      "canonical": "牵引供电故障",
+      "aliases": ["power fault", "供电故障", "substation fault", "牵引电源", "traction power"],
+      "risk": "SAFETY",
+      "description": "牵引供电/变电站故障（2025 年 8 月 NEL+SPLRT 大范围供电故障的根因为故障电压互感器+开关柜组件）。供电状态为安全关键。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2025 Operations Review", "LTA Rail Reliability Taskforce"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_inspection_tech_rail_rover",
+      "kind": "term",
+      "canonical": "Rail Rover",
+      "aliases": ["Rail Rover", "Multi-Function Track Trolley", "多功能轨道小车", "轨道检测车"],
+      "risk": "MEASUREMENT",
+      "description": "DTL 部署的轨道检测装备：超声波钢轨内部缺陷、激光轨距几何、第三轨对中、隧道结构健康与渗水检测。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit AR2024 Operations Review p.6"],
+        "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_station_code",
+      "kind": "term",
+      "canonical": "车站代码",
+      "aliases": ["station code", "NE1", "DT1", "站号"],
+      "risk": "IDENTITY",
+      "description": "车站代码（如 NE1–NE17、DT1–DT35、SKG/PG 系列）。车站代码为身份关键标识，识别错误属 wrong-identity 硬错误。",
+      "evidence": {
+        "evidence_level": "B",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit / LTA 系统图（NE/DT/SK/PG 代码惯例）"],
+        "notes": "车站代码为公开惯例（A/B）；完整代码字典未检索。"
+      }
+    },
+    {
+      "id": "term_maximo",
+      "kind": "term",
+      "canonical": "Maximo",
+      "aliases": ["IBM Maximo", "Maximo Application Suite", "资产管理系统"],
+      "risk": "LOW",
+      "description": "SBS 与 IBM 合作的铁路资产管理平台（Maximo Application Suite + 生成式 AI）。涉及该系统的数据必须来自系统记录。",
+      "evidence": {
+        "evidence_level": "A",
+        "confidence": "HIGH",
+        "basis": ["SBS Transit + IBM 新闻稿", "SBS Transit AR2024"],
+        "notes": "SBS 一手证据（A）；字段级 schema 未公开。"
+      }
+    }
+  ]
+}
