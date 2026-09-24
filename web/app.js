@@ -342,7 +342,7 @@ function renderCorrectionReview(normalization) {
 }
 
 function renderDraft(validation) {
-  el['report-output'].replaceChildren(...currentDraft.sections.map((section) => {
+  const blocks = currentDraft.sections.map((section) => {
     const block = node('section', 'report-section-block');
     block.append(node('h3', '', section.title));
     for (const item of section.items) {
@@ -352,7 +352,23 @@ function renderDraft(validation) {
       block.append(line);
     }
     return block;
-  }));
+  });
+  const citations = currentDraft.knowledge_context?.citations || [];
+  if (citations.length) {
+    const evidence = node('aside', 'rag-evidence');
+    evidence.append(node('h3', '', 'RAG 检索依据（仅供参考）'));
+    evidence.append(node('p', 'placeholder', '以下内容用于提示报告字段和复核重点，不会自动成为本次维修事实。'));
+    const list = node('ol', 'rag-evidence-list');
+    for (const citation of citations) {
+      const item = node('li', '');
+      item.append(node('strong', '', citation.title || citation.document_id));
+      item.append(node('span', 'source-tag', `${citation.section || '正文'} · ${citation.source || citation.document_id} · ${citation.chunk_id}`));
+      list.append(item);
+    }
+    evidence.append(list);
+    blocks.push(evidence);
+  }
+  el['report-output'].replaceChildren(...blocks);
   const reviewable = validation.data.can_enter_technician_review;
   el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
   el['validator-banner'].textContent = reviewable

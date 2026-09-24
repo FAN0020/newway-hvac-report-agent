@@ -26,6 +26,7 @@ import { saveConfirmedReport } from './tools/save-confirmed-report.js';
 import { toolEnvelope } from './tools/tool-envelope.js';
 import { validateReportDraft } from './tools/validate-report-draft.js';
 import { validateReportInput } from './tools/validate-report-input.js';
+import { retrieveFieldServiceKnowledge } from './tools/rag-knowledge.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -179,6 +180,24 @@ async function handleApi(request, response, url, traceId, config) {
     return;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/rag/retrieve') {
+    const input = await readJson(request);
+    let facts = [];
+    if (input.facts_receipt_id) {
+      const factsReceipt = await artifacts.readFacts(input.facts_receipt_id);
+      facts = factsReceipt.facts;
+    }
+    writeJson(response, 200, await retrieveFieldServiceKnowledge({
+      query: input.query,
+      facts,
+      domains: input.domains,
+      documentIds: input.document_ids,
+      topK: input.top_k,
+      traceId,
+    }));
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/facts/extract') {
     const input = await readJson(request);
     if (Object.hasOwn(input, 'transcript_artifact_id') || Object.hasOwn(input, 'transcript')
@@ -226,7 +245,18 @@ async function handleApi(request, response, url, traceId, config) {
   if (request.method === 'POST' && url.pathname === '/api/reports/plan') {
     const input = await readJson(request);
     const factsReceipt = await artifacts.readFacts(input.facts_receipt_id);
-    writeJson(response, 200, await planReportSections({ facts: factsReceipt.facts, serviceType: input.service_type, traceId }));
+    const retrieval = await retrieveFieldServiceKnowledge({
+      facts: factsReceipt.facts,
+      domains: input.domains,
+      topK: 5,
+      traceId,
+    });
+    const plan = await planReportSections({ facts: factsReceipt.facts, serviceType: input.service_type, traceId });
+    if (plan.status === 'PASS' && retrieval.status === 'PASS') {
+      plan.data.retrieved_evidence = retrieval.data.results;
+      plan.data.knowledge_version = retrieval.data.knowledge_version;
+    }
+    writeJson(response, 200, plan);
     return;
   }
 

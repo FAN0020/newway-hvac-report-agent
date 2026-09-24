@@ -16,6 +16,8 @@ test('technician UI and server expose every stage needed for the complete workfl
     assert.match(server, new RegExp(route.replaceAll('/', '\\/')));
     assert.match(client, new RegExp(route.replaceAll('/', '\\/')));
   }
+  assert.match(server, /\/api\/rag\/retrieve/);
+  assert.match(server, /retrieveFieldServiceKnowledge/);
   assert.match(server, /readFacts\(input\.facts_receipt_id\)/);
   assert.match(client, /facts_receipt_id: currentFactsReceiptId/);
   assert.doesNotMatch(server, /validateReportDraft\(\{ draft: input\.draft, facts: input\.facts/);

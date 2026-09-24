@@ -18,6 +18,38 @@ This repository is a local-first hackathon MVP with an explicit, token-protected
 14. reject unconfirmed or changed reports, then idempotently save confirmed JSON and export copyable text under `data/reports/`.
 15. keep `npm start` on loopback by default, while `npm run demo` fails closed unless a strong temporary token protects every API request.
 
+## Local RAG knowledge layer
+
+The report workflow now retrieves relevant excerpts from the versioned field-service corpus before report planning. Retrieval is local and deterministic: English terms plus Chinese character and bigram tokens are scored across bounded document chunks. Every result carries a stable `chunk_id`, document ID, source name, source hash, and score.
+
+RAG evidence is deliberately **reference-only**. It may help select fields and tell the technician what to verify, but it is never promoted into a completed service fact. Report claims still require transcript spans or manual technician input, and the UI displays the retrieved citations separately from the report facts.
+
+The included index contains five initial sources across HVAC, power/energy, and petrochemical maintenance. To rebuild an index from UTF-8 `.txt` sources:
+
+```bash
+npm run rag:build -- path/to/manifest.json data/knowledge/field-service-rag.v1.json
+```
+
+The manifest format is:
+
+```json
+{
+  "knowledge_version": "2026-09-24",
+  "max_chunk_chars": 900,
+  "sources": [{
+    "document_id": "stable-document-id",
+    "domain": "power_energy",
+    "title": "Document title",
+    "path": "relative/source.txt",
+    "source": "Original filename.docx",
+    "tags": ["inspection"],
+    "report_sections": ["inspection_findings", "test_results"]
+  }]
+}
+```
+
+`POST /api/rag/retrieve` accepts a free-text query or a server-side `facts_receipt_id`, optional `domains`/`document_ids`, and `top_k` from 1 to 8. `/api/reports/plan` also performs retrieval automatically from the verified facts receipt and carries citations into the draft's `knowledge_context`.
+
 ## Run
 
 Requires Node.js 20 or newer. There are no npm runtime dependencies.

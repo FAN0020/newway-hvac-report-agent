@@ -90,6 +90,21 @@ export async function generateReportDraft({ facts = [], plan, template, provider
     template_version: template.template_version,
     disclaimer: { type: 'template_text', text: template.disclaimer },
     sections,
+    knowledge_context: {
+      knowledge_version: plan.knowledge_version || null,
+      citations: Array.isArray(plan.retrieved_evidence)
+        ? plan.retrieved_evidence.slice(0, 8).map((item) => ({
+            chunk_id: item.chunk_id,
+            document_id: item.document_id,
+            title: item.title,
+            section: item.section,
+            source: item.source,
+            source_hash: item.source_hash,
+            score: item.score,
+          }))
+        : [],
+      usage: 'REFERENCE_ONLY_NOT_SERVICE_FACTS',
+    },
     generation: { deterministic_claim_text: true, provider: providerMetadata },
     confirmation: { status: 'NOT_CONFIRMED' },
   };

@@ -26,3 +26,4 @@ venv/
 .env.*
 !.env.example
 .DS_Store
+.local-rag-sources/
