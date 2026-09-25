@@ -72,6 +72,71 @@ test('a critical terminology candidate creates one Resolve action, not duplicate
   assert.equal(queue[0].type, 'CRITICAL_VALUE');
 });
 
+test('ResolveQueue prioritizes critical values and conflicts ahead of missing fields and terminology', () => {
+  const queue = runtime.createResolveQueue({
+    correctionCandidates: [
+      { candidate_id: 'term', field: 'transcript', status: 'PROPOSED' },
+      { candidate_id: 'critical', field: 'parts_used', status: 'NEEDS_TECHNICIAN_CONFIRMATION' },
+    ],
+    missingFields: ['work_performed'],
+    conflicts: [{ field: 'completion.state', values: ['completed', 'deferred'] }],
+  });
+  assert.deepEqual(queue.map((item) => item.type), ['CRITICAL_VALUE', 'CONFLICT', 'MISSING_FIELD', 'TERMINOLOGY']);
+});
+
+test('Resolve progress exposes one focal unresolved item and keeps not-provided visibly pending', () => {
+  const session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus' });
+  session.unresolvedItems = [
+    { id: 'critical_completion', type: 'CRITICAL_VALUE', fieldId: 'completion.state', question: 'Confirm completion', answer: null },
+    { id: 'missing_work', type: 'MISSING_FIELD', fieldId: 'work_performed', question: 'Provide work', answer: null },
+  ];
+  session.resolveFlow = { total: 2, completed: 0 };
+
+  assert.equal(runtime.resolveProgress(session).current.id, 'critical_completion');
+  const next = runtime.applyResolveDecision(session, session.unresolvedItems[0], { decision: 'NOT_PROVIDED' });
+  const progress = runtime.resolveProgress(next);
+  assert.equal(progress.current.id, 'missing_work');
+  assert.equal(progress.completed, 1);
+  assert.equal(progress.remaining, 1);
+  assert.deepEqual(next.resolveAnswers.critical_completion, { decision: 'NOT_PROVIDED', value: null });
+  assert.equal(next.unresolvedItems[0].answer.decision, 'NOT_PROVIDED');
+  assert.equal(runtime.resolveAttentionCount(next), 2, 'pending required information remains an attention item');
+});
+
+test('confirmed Resolve decisions update state while retaining session identity provenance', () => {
+  let session = runtime.createReportSession({
+    reportType: 'sbs_bus_maintenance',
+    id: 'session_bus',
+    jobContext: { technicianId: 'TECH-1', technicianName: 'Alex' },
+  });
+  session = runtime.mapFactsToStructuredState(session, []);
+  const item = { id: 'missing_work', type: 'MISSING_FIELD', fieldId: 'work_performed', targetField: 'work_performed', question: 'Provide work', answer: null };
+  session.unresolvedItems = [item];
+  session.resolveFlow = { total: 1, completed: 0 };
+  const next = runtime.applyResolveDecision(session, item, { decision: 'CONFIRM', value: 'Replaced the actuator' });
+
+  assert.equal(next.structuredState.work_performed, 'Replaced the actuator');
+  assert.equal(next.resolveFlow.completed, 1);
+  const fact = next.facts.find((candidate) => candidate.field === 'work_performed');
+  assert.equal(fact.provenance.technician_id, 'TECH-1');
+  assert.equal(next.unresolvedItems.some((candidate) => candidate.id === item.id), false);
+});
+
+test('conflict resolution retains the candidate evidence set in technician provenance', () => {
+  let session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus', jobContext: { technicianId: 'TECH-1', technicianName: 'Alex' } });
+  session = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'complete_1', field: 'completion.state', value: 'completed', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:1'] },
+    { fact_id: 'complete_2', field: 'completion.state', value: 'deferred', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:2'] },
+  ]);
+  const item = runtime.createResolveQueue(session).find((candidate) => candidate.type === 'CONFLICT');
+  session.unresolvedItems = [item];
+  session.resolveFlow = { total: 1, completed: 0 };
+  const next = runtime.applyResolveDecision(session, item, { decision: 'CONFIRM', value: 'deferred' });
+  const fact = next.facts.find((candidate) => candidate.field === 'completion.state');
+  assert.deepEqual(fact.provenance.candidate_fact_ids, ['complete_1', 'complete_2']);
+  assert.deepEqual(fact.provenance.evidence, ['transcript:1', 'transcript:2']);
+});
+
 test('session runtime scopes transient input and rejects stale async completions', () => {
   assert.equal(typeof runtime.createSessionRuntime, 'function');
   const controller = runtime.createSessionRuntime();

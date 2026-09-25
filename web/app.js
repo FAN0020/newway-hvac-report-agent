@@ -2,8 +2,9 @@ import { PcmWavRecorder } from './audio-recorder.js';
 import { t } from './i18n.js';
 import {
   REPORT_SCHEMAS,
-  applyResolveAnswer,
+  applyResolveDecision,
   applyTranscriptArtifact,
+  beginResolveFlow,
   bindSessionConfirmation,
   confirmationViewState,
   correctionDecisionPayload,
@@ -17,6 +18,8 @@ import {
   knowledgeQueryState,
   mapFactsToStructuredState,
   reportSearchText,
+  resolveAttentionCount,
+  resolveProgress,
   schemaFor,
   transcriptSourceLabel,
 } from './report-runtime.js';
@@ -31,11 +34,12 @@ const ids = [
   'manual-transcript', 'manual-source-hint', 'statement-ready', 'statement-source', 'view-statement', 'edit-statement', 'statement-preview',
   'use-manual', 'transcription-status', 'transcript-output', 'artifact-output', 'build-report',
   'transcript-source', 'transcript-history',
-  'correction-section', 'correction-raw', 'correction-proposed', 'correction-list', 'correction-technician-name',
-  'correction-technician-id', 'confirm-corrections', 'correction-status', 'correction-evidence', 'resolve-count',
+  'capture-identity', 'capture-technician-name', 'capture-technician-id',
+  'correction-section', 'correction-raw', 'correction-proposed', 'correction-list',
+  'confirm-corrections', 'correction-status', 'correction-evidence', 'resolve-count', 'resolve-progress',
   'questions-section', 'questions-list', 'apply-answers', 'evidence-section', 'facts-output', 'issues-output',
   'fact-count', 'issue-count', 'validation-label', 'report-section', 'validator-banner', 'report-output',
-  'validator-output', 'confirm-section', 'technician-name', 'technician-id', 'confirm-check', 'confirm-report',
+  'validator-output', 'confirm-section', 'review-identity-summary', 'review-identity-fields', 'change-technician', 'technician-name', 'technician-id', 'confirm-check', 'confirm-report',
   'save-report', 'export-report', 'copy-export', 'confirmation-status', 'export-output', 'complete-summary',
   'complete-meta', 'v2-upload-file', 'v2-upload-submit', 'v2-upload-status', 'v2-uploader', 'v2-upload-list',
   'v2-upload-progress', 'v2-upload-record', 'v2-upload-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk',
@@ -243,18 +247,23 @@ function saveTransientFromDom() {
   if (!activeSession) return;
   activeSession.capture.language = el.language.value;
   activeSession.capture.model = el.model.value;
+  const technicianName = el['capture-technician-name'].value || el['technician-name'].value || activeSession.jobContext?.technicianName || '';
+  const technicianId = el['capture-technician-id'].value || el['technician-id'].value || activeSession.jobContext?.technicianId || '';
+  activeSession.jobContext = { ...activeSession.jobContext, technicianName, technicianId };
   runtime.setTransient(activeSession.id, {
     statement: el['manual-transcript'].value,
-    technicianName: el['technician-name'].value || el['correction-technician-name'].value,
-    technicianId: el['technician-id'].value || el['correction-technician-id'].value,
+    technicianName,
+    technicianId,
   });
 }
 
 function restoreTransientToDom() {
   const transient = activeSession ? runtime.getTransient(activeSession.id) : {};
+  const technicianName = activeSession?.jobContext?.technicianName || transient.technicianName || '';
+  const technicianId = activeSession?.jobContext?.technicianId || transient.technicianId || '';
   el['manual-transcript'].value = transient.statement || '';
-  for (const id of ['technician-name', 'correction-technician-name']) el[id].value = transient.technicianName || '';
-  for (const id of ['technician-id', 'correction-technician-id']) el[id].value = transient.technicianId || '';
+  for (const id of ['capture-technician-name', 'technician-name']) el[id].value = technicianName;
+  for (const id of ['capture-technician-id', 'technician-id']) el[id].value = technicianId;
   if (activeSession) {
     el.language.value = activeSession.capture.language;
     el.model.value = activeSession.capture.model;
@@ -582,99 +591,98 @@ async function transcribe(attempt, session = activeSession) {
   }
 }
 
-function renderCorrectionReview(normalization) {
-  const candidates = normalization.data.correction_candidates || [];
-  el['correction-raw'].textContent = normalization.data.raw_text;
-  el['correction-proposed'].textContent = normalization.data.proposed_text;
-  el['correction-evidence'].textContent = JSON.stringify(normalization, null, 2);
-  const resolveCount = Math.max(1, candidates.length);
-  el['resolve-count'].textContent = `${resolveCount} item${resolveCount === 1 ? '' : 's'}`;
-  el['correction-list'].replaceChildren(...(candidates.length ? candidates.map((candidate) => {
-    const critical = candidate.status === 'NEEDS_TECHNICIAN_CONFIRMATION';
-    const card = node('div', `correction-card ${critical ? 'critical' : ''}`);
-    const head = node('div', 'resolve-item-head');
-    head.append(node('strong', '', critical ? 'Verify critical terminology' : 'Review terminology'), node('span', 'item-type', critical ? 'CRITICAL VALUE' : 'TERMINOLOGY'));
+function renderResolveCard(item) {
+  const card = node('div', `resolve-item ${item.severity === 'high' ? 'critical' : ''}`);
+  const head = node('div', 'resolve-item-head');
+  head.append(node('strong', '', item.question), node('span', 'item-type', item.type.replaceAll('_', ' ')));
+  card.append(head);
+  const controls = node('div', 'decision-controls');
+  if (item.candidate) {
     const change = node('div', 'correction-change');
-    change.append(node('code', '', candidate.source_span.text), node('span', '', '→'), node('code', '', candidate.candidate));
-    const controls = node('div', 'decision-controls');
+    change.append(node('code', '', item.candidate.source_span?.text || 'Original wording'), node('span', '', '→'), node('code', '', item.candidate.candidate || 'Proposed wording'));
+    card.append(change);
+    if (item.candidate.reason) card.append(node('small', '', item.candidate.reason));
     for (const [value, labelText] of [['ACCEPT', 'Accept supported reading'], ['REJECT', 'Keep original words']]) {
-      const label = node('label');
-      const radio = node('input');
-      radio.type = 'radio'; radio.name = `decision-${candidate.candidate_id}`; radio.value = value; radio.dataset.candidateId = candidate.candidate_id;
+      const label = node('label'); const radio = node('input');
+      radio.type = 'radio'; radio.name = item.id; radio.value = value;
       label.append(radio, document.createTextNode(labelText)); controls.append(label);
     }
-    if (critical) {
-      const label = node('label'); const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.dataset.criticalCandidateId = candidate.candidate_id;
+    if (item.type === 'CRITICAL_VALUE') {
+      const label = node('label'); const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.dataset.criticalConfirmation = item.id;
       label.append(checkbox, document.createTextNode('I manually verified this critical value')); controls.append(label);
     }
-    card.append(head, change, node('small', '', candidate.reason || ''), controls);
-    return card;
-  }) : [node('div', 'resolve-item', 'No terminology changes were proposed. Confirm the original statement and technician identity to continue.')]));
-  el['questions-list'].replaceChildren();
-  el['correction-status'].textContent = candidates.length ? 'Choose an outcome for each proposal.' : 'The original text will remain unchanged.';
+  } else {
+    let valueControl;
+    if (item.type === 'CONFLICT') {
+      valueControl = node('select');
+      valueControl.append(node('option', '', 'Choose the supported value'));
+      for (const candidate of item.candidates || []) {
+        const value = String(candidate.value ?? candidate);
+        const option = node('option', '', value); option.value = value; valueControl.append(option);
+      }
+      if (item.candidates?.length) {
+        const evidence = node('div', 'resolve-evidence');
+        evidence.append(node('small', '', 'Conflicting recorded values'), ...item.candidates.map((candidate) => node('span', '', String(candidate.value ?? candidate))));
+        card.append(evidence);
+      }
+    } else {
+      valueControl = node('textarea'); valueControl.rows = 2;
+      valueControl.value = item.type === 'CRITICAL_VALUE' ? String(activeSession.fieldStates?.[item.targetField || item.fieldId]?.value ?? '') : '';
+      valueControl.placeholder = 'Enter only what was observed or recorded.';
+    }
+    valueControl.dataset.resolveValue = item.id;
+    card.append(valueControl);
+    for (const [value, labelText] of [['CONFIRM', 'Use this observed value'], ['NOT_PROVIDED', 'Not provided / pending']]) {
+      const label = node('label'); const radio = node('input'); radio.type = 'radio'; radio.name = item.id; radio.value = value;
+      label.append(radio, document.createTextNode(labelText)); controls.append(label);
+    }
+    for (const choice of item.quickChoices || []) {
+      const button = node('button', 'ghost', choice.label); button.type = 'button';
+      button.addEventListener('click', () => { valueControl.value = choice.value; card.querySelector(`input[name="${CSS.escape(item.id)}"][value="CONFIRM"]`).checked = true; });
+      controls.append(button);
+    }
+  }
+  card.append(controls);
+  return card;
 }
 
-function renderGenericResolve(queue) {
+function renderGenericResolve(queue, { reset = false } = {}) {
+  if (reset) beginResolveFlow(activeSession, queue);
   el['correction-raw'].textContent = activeSession.transcript.original;
   el['correction-proposed'].textContent = activeSession.transcript.normalized || activeSession.transcript.original;
   el['correction-evidence'].textContent = JSON.stringify({ schema_id: activeSession.schemaId, schema_version: activeSession.schemaVersion, facts: currentFacts }, null, 2);
-  el['resolve-count'].textContent = `${queue.length} item${queue.length === 1 ? '' : 's'}`;
-  el['correction-list'].replaceChildren(...queue.map((item) => {
-    const card = node('div', `resolve-item ${item.severity === 'high' ? 'critical' : ''}`);
-    const head = node('div', 'resolve-item-head');
-    head.append(node('strong', '', item.question), node('span', 'item-type', item.type.replaceAll('_', ' ')));
-    const controls = node('div', 'decision-controls');
-    for (const [value, label] of [['CONFIRM', 'Confirm from the on-site record'], ['NOT_PROVIDED', 'Mark not provided / pending']]) {
-      const choice = node('label'); const radio = node('input'); radio.type = 'radio'; radio.name = item.id; radio.value = value; radio.dataset.resolveId = item.id;
-      choice.append(radio, document.createTextNode(label)); controls.append(choice);
-    }
-    if (item.type === 'MISSING_FIELD' || item.type === 'CRITICAL_VALUE') {
-      const input = node('textarea');
-      input.rows = 2;
-      input.dataset.resolveValue = item.id;
-      input.value = item.type === 'CRITICAL_VALUE' ? String(activeSession.fieldStates?.[item.targetField || item.fieldId]?.value ?? '') : '';
-      input.placeholder = 'Enter what the technician actually observed, or choose “not provided” below.';
-      card.append(head, input, controls);
-    } else if (item.type === 'CONFLICT') {
-      const select = node('select');
-      select.dataset.resolveValue = item.id;
-      select.append(node('option', '', 'Choose the supported value'));
-      for (const candidate of item.candidates || []) {
-        const option = node('option', '', String(candidate.value ?? candidate));
-        option.value = String(candidate.value ?? candidate);
-        select.append(option);
-      }
-      card.append(head, select, controls);
-    } else card.append(head, controls);
-    return card;
-  }));
+  const progress = resolveProgress(activeSession);
+  el['resolve-count'].textContent = `${progress.remaining} detail${progress.remaining === 1 ? '' : 's'} needed`;
+  el['resolve-progress'].textContent = progress.current ? `${progress.completed + 1} of ${progress.total}` : `${progress.completed} of ${progress.total}`;
+  el['correction-list'].replaceChildren(...(progress.current ? [renderResolveCard(progress.current)] : []));
   el['questions-list'].replaceChildren();
-  el['correction-status'].textContent = 'Resolve each item using only observed or recorded information.';
+  el['confirm-corrections'].textContent = progress.remaining > 1 ? 'Save and next' : 'Save and continue';
+  el['correction-status'].textContent = progress.current ? 'Use only observed or recorded information.' : 'All requested decisions are recorded.';
 }
 
-function collectGenericResolveDecisions() {
+function collectCurrentResolveDecision() {
   const session = activeSession;
-  const items = [...session.unresolvedItems];
-  for (const item of items) {
-    const selected = el['correction-list'].querySelector(`input[name="${CSS.escape(item.id)}"]:checked`);
-    if (!selected) throw new Error('Resolve each item before continuing.');
-    const control = el['correction-list'].querySelector(`[data-resolve-value="${CSS.escape(item.id)}"]`);
-    const value = control?.value.trim() || String(session.fieldStates?.[item.targetField || item.fieldId]?.value ?? '').trim();
-    if (selected.value === 'CONFIRM' && !value) throw new Error('Enter or choose the observed value, or mark the item not provided.');
-    item.answer = { decision: selected.value, value: selected.value === 'CONFIRM' ? value : null };
-    if (selected.value === 'CONFIRM') {
-      const transient = runtime.getTransient(session.id);
-      Object.assign(session, applyResolveAnswer(session, item, value, {
-        technicianId: transient.technicianId,
-        technicianName: transient.technicianName,
-      }));
-    } else {
-      const unresolved = session.unresolvedItems.find((candidate) => candidate.id === item.id);
-      if (unresolved) unresolved.answer = item.answer;
-    }
+  const item = resolveProgress(session).current;
+  if (!item) return null;
+  const selected = el['correction-list'].querySelector(`input[name="${CSS.escape(item.id)}"]:checked`);
+  if (!selected) throw new Error('Choose an explicit outcome before continuing.');
+  if (item.candidate) {
+    const criticalControl = el['correction-list'].querySelector(`[data-critical-confirmation="${CSS.escape(item.id)}"]`);
+    if (criticalControl && !criticalControl.checked) throw new Error('Manually verify this critical value before continuing.');
+    const answer = { decision: selected.value, value: selected.value === 'ACCEPT' ? item.candidate.candidate : item.candidate.source_span?.text, criticalValueConfirmed: Boolean(criticalControl) };
+    session.resolveAnswers[item.id] = answer;
+    session.unresolvedItems = session.unresolvedItems.map((candidate) => candidate.id === item.id ? { ...candidate, answer } : candidate);
+    session.resolveQueue = session.unresolvedItems;
+    session.resolveFlow.completed += 1;
+    return { item, answer };
   }
+  const control = el['correction-list'].querySelector(`[data-resolve-value="${CSS.escape(item.id)}"]`);
+  const value = control?.value.trim() || String(session.fieldStates?.[item.targetField || item.fieldId]?.value ?? '').trim();
+  if (selected.value === 'CONFIRM' && !value) throw new Error('Enter or choose the observed value, or mark the item not provided.');
+  Object.assign(session, applyResolveDecision(session, item, { decision: selected.value, value }));
   currentFacts = factsFromStructuredState(session);
   invalidateConfirmationIfMaterialChanged('Resolved report information changed; validation and confirmation are required again.');
+  return { item, answer: session.resolveAnswers[item.id] };
 }
 
 async function prepareHvacResolve() {
@@ -685,12 +693,25 @@ async function prepareHvacResolve() {
   if (!runtime.accepts(requestToken)) return;
   currentNormalization = normalization;
   session.normalization = normalization;
+  session.transcript.normalized = normalization.data.proposed_text || session.transcript.original;
   session.correctionCandidates = normalization.data.correction_candidates || [];
+  session.resolveAnswers = {};
   session.unresolvedItems = createResolveQueue({ correctionCandidates: session.correctionCandidates, missingFields: [], conflicts: [] });
   session.processing = { status: 'idle', error: null };
   el['transcription-status'].textContent = 'Statement ready.';
-  renderCorrectionReview(currentNormalization);
   addAudit('Terminology candidates prepared', `${session.correctionCandidates.length} candidates`);
+  if (!session.unresolvedItems.length) {
+    const { technicianId, technicianName } = session.jobContext;
+    const result = await api('/api/corrections/confirm', { transcript_artifact_id: currentTranscript.artifact_id, candidate_bundle_hash: currentNormalization.data.candidate_bundle_hash, decisions: [], technician_id: technicianId, technician_name: technicianName });
+    if (!runtime.accepts(requestToken)) return;
+    currentCorrectionReceipt = result.data.correction_receipt;
+    session.correctionReceipt = currentCorrectionReceipt;
+    session.corrections = [];
+    addAudit('Original transcript verified', `${technicianName} · ${technicianId}`);
+    await generateHvacReport();
+    return;
+  }
+  renderGenericResolve(session.unresolvedItems, { reset: true });
   navigate('resolve');
 }
 
@@ -715,12 +736,13 @@ async function processSbsStatement(raw, requestToken) {
   if (!runtime.accepts(requestToken)) return;
   currentFacts = extracted.data.facts || [];
   Object.assign(session, mapFactsToStructuredState(session, currentFacts));
+  session.resolveAnswers = {};
   session.unresolvedItems = createResolveQueue(session);
   session.processing = { status: 'idle', error: null };
   el['transcription-status'].textContent = 'Statement ready.';
   addAudit('Facts extracted', `${currentFacts.length} grounded facts`);
   if (session.unresolvedItems.length) {
-    renderGenericResolve(session.unresolvedItems);
+    renderGenericResolve(session.unresolvedItems, { reset: true });
     navigate('resolve');
   } else {
     await buildSbsReport(requestToken, true);
@@ -752,7 +774,7 @@ async function buildSbsReport(existingToken, resolveMissing = false) {
       evidence: [],
       answer: null,
     }));
-    renderGenericResolve(session.unresolvedItems);
+    renderGenericResolve(session.unresolvedItems, { reset: true });
     addAudit('Missing information queued for explicit review', `${missingSections.length} report sections`);
     navigate('resolve');
     return;
@@ -789,7 +811,7 @@ async function generateHvacReport() {
       evidence: [],
       answer: null,
     }));
-    renderGenericResolve(session.unresolvedItems);
+    renderGenericResolve(session.unresolvedItems, { reset: true });
     addAudit('Missing information queued for explicit review', `${followUps.length} follow-up questions`);
     navigate('resolve');
     return;
@@ -834,22 +856,28 @@ function renderReview() {
   resetCurrentReferences();
   invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
   renderReportSections();
-  const reviewable = Boolean(currentValidation?.data?.can_enter_technician_review);
+  const issueCount = resolveAttentionCount(activeSession);
+  const reviewable = Boolean(currentValidation?.data?.can_enter_technician_review) && issueCount === 0;
   el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
-  el['validator-banner'].textContent = reviewable ? `Validation ${currentValidation.status}: this exact version can enter technician review.` : `Validation ${currentValidation?.status || 'FAIL'}: resolve validation issues before confirmation.`;
+  el['validator-banner'].textContent = reviewable
+    ? `Ready to confirm: validation ${currentValidation.status} and no required information is pending.`
+    : (issueCount ? `${issueCount} item${issueCount === 1 ? ' still needs' : 's still need'} information. The draft remains reviewable but cannot be confirmed.` : `Validation ${currentValidation?.status || 'FAIL'}: resolve validation issues before confirmation.`);
   el['validator-output'].textContent = JSON.stringify(currentValidation, null, 2);
   el['fact-count'].textContent = String(currentFacts.length);
-  const issueCount = activeSession?.unresolvedItems?.filter((item) => !item.answer).length || 0;
   el['issue-count'].textContent = String(issueCount);
-  el['validation-label'].textContent = currentValidation?.status || 'Waiting';
-  const transient = runtime.getTransient(activeSession.id);
-  el['technician-name'].value = transient.technicianName || '';
-  el['technician-id'].value = transient.technicianId || '';
+  el['validation-label'].textContent = issueCount ? 'Needs information' : (currentValidation?.status || 'Waiting');
+  const technicianName = activeSession.jobContext?.technicianName || '';
+  const technicianId = activeSession.jobContext?.technicianId || '';
+  el['technician-name'].value = technicianName;
+  el['technician-id'].value = technicianId;
+  el['review-identity-summary'].textContent = technicianName && technicianId ? `${technicianName} · ${technicianId}` : 'Technician not set';
+  el['review-identity-fields'].hidden = true;
+  el['change-technician'].setAttribute('aria-expanded', 'false');
   const confirmationState = confirmationViewState(activeSession, { reviewable });
   el['confirm-check'].checked = confirmationState.checkboxChecked;
   el['confirm-check'].disabled = confirmationState.confirmed;
   el['confirm-report'].disabled = confirmationState.confirmationDisabled;
-  el['confirmation-status'].textContent = confirmationState.message;
+  el['confirmation-status'].textContent = issueCount ? 'Confirmation is blocked while required information remains pending.' : confirmationState.message;
   el['save-report'].disabled = !confirmationState.canFinalize;
   el['export-report'].disabled = !confirmationState.canFinalize;
 }
@@ -857,16 +885,18 @@ function renderReview() {
 async function confirmCurrentReport() {
   const session = activeSession;
   const requestToken = runtime.beginRequest(session.id, 'confirm-report');
+  if (resolveAttentionCount(session) > 0) throw new Error('Required information is still pending. Return to Resolve before confirming.');
   const technicianName = el['technician-name'].value.trim();
   const technicianId = el['technician-id'].value.trim();
   if (!technicianName || !technicianId) throw new Error('Technician name and ID are required.');
+  session.jobContext = { ...session.jobContext, technicianId, technicianName };
+  runtime.setTransient(session.id, { ...runtime.getTransient(session.id), technicianId, technicianName });
   const isHvac = session.scope === 'HVAC';
   const endpoint = isHvac ? FINALIZATION_ROUTES.HVAC.confirm : FINALIZATION_ROUTES.SBS.confirm;
   const result = await api(endpoint, { draft: currentDraft, validator_run_id: currentValidation.trace_id, technician_id: technicianId, technician_name: technicianName });
   if (!runtime.accepts(requestToken)) return;
   confirmationToken = result.data.confirmation.confirmation_token;
   bindSessionConfirmation(session, result.data.confirmation);
-  session.jobContext = { technicianId, technicianName };
   session.updatedAt = new Date().toISOString();
   addAudit('Report confirmed', `${technicianName} · ${technicianId}`);
   el['save-report'].disabled = false;
@@ -1069,12 +1099,31 @@ el['edit-statement'].addEventListener('click', () => {
 el['manual-transcript'].addEventListener('input', () => {
   el['use-manual'].disabled = !el['manual-transcript'].value.trim() || activeSession?.processing.status === 'processing';
 });
+function syncTechnicianIdentity(name, id) {
+  if (!activeSession) return;
+  activeSession.jobContext = { ...activeSession.jobContext, technicianName: name.trim(), technicianId: id.trim() };
+  runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), ...activeSession.jobContext });
+}
+for (const id of ['capture-technician-name', 'capture-technician-id']) el[id].addEventListener('input', () => {
+  syncTechnicianIdentity(el['capture-technician-name'].value, el['capture-technician-id'].value);
+});
+for (const id of ['technician-name', 'technician-id']) el[id].addEventListener('input', () => {
+  syncTechnicianIdentity(el['technician-name'].value, el['technician-id'].value);
+  el['review-identity-summary'].textContent = activeSession.jobContext.technicianName && activeSession.jobContext.technicianId
+    ? `${activeSession.jobContext.technicianName} · ${activeSession.jobContext.technicianId}` : 'Technician not set';
+});
 el['v2-upload-file'].addEventListener('change', () => { const file = el['v2-upload-file'].files?.[0]; if (file) uploadSbsDocument(file); });
 
 el['use-manual'].addEventListener('click', async () => {
   const raw = el['manual-transcript'].value.trim();
   if (!activeSession || !raw) { el['transcription-status'].textContent = 'Enter or record a service statement first.'; return; }
   saveTransientFromDom();
+  if (!activeSession.jobContext?.technicianName || !activeSession.jobContext?.technicianId) {
+    el['capture-identity'].open = true;
+    el['transcription-status'].textContent = 'Enter the technician name and ID for this report before continuing.';
+    el['capture-technician-name'].focus();
+    return;
+  }
   activeSession.status = 'PROCESSING';
   const requestToken = runtime.beginRequest(activeSession.id, 'process-statement');
   const session = activeSession;
@@ -1106,27 +1155,32 @@ el['confirm-corrections'].addEventListener('click', async () => {
   if (!activeSession) return;
   const session = activeSession;
   const requestToken = runtime.beginRequest(session.id, 'resolve-decisions');
-  const technicianName = el['correction-technician-name'].value.trim();
-  const technicianId = el['correction-technician-id'].value.trim();
-  if (!technicianName || !technicianId) { el['correction-status'].textContent = 'Technician name and ID are required.'; return; }
-  runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), technicianName, technicianId });
+  const { technicianName, technicianId } = session.jobContext || {};
+  if (!technicianName || !technicianId) { el['correction-status'].textContent = 'Return to Capture and set the technician identity for this report.'; return; }
   el['confirm-corrections'].disabled = true;
   try {
+    const recorded = collectCurrentResolveDecision();
+    if (!recorded) return;
     if (session.scope === 'HVAC' && session.hvacMissingPhase) {
-      collectGenericResolveDecisions();
-      for (const item of session.unresolvedItems) session.manualFields[item.fieldId] = item.answer.decision === 'CONFIRM' ? item.answer.value : '未提供/待确认';
+      if (recorded.answer.decision === 'CONFIRM') session.manualFields[recorded.item.targetField || recorded.item.fieldId] = recorded.answer.value;
+      else delete session.manualFields[recorded.item.targetField || recorded.item.fieldId];
+    }
+    if (resolveProgress(session).current) {
+      renderGenericResolve(session.unresolvedItems);
+      return;
+    }
+    if (session.scope === 'HVAC' && session.hvacMissingPhase) {
       invalidateConfirmationIfMaterialChanged('Resolved report information changed; validation and confirmation are required again.');
       session.hvacMissingPhase = false;
       session.hvacMissingResolved = true;
-      addAudit('Missing fields resolved', `${session.unresolvedItems.length} explicit decisions`);
+      addAudit('Missing information reviewed', `${session.resolveFlow.completed} explicit decisions`);
       await generateHvacReport();
     } else if (session.scope === 'HVAC') {
       const decisions = (currentNormalization.data.correction_candidates || []).map((candidate) => {
-        const selected = el['correction-list'].querySelector(`input[name="decision-${candidate.candidate_id}"]:checked`);
-        const criticalControl = el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`);
-        const verified = !criticalControl || criticalControl.checked;
-        if (!selected || !verified) throw new Error('Choose a decision and verify each critical candidate.');
-        return correctionDecisionPayload({ candidateId: candidate.candidate_id, action: selected.value, critical: Boolean(criticalControl) && verified });
+        const item = session.unresolvedItems.find((entry) => entry.candidate?.candidate_id === candidate.candidate_id);
+        const answer = item && session.resolveAnswers[item.id];
+        if (!answer) throw new Error('Choose a decision for every proposed correction.');
+        return correctionDecisionPayload({ candidateId: candidate.candidate_id, action: answer.decision, critical: item.type === 'CRITICAL_VALUE' && answer.criticalValueConfirmed === true });
       });
       const result = await api('/api/corrections/confirm', { transcript_artifact_id: currentTranscript.artifact_id, candidate_bundle_hash: currentNormalization.data.candidate_bundle_hash, decisions, technician_id: technicianId, technician_name: technicianName });
       if (!runtime.accepts(requestToken)) return;
@@ -1142,15 +1196,22 @@ el['confirm-corrections'].addEventListener('click', async () => {
       addAudit('Transcript decisions confirmed', `${decisions.length} decisions`);
       await generateHvacReport();
     } else {
-      collectGenericResolveDecisions();
-      addAudit('Unresolved items completed', `${session.unresolvedItems.length} decisions`);
+      addAudit('Resolve decisions recorded', `${session.resolveFlow.completed} decisions`);
       await buildSbsReport();
     }
   } catch (error) { if (runtime.accepts(requestToken)) el['correction-status'].textContent = error.message; }
   finally { if (runtime.accepts(requestToken)) el['confirm-corrections'].disabled = false; }
 });
 
-el['confirm-check'].addEventListener('change', () => { el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review; });
+el['change-technician'].addEventListener('click', () => {
+  const expanded = el['review-identity-fields'].hidden;
+  el['review-identity-fields'].hidden = !expanded;
+  el['change-technician'].setAttribute('aria-expanded', String(expanded));
+  if (expanded) el['technician-name'].focus();
+});
+el['confirm-check'].addEventListener('change', () => {
+  el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review || resolveAttentionCount(activeSession) > 0;
+});
 el['confirm-report'].addEventListener('click', async () => {
   const sessionId = activeSession?.id;
   el['confirm-report'].disabled = true;
@@ -1302,7 +1363,20 @@ el['v2-demo-play'].addEventListener('click', async () => {
   } finally { el['v2-demo-play'].disabled = false; }
 });
 
-for (const button of el.journey.querySelectorAll('button')) button.addEventListener('click', () => { if (!button.disabled) { if (button.dataset.step === 'review') renderReview(); navigate(button.dataset.step); } });
+for (const button of el.journey.querySelectorAll('button')) button.addEventListener('click', () => {
+  if (button.disabled) return;
+  if (button.dataset.step === 'review') renderReview();
+  if (button.dataset.step === 'resolve') {
+    const pending = (activeSession.unresolvedItems || []).filter((item) => !item.answer || item.answer.decision === 'NOT_PROVIDED');
+    for (const item of pending) {
+      item.answer = null;
+      delete activeSession.resolveAnswers[item.id];
+    }
+    beginResolveFlow(activeSession, pending);
+    renderGenericResolve(pending);
+  }
+  navigate(button.dataset.step);
+});
 
 renderReports();
 setKnowledgeScope('SBS_BUS');

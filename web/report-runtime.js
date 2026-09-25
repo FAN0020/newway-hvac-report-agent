@@ -118,7 +118,7 @@ export function createReportSession({ id, reportType, jobContext = {} } = {}) {
     capture: { audioBlob: null, audioId: null, previewUrl: null, attachment: null, language: "auto", model: "base" },
     manualFields: {}, processing: { status: "idle", error: null }, complete: { summary: "", meta: "", copyableText: "" },
     evidence: [], sources: [], transcript: { original: "", normalized: "", hash: null }, transcriptArtifact: null, originalTranscriptArtifact: null, transcriptHistory: [], corrections: [], correctionCandidates: [], correctionDecisions: [],
-    facts: [], unsupportedFacts: [], structuredState: {}, fieldStates, completeness: null, unresolvedItems: [], resolveQueue: [],
+    facts: [], unsupportedFacts: [], structuredState: {}, fieldStates, completeness: null, unresolvedItems: [], resolveQueue: [], resolveAnswers: {}, resolveFlow: { total: 0, completed: 0 },
     reportDraft: null, reportDocument: null, validation: null, confirmation: null, exportState: { saved: false, files: [], error: null },
   };
 }
@@ -376,8 +376,11 @@ export function createResolveQueue(session) {
     const fieldId = conflict.field || conflict.fieldId || "conflict";
     items.push(resolveItem("CONFLICT", fieldId, "high", conflict.question || `Choose the supported value for ${fieldId.replaceAll(/[._]/g, " ")}.`, conflict.evidence || [], { index, candidates: copy(conflict.values || conflict.candidates || []), targetField: fieldId }));
   }
-  const unique = [...new Map(items.map((item) => [`${item.type}:${item.fieldId}`, item])).values()]; const rank = { high: 0, medium: 1, low: 2 };
-  return unique.sort((a, b) => rank[a.severity] - rank[b.severity] || a.fieldId.localeCompare(b.fieldId));
+  const unique = [...new Map(items.map((item) => [`${item.type}:${item.fieldId}`, item])).values()];
+  const rank = { CRITICAL_VALUE: 0, CONFLICT: 1, MISSING_FIELD: 2, TERMINOLOGY: 3 };
+  return unique
+    .map((item) => ({ ...item, answer: copy(session.resolveAnswers?.[item.id] || item.answer) }))
+    .sort((a, b) => (rank[a.type] ?? 9) - (rank[b.type] ?? 9) || a.fieldId.localeCompare(b.fieldId));
 }
 
 function safeFactId(value) { return String(value).replaceAll(/[^A-Za-z0-9_-]/g, "_").slice(0, 90); }
@@ -389,7 +392,15 @@ export function applyResolveAnswer(session, resolveItemToApply, answer, technici
   const resolveRevision = Number(session.revision || 0) + 1; const factId = `followup_${safeFactId(session.id)}_${safeFactId(targetField)}_${resolveRevision}`;
   const followUpFact = {
     fact_id: factId, field: targetField, value: answer, support_status: "CONFIRMED_BY_TECHNICIAN", source: "technician_follow_up", source_refs: [`resolve:${resolveItemToApply.id}`],
-    provenance: { source: "technician_follow_up", resolve_item_id: resolveItemToApply.id, technician_id: String(technician.technicianId || "").trim(), technician_name: String(technician.technicianName || "").trim(), recorded_at: new Date().toISOString() },
+    provenance: {
+      source: "technician_follow_up",
+      resolve_item_id: resolveItemToApply.id,
+      technician_id: String(technician.technicianId || "").trim(),
+      technician_name: String(technician.technicianName || "").trim(),
+      evidence: copy(resolveItemToApply.evidence || []),
+      candidate_fact_ids: (resolveItemToApply.candidates || []).map((candidate) => candidate.factId || candidate.fact_id || candidate.id).filter(Boolean),
+      recorded_at: new Date().toISOString(),
+    },
   };
   const replacePrior = ["CONFLICT", "CRITICAL_VALUE", "MISSING_FIELD"].includes(resolveItemToApply.type);
   const facts = (session.facts || []).filter((fact) => !replacePrior || (fact.field || fact.field_id || fact.key) !== targetField);
@@ -398,6 +409,48 @@ export function applyResolveAnswer(session, resolveItemToApply, answer, technici
     ? { ...item, answer: { decision: "CONFIRM", value: copy(answer) }, resolvedFactId: factId }
     : copy(item));
   next.resolveQueue = createResolveQueue(next); return next;
+}
+
+export function beginResolveFlow(session, items = createResolveQueue(session)) {
+  session.unresolvedItems = copy(items);
+  session.resolveQueue = copy(items);
+  session.resolveFlow = { total: items.length, completed: items.filter((item) => item.answer).length };
+  return session;
+}
+
+export function resolveProgress(session) {
+  const items = session.unresolvedItems || session.resolveQueue || [];
+  const remainingItems = items.filter((item) => !item.answer);
+  const completed = Number(session.resolveFlow?.completed ?? items.length - remainingItems.length);
+  const total = Math.max(Number(session.resolveFlow?.total || 0), completed + remainingItems.length);
+  return { total, completed, remaining: remainingItems.length, current: remainingItems[0] || null };
+}
+
+export function resolveAttentionCount(session) {
+  return (session.unresolvedItems || session.resolveQueue || []).filter((item) => !item.answer || item.answer.decision === "NOT_PROVIDED").length;
+}
+
+export function applyResolveDecision(session, item, answer, technician = session.jobContext || {}) {
+  if (!item?.id || !["CONFIRM", "NOT_PROVIDED"].includes(answer?.decision)) throw new TypeError("A valid Resolve item decision is required.");
+  const normalized = {
+    decision: answer.decision,
+    value: answer.decision === "CONFIRM" ? answer.value : null,
+  };
+  if (normalized.decision === "CONFIRM" && !hasValue(normalized.value)) throw new TypeError("A confirmed Resolve decision requires an observed value.");
+  let next = normalized.decision === "CONFIRM" ? applyResolveAnswer(session, item, normalized.value, technician) : copy(session);
+  next.resolveAnswers = { ...(session.resolveAnswers || {}), [item.id]: copy(normalized) };
+  if (normalized.decision === "CONFIRM") {
+    next.resolveQueue = createResolveQueue(next);
+    next.unresolvedItems = copy(next.resolveQueue);
+  } else {
+    next.unresolvedItems = (session.unresolvedItems || []).map((candidate) => candidate.id === item.id ? { ...copy(candidate), answer: copy(normalized) } : copy(candidate));
+    next.resolveQueue = copy(next.unresolvedItems);
+  }
+  next.resolveFlow = {
+    total: Math.max(Number(session.resolveFlow?.total || 0), (session.unresolvedItems || []).length),
+    completed: Number(session.resolveFlow?.completed || 0) + 1,
+  };
+  return next;
 }
 
 export function factsFromStructuredState(session) {

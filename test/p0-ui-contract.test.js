@@ -62,3 +62,17 @@ test('Capture keeps voice primary while manual entry, retry, and transcript disc
   assert.match(html, /not proof that work occurred/i);
   assert.match(client, /reference material only; it is not proof that work occurred/i);
 });
+
+test('Resolve uses one session-bound generic card without repeating technician identity fields', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/app.js', 'utf8'),
+  ]);
+  for (const id of ['capture-technician-name', 'capture-technician-id', 'resolve-progress', 'review-identity-summary', 'change-technician']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.doesNotMatch(html, /id="correction-technician-(?:name|id)"/);
+  assert.match(client, /resolveProgress/);
+  assert.match(client, /applyResolveDecision/);
+  assert.doesNotMatch(client, /Math\.max\(1, candidates\.length\)/);
+});
