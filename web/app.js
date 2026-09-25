@@ -515,7 +515,7 @@ const v2Ids = [
   'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
   'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status',
   'v2-facts-table-wrap', 'v2-facts-table', 'v2-report-output', 'v2-report-banner',
-  'v2-report-missing', 'v2-report-gates', 'v2-report-sections',
+  'v2-report-missing', 'v2-report-gates', 'v2-report-sections', 'v2-demo-status',
 ];
 const v2El = Object.fromEntries(v2Ids.map((id) => [id, document.getElementById(id)]));
 
@@ -570,6 +570,12 @@ function v2SetScope(scopeId) {
   v2.reportBlocked = false;
   v2StopDemo();
   v2StopUploadAnimation();
+  if (v2Wt.active) {
+    // Scope changed under an active walkthrough: restart it so the
+    // sample upload/query/statement match the newly selected scope.
+    if (!v2WtAllowed()) v2WtStop();
+    else v2WtRestart();
+  }
   v2UpdateScopeSelector();
   v2El['v1-panel'].hidden = info.v2;
   v2El['v2-panel'].hidden = !info.v2;
@@ -1025,11 +1031,16 @@ function v2DemoIdleStatus() {
     : 'Demo is available for SBS Bus and SBS Rail only.';
 }
 
-/** Reflects scope availability on the play button (disabled for HVAC). */
+/** Reflects scope availability on the play and walkthrough buttons (disabled for HVAC). */
 function v2UpdateDemoAvailability() {
   const demoOnly = V2_DEMO_SCOPE_IDS.includes(v2.scopeId);
   v2DemoEl.play.disabled = !demoOnly;
   v2DemoEl.play.title = demoOnly ? '' : 'Demo is available for SBS Bus and SBS Rail only.';
+  const wt = document.getElementById('v2-walkthrough-start');
+  if (wt) {
+    wt.disabled = !demoOnly;
+    wt.title = demoOnly ? '' : 'Guided walkthrough is available for SBS Bus and SBS Rail only.';
+  }
 }
 
 function v2DemoResetStatusIfIdle() {
@@ -1215,6 +1226,7 @@ async function v2SpeakCaptions(sentences) {
 async function v2PlayDemo() {
   if (v2Demo.playing) return;
   if (!V2_DEMO_SCOPE_IDS.includes(v2.scopeId)) return;
+  if (v2Wt.active) v2WtStop(); // the demo player and walkthrough are exclusive
   if (!sessionToken) {
     requireLogin('Enter the temporary demo passcode set when the server started to run the guided demo.');
     return;
@@ -1320,3 +1332,259 @@ async function v2PlayDemo() {
 
 v2DemoEl.play.addEventListener('click', () => { v2PlayDemo(); });
 v2UpdateDemoAvailability();
+
+// =====================================================================
+// V2 · Guided walkthrough (step-by-step, user-driven)
+// Walks a presenter through the real product flow one click at a time:
+// choose scope → upload a document → retrieve knowledge → enter the
+// statement → extract facts → build the report. Each step highlights
+// the control to operate; the guide auto-advances once the step's
+// effect is detected (or when the user clicks Next).
+// =====================================================================
+
+const v2WtEl = {
+  bar: document.getElementById('v2-walkthrough'),
+  progress: document.getElementById('v2-wt-progress'),
+  step: document.getElementById('v2-wt-step'),
+  title: document.getElementById('v2-wt-title'),
+  desc: document.getElementById('v2-wt-desc'),
+  skip: document.getElementById('v2-wt-skip'),
+  next: document.getElementById('v2-wt-next'),
+};
+
+const v2Wt = {
+  active: false,
+  index: 0,
+  poll: null,
+  highlight: null,
+  highlightedScope: null,
+  enteredAt: 0,
+};
+
+/** Sample document text per scope (what the walkthrough uploads). */
+function v2WtSampleDoc() {
+  if (v2.scopeId === 'SBS_RAIL') {
+    return 'SBS Rail — Door maintenance bulletin\n\nAffected rolling stock: Alstom Metropolis C751A / C851E.\nThe train door (tread plate door system) requires regular inspection.\nCommon fault: train door worn after heavy cycles; replace the train door and re-test.\nCompletion: test passed, return to service.\n';
+  }
+  return 'SBS Bus — Door control module service note\n\nAffected fleet: MAN A95 (also K9).\nThe front door is driven by the door control module (DCM).\nIf the front door would not close, inspect the door control module first.\nReplace the door control module when faulty, then test door opening and closing.\nCompletion status completed. Preventive maintenance every 12 months.\n';
+}
+
+/** Sample search query per scope. */
+function v2WtQuery() {
+  return v2.scopeId === 'SBS_RAIL' ? 'train door fault' : 'front door would not close';
+}
+
+/** Sample on-site statement per scope (same text the demo transcribes). */
+function v2WtStatement() {
+  const demo = V2_DEMO_SCOPES[v2.scopeId];
+  return demo ? demo.dictation : '';
+}
+
+/** Creates a File from the sample text and feeds it to the upload input. */
+function v2WtFeedSampleFile() {
+  const input = v2El['v2-upload-file'];
+  const name = v2.scopeId === 'SBS_RAIL' ? 'SBS-Rail-Door-Bulletin.txt' : 'SBS-Bus-Door-Service-Note.txt';
+  const file = new File([v2WtSampleDoc()], name, { type: 'text/plain' });
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  if (!v2El['v2-uploader'].value.trim()) v2El['v2-uploader'].value = 'Demo Technician';
+}
+
+/** Highlights a target element and scrolls it into view. */
+function v2WtHighlight(id) {
+  v2WtClearHighlight();
+  if (!id) return;
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (!el) return;
+  el.classList.add('v2-wt-target');
+  v2Wt.highlight = el;
+  v2Wt.highlightedScope = v2.scopeId;
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { /* ignore */ }
+}
+
+function v2WtClearHighlight() {
+  if (v2Wt.highlight) v2Wt.highlight.classList.remove('v2-wt-target');
+  v2Wt.highlight = null;
+}
+
+/** Whether the walkthrough is allowed (SBS scopes only, like the demo). */
+function v2WtAllowed() {
+  return Boolean(V2_DEMO_SCOPES[v2.scopeId]);
+}
+
+/** Renders the current step into the guide bar. */
+function v2WtRender() {
+  const steps = v2WtSteps();
+  const step = steps[v2Wt.index];
+  if (!step) { v2WtStop(); return; }
+  v2WtEl.progress.replaceChildren(...steps.map((s, i) => {
+    const dot = node('span', 'v2-wt-dot' + (i === v2Wt.index ? ' current' : i < v2Wt.index ? ' done' : ''));
+    dot.textContent = String(i + 1);
+    return dot;
+  }));
+  v2WtEl.step.textContent = `Step ${v2Wt.index + 1} of ${steps.length}`;
+  v2WtEl.title.textContent = step.title;
+  v2WtEl.desc.textContent = step.desc;
+  v2WtEl.next.disabled = Boolean(step.waitForUser);
+  v2WtEl.skip.hidden = false;
+  v2WtEl.bar.hidden = false;
+  v2Wt.enteredAt = Date.now();
+}
+
+/** The ordered walkthrough steps. Text is English and scope-aware. */
+function v2WtSteps() {
+  const rail = v2.scopeId === 'SBS_RAIL';
+  const domain = rail ? 'SBS / Rail' : 'SBS / Bus';
+  return [
+    {
+      id: 'scope',
+      title: 'Choose your scope',
+      desc: `This agent is scope-isolated: HVAC, SBS / Bus and SBS / Rail each keep their own documents, knowledge and reports. Select ${domain} to continue.`,
+      waitForUser: true,
+      enter() { v2WtHighlight('scope-selector-buttons'); },
+      done() { return v2.scopeId === 'SBS_BUS' || v2.scopeId === 'SBS_RAIL'; },
+    },
+    {
+      id: 'upload',
+      title: 'Upload a service document',
+      desc: 'Service documents (manuals, bulletins) are ingested into the selected scope. A sample document has been prepared — click "Upload document" to run the Upload → Parse → Chunk → Index → Ready pipeline.',
+      waitForUser: true,
+      enter() {
+        v2WtFeedSampleFile();
+        v2WtHighlight('v2-upload-submit');
+      },
+      done() {
+        const progress = v2El['v2-upload-progress'];
+        return Boolean(progress && progress.querySelector('.v2-step-chip.ready'));
+      },
+    },
+    {
+      id: 'retrieve',
+      title: 'Retrieve knowledge',
+      desc: 'Search is gated to the current scope — content from other scopes can never leak into results. A sample query is ready; press "Search" to see what the agent finds.',
+      waitForUser: true,
+      enter() {
+        v2El['v2-retrieve-query'].value = v2WtQuery();
+        v2WtHighlight('v2-retrieve-submit');
+      },
+      done() {
+        const results = v2El['v2-retrieve-results'];
+        return Boolean(results && results.querySelector('.result-card'));
+      },
+    },
+    {
+      id: 'statement',
+      title: 'Enter the on-site statement',
+      desc: 'The technician\'s dictation (or typed statement) is the input for fact extraction. The sample statement for this scope is pre-filled — press "Extract facts".',
+      waitForUser: true,
+      enter() {
+        v2El['v2-facts-text'].value = v2WtStatement();
+        v2WtHighlight('v2-facts-extract');
+      },
+      done() {
+        return v2.facts.length > 0 && !v2El['v2-facts-table-wrap'].hidden;
+      },
+    },
+    {
+      id: 'facts',
+      title: 'Review the extracted facts',
+      desc: `The extractor produced ${v2.facts.length} structured facts (asset, work type, parts, completion). These become the evidence the report is built from. Press "Next" to build the report.`,
+      waitForUser: false,
+      enter() {
+        v2WtClearHighlight();
+        v2El['v2-facts-table-wrap'].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+      done() { return true; },
+    },
+    {
+      id: 'report',
+      title: 'Build the report',
+      desc: 'The report is assembled from the extracted facts plus scope knowledge, then checked against hard-gate rules (compliance, safety, provenance). Press "Build report".',
+      waitForUser: true,
+      enter() { v2WtHighlight('v2-report-build'); },
+      done() { return !v2El['v2-report-output'].hidden; },
+    },
+    {
+      id: 'done',
+      title: 'Report ready',
+      desc: 'The report preview is complete: structured sections, required fields and gate results in one place. That is the full flow — scope → document → retrieval → facts → report.',
+      waitForUser: false,
+      enter() {
+        v2WtClearHighlight();
+        v2El['v2-report-output'].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+      done() { return true; },
+    },
+  ];
+}
+
+/** Advances the walkthrough to the next step (or finishes). */
+function v2WtNext() {
+  const steps = v2WtSteps();
+  if (v2Wt.index < steps.length - 1) {
+    v2Wt.index += 1;
+    v2WtRender();
+    steps[v2Wt.index].enter?.();
+  } else {
+    v2WtStop();
+  }
+}
+
+/** Starts (or restarts) the guided walkthrough. */
+function v2WtStart() {
+  if (!v2WtAllowed()) {
+    v2SetStatus('v2-demo-status', 'The guided walkthrough is available for SBS Bus and SBS Rail only.');
+    return;
+  }
+  v2StopDemo();
+  v2Wt.active = true;
+  v2Wt.index = 0;
+  v2WtRender();
+  v2WtSteps()[0].enter?.();
+  if (!v2Wt.poll) {
+    v2Wt.poll = setInterval(() => {
+      if (!v2Wt.active) return;
+      const steps = v2WtSteps();
+      const step = steps[v2Wt.index];
+      if (!step) { v2WtStop(); return; }
+      // Action steps: Next stays disabled until the user performs the
+      // action; the guide then auto-advances. Display steps: Next is
+      // always enabled and the user clicks it to continue. Steps that
+      // are already satisfied on entry (e.g. scope chosen before the
+      // walkthrough started) still dwell ~1.3s so they stay readable.
+      const dwelled = Date.now() - v2Wt.enteredAt > 1300;
+      if (step.waitForUser) {
+        if (dwelled && step.done()) v2WtNext();
+      }
+    }, 400);
+  }
+}
+
+/** Restarts the walkthrough from the first step (used on scope change). */
+function v2WtRestart() {
+  v2WtClearHighlight();
+  v2Wt.index = 0;
+  v2Wt.active = true;
+  v2WtRender();
+  v2WtSteps()[0].enter?.();
+}
+
+/** Stops the walkthrough and restores normal UI. */
+function v2WtStop() {
+  v2Wt.active = false;
+  v2Wt.index = 0;
+  v2WtClearHighlight();
+  v2WtEl.bar.hidden = true;
+  if (v2Wt.poll) { clearInterval(v2Wt.poll); v2Wt.poll = null; }
+  v2DemoResetStatusIfIdle();
+}
+
+document.getElementById('v2-walkthrough-start').addEventListener('click', () => {
+  if (v2Wt.active) { v2WtStop(); return; }
+  v2WtStart();
+});
+
+v2WtEl.next.addEventListener('click', () => v2WtNext());
+v2WtEl.skip.addEventListener('click', () => v2WtStop());

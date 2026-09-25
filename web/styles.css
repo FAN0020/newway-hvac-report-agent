@@ -195,3 +195,57 @@ footer { padding: 28px 4px; color: var(--muted); font-size: .86rem; }
 .v2-demo-fix-from { color: #8d3527; }
 .v2-demo-fix-arrow { color: var(--muted); }
 .v2-demo-fix-to { color: var(--deep); }
+
+/* ============ V2 Guided walkthrough ============ */
+.v2-walkthrough-start { background: var(--deep); color: #fff; border: 0; border-radius: 999px; padding: 9px 18px; font-weight: 600; cursor: pointer; }
+.v2-walkthrough-start:hover { filter: brightness(1.12); }
+
+.v2-wt-target {
+  position: relative;
+  outline: 3px solid #e67e22;
+  outline-offset: 3px;
+  border-radius: 8px;
+  animation: v2-wt-pulse 1.4s ease-in-out infinite;
+  z-index: 5;
+}
+@keyframes v2-wt-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 126, 34, .45); }
+  50% { box-shadow: 0 0 0 10px rgba(230, 126, 34, 0); }
+}
+
+.v2-walkthrough {
+  position: sticky;
+  bottom: 14px;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  margin: 18px 0 6px;
+  padding: 14px 18px;
+  background: #123a2d;
+  color: #f4f2e9;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+}
+.v2-walkthrough[hidden] { display: none; }
+.v2-wt-progress { display: flex; gap: 6px; }
+.v2-wt-dot {
+  width: 26px; height: 26px; border-radius: 999px;
+  display: grid; place-items: center;
+  font-size: .72rem; font-weight: 800;
+  background: rgba(255, 255, 255, .16); color: #fff;
+}
+.v2-wt-dot.current { background: #e67e22; color: #fff; }
+.v2-wt-dot.done { background: rgba(255, 255, 255, .9); color: #123a2d; }
+.v2-wt-body { min-width: 0; }
+.v2-wt-step { margin: 0 0 2px; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: #f2b97f; }
+.v2-wt-body h3 { margin: 0 0 4px; font-size: 1rem; color: #fff; }
+.v2-wt-desc { margin: 0; font-size: .86rem; line-height: 1.5; color: #d8e2db; }
+.v2-wt-actions { display: flex; gap: 8px; }
+.v2-wt-actions button {
+  border: 0; border-radius: 999px; padding: 8px 18px; font-weight: 700; cursor: pointer; font-size: .86rem;
+}
+#v2-wt-next { background: #e67e22; color: #fff; }
+#v2-wt-next:disabled { opacity: .45; cursor: not-allowed; }
+#v2-wt-skip { background: transparent; color: #cfe0d6; border: 1px solid rgba(255,255,255,.35); }

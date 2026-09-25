@@ -48,3 +48,29 @@ test('LAN token is not embedded in HTML or a startup log template', async () => 
   assert.doesNotMatch(server, /console\.log\([^\n]*config\.token/);
   assert.doesNotMatch(launcher, /console\.log\([^\n]*(?:token|HVAC_DEMO_TOKEN)/i);
 });
+
+test('guided walkthrough is wired: English 7-step flow with sample data per SBS scope', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/app.js', 'utf8'),
+  ]);
+  // Button + guide bar exist in the page.
+  for (const id of ['v2-walkthrough-start', 'v2-walkthrough', 'v2-wt-progress', 'v2-wt-step', 'v2-wt-title', 'v2-wt-desc', 'v2-wt-skip', 'v2-wt-next']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+    assert.match(client, new RegExp(id));
+  }
+  // Step titles are all English (product walkthrough, never Chinese).
+  for (const title of ['Choose your scope', 'Upload a service document', 'Retrieve knowledge', 'Enter the on-site statement', 'Review the extracted facts', 'Build the report', 'Report ready']) {
+    assert.match(client, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  // Sample data helpers exist and are scope-aware.
+  assert.match(client, /function v2WtSampleDoc\(\)/);
+  assert.match(client, /function v2WtQuery\(\)/);
+  assert.match(client, /SBS-Rail-Door-Bulletin\.txt/);
+  assert.match(client, /SBS-Bus-Door-Service-Note\.txt/);
+  // Walkthrough and the demo player are mutually exclusive.
+  assert.match(client, /if \(v2Wt\.active\) v2WtStop\(\)/);
+  // Scope changes under an active walkthrough restart or stop it.
+  assert.match(client, /v2Wt\.active/);
+  assert.match(client, /v2WtRestart/);
+});

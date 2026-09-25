@@ -101,6 +101,11 @@ Scope isolation is a hard gate: `SBS/BUS` and `SBS/RAIL` queries can never retur
 - `POST /api/v2/reports/build` — builds a Bus/Rail report from facts only; runs `assertNoServiceFactInvention` and `checkHardGates`. A gate violation returns `NEEDS_CONFIRMATION` and the browser blocks the next step (e.g. a manual's "replace ZX-47" recommendation is never rendered as an occurred action).
 - `data/v2-uploads/` — upload store (runtime data, gitignored).
 
+The V2 panel includes two presenter tools for SBS audiences (all-English):
+
+- **▶ Play demo** — one-click simulated recording: the browser speaks the technician's statement (TTS) with word-by-word captions, shows the terminology fixes for mis-heard words (`A ninety five`→`A95`, `door control modular`→`door control module`), then runs the real fact extraction and report build end to end. Bus and Rail each have their own scripted scenario.
+- **Guided walkthrough** — a step-by-step, user-driven tour of the product flow: choose scope → upload a sample service document → scope-gated search → enter the on-site statement → extract facts → build the report. Each step highlights the control to operate and auto-advances once the step's effect is detected; switching scope restarts it, and it is exclusive with the demo player.
+
 Design and acceptance origins: `docs/v2-research/` (03/04 domain models, 05 facts, 06 report schema, 08 critical-error taxonomy, 09 scope/upload contract).
 
 ## Data and Git boundary

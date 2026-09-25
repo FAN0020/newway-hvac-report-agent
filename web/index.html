@@ -163,6 +163,7 @@
         <p class="hint">Plays a pre-recorded scenario: simulated recording → live captions with voice → terminology fixes for mis-heard words → facts → report.</p>
         <div class="controls v2-demo-controls">
           <button id="v2-demo-play" type="button">▶ Play demo</button>
+          <button id="v2-walkthrough-start" type="button" class="v2-walkthrough-start">Guided walkthrough</button>
         </div>
         <p id="v2-demo-status" class="live-status" role="status"></p>
         <div id="v2-demo-captions" class="v2-demo-captions" aria-live="polite"></div>
@@ -226,6 +227,19 @@
           <div id="v2-report-sections" class="report-paper"></div>
         </div>
       </section>
+    </div>
+
+    <div id="v2-walkthrough" class="v2-walkthrough" hidden role="region" aria-label="Guided walkthrough">
+      <div class="v2-wt-progress" id="v2-wt-progress" aria-hidden="true"></div>
+      <div class="v2-wt-body">
+        <p class="v2-wt-step" id="v2-wt-step"></p>
+        <h3 id="v2-wt-title"></h3>
+        <p class="v2-wt-desc" id="v2-wt-desc"></p>
+      </div>
+      <div class="v2-wt-actions">
+        <button id="v2-wt-skip" type="button">Skip</button>
+        <button id="v2-wt-next" type="button">Next</button>
+      </div>
     </div>
 
     <footer>This MVP validates process boundaries with synthetic test data and does not represent real-world accuracy or production readiness.</footer>
