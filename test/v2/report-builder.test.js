@@ -301,6 +301,21 @@ test('checkHardGates: identity fields never raise CHANGED_NUMBER_UNIT (identifie
     `fault code F3Z must not raise CHANGED_NUMBER_UNIT: ${JSON.stringify(fault.violations)}`);
 });
 
+test('checkHardGates: approval and work-order references are not parsed as measurements', () => {
+  const access = checkHardGates({ scopeId: 'SBS_RAIL', facts: [{
+    field: 'access.approval',
+    value: 'TAMS access approval TA-2026-091 confirmed',
+    support_status: 'CONFIRMED_BY_TECHNICIAN',
+  }] });
+  const workOrder = checkHardGates({ scopeId: 'SBS_BUS', facts: [{
+    field: 'work.work_order_id',
+    value: 'WO-2026-004 closed',
+    support_status: 'CONFIRMED_BY_TECHNICIAN',
+  }] });
+  assert.equal(access.violations.some((v) => v.class === 'CHANGED_NUMBER_UNIT'), false);
+  assert.equal(workOrder.violations.some((v) => v.class === 'CHANGED_NUMBER_UNIT'), false);
+});
+
 test('checkHardGates: non-identity measurement values still undergo the strict unit check', () => {
   // Unknown unit on a measurement value keeps raising CHANGED_NUMBER_UNIT
   // (the non-identity path must not have been relaxed).

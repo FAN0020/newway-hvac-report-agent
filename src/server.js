@@ -30,6 +30,7 @@ import { extractV2Facts } from './tools/extract-v2-facts.js';
 import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
 import { createRetriever } from './v2/retrieval.js';
+import { buildFollowUpQuestions } from './v2/guided-reporting.js';
 import {
   assertNoServiceFactInvention,
   buildBusReportSections,
@@ -447,6 +448,10 @@ async function handleApi(request, response, url, traceId, config) {
       ...assertNoServiceFactInvention({ facts, knowledgeHits }),
       ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
     ];
+    const followUpQuestions = buildFollowUpQuestions({
+      scopeId: resolved.scopeId,
+      missingSections: plan.missing_required_fields,
+    });
     writeJson(response, 200, toolEnvelope('v2_report_build', traceId, violations.length ? 'NEEDS_CONFIRMATION' : 'PASS', {
       report: {
         scope_id: resolved.scopeId,
@@ -456,6 +461,7 @@ async function handleApi(request, response, url, traceId, config) {
         missing_required_fields: plan.missing_required_fields,
       },
       gates: { violations },
+      follow_up_questions: followUpQuestions,
     }, { retryable: false }));
     return;
   }

@@ -223,6 +223,12 @@
           <h3>Report preview</h3>
           <p id="v2-report-banner" class="validator-banner" role="status"></p>
           <p id="v2-report-missing" class="v2-missing"></p>
+          <section id="v2-follow-up" class="v2-follow-up" hidden aria-labelledby="v2-follow-up-title">
+            <h3 id="v2-follow-up-title">Complete the missing report information</h3>
+            <p class="hint">These questions come from the active report template. Answers are recorded as technician-confirmed facts; RAG does not fill them automatically.</p>
+            <div id="v2-follow-up-list" class="stack"></div>
+            <button id="v2-follow-up-apply" type="button">Apply answers and rebuild report</button>
+          </section>
           <div id="v2-report-gates" class="stack"></div>
           <div id="v2-report-sections" class="report-paper"></div>
         </div>

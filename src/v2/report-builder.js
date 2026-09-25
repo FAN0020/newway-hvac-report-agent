@@ -365,7 +365,9 @@ function buildReportSections({ scopeId, facts = [], factsReceiptId }) {
     if (!sectionId || !byId.has(sectionId)) continue;
     const label = labelFor(fact.field, scopeId);
     const unit = fact.unit ? ` ${fact.unit}` : '';
-    byId.get(sectionId).content.push(`${label}: ${renderValue(fact)}${unit}.`);
+    const rendered = `${renderValue(fact)}${unit}`;
+    const punctuation = /[.!?。！？]$/.test(rendered) ? '' : '.';
+    byId.get(sectionId).content.push(`${label}: ${rendered}${punctuation}`);
   }
   if (factsReceiptId) {
     const provenance = byId.get('provenance');
@@ -589,7 +591,12 @@ export function checkHardGates({ scopeId, facts = [] } = {}) {
     // the 08 class 2 unit check targets measured values, so identifiers like
     // plate "SBS6025Z" or train set "C751A" must not be read as "number +
     // inline unit" and must never raise CHANGED_NUMBER_UNIT.
-    if (!isIdentityField(field)) {
+    // Unit validation applies to measured values (or an explicit unit), not
+    // arbitrary identifiers that happen to contain digits, such as TAMS
+    // approval TA-2026-091 or a work-order reference.
+    const carriesMeasurement = field.startsWith('measurement.')
+      || (fact.unit !== undefined && fact.unit !== null && String(fact.unit).trim() !== '');
+    if (!isIdentityField(field) && carriesMeasurement) {
       const unitIssue = checkNumberUnit({ scopeId, fact });
       if (unitIssue) push('CHANGED_NUMBER_UNIT', field, unitIssue);
     }
