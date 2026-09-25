@@ -30,6 +30,7 @@ import { extractV2Facts } from './tools/extract-v2-facts.js';
 import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
 import { createRetriever } from './v2/retrieval.js';
+import { reviewV2Transcript } from './v2/transcript-review.js';
 import { buildFollowUpQuestions } from './v2/guided-reporting.js';
 import {
   assertNoServiceFactInvention,
@@ -418,9 +419,11 @@ async function handleApi(request, response, url, traceId, config) {
       return;
     }
     const result = await extractV2Facts({ contextId, rawText: input.raw_text, registry });
+    const transcriptReview = reviewV2Transcript({ scopeId: resolved.scopeId, rawText: input.raw_text });
     writeJson(response, 200, toolEnvelope('v2_facts_extract', traceId, 'PASS', {
       facts: result.facts,
       warnings: result.warnings,
+      transcript_review: transcriptReview,
       context_id: contextId,
     }));
     return;

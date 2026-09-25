@@ -168,6 +168,13 @@ function acceptTranscript(artifact, message) {
   el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
   el['transcription-status'].textContent = `${message} Source: ${artifact.provider}. The original text is saved as an immutable Artifact.`;
   el['build-report'].disabled = false;
+  // Real speech transcription now feeds the active SBS V2 workflow directly.
+  // The immutable source artifact remains visible in V1; V2 receives a reviewable
+  // copy so terminology corrections still require technician confirmation.
+  if (typeof v2 !== 'undefined' && v2?.contextId && v2.contextId.startsWith('SBS/') && v2El?.['v2-facts-text']) {
+    v2El['v2-facts-text'].value = artifact.raw_text;
+    v2SetStatus('v2-facts-status', 'Real speech transcript copied into the active SBS workflow. Review it, then extract facts.');
+  }
   ['correction-section', 'questions-section', 'evidence-section', 'report-section', 'confirm-section'].forEach((id) => { el[id].hidden = true; });
 }
 
@@ -514,6 +521,7 @@ const v2Ids = [
   'v2-retrieve-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk', 'v2-retrieve-submit',
   'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
   'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status',
+  'v2-transcript-review', 'v2-transcript-corrections', 'v2-transcript-questions', 'v2-transcript-apply',
   'v2-facts-table-wrap', 'v2-facts-table', 'v2-report-output', 'v2-report-banner',
   'v2-report-missing', 'v2-follow-up', 'v2-follow-up-list', 'v2-follow-up-apply',
   'v2-report-gates', 'v2-report-sections', 'v2-demo-status',
@@ -529,6 +537,8 @@ const v2 = {
   facts: [],
   knowledgeHits: [],
   followUpQuestions: [],
+  correctionSuggestions: [],
+  transcriptQuestions: [],
   uploadTimer: null,
   reportBlocked: false,
 };
@@ -586,6 +596,7 @@ function v2SetScope(scopeId) {
   v2El['v2-report-build'].disabled = true;
   v2El['v2-report-output'].hidden = true;
   v2El['v2-follow-up'].hidden = true;
+  v2El['v2-transcript-review'].hidden = true;
   v2El['v2-facts-table-wrap'].hidden = true;
   v2El['v2-upload-record'].hidden = true;
   v2El['v2-upload-progress'].hidden = true;
@@ -907,6 +918,54 @@ function v2RenderFollowUps(questions) {
   section.hidden = false;
 }
 
+function v2RenderTranscriptReview(review) {
+  v2.correctionSuggestions = Array.isArray(review?.correction_suggestions) ? review.correction_suggestions : [];
+  v2.transcriptQuestions = Array.isArray(review?.confirmation_questions) ? review.confirmation_questions : [];
+  const section = v2El['v2-transcript-review'];
+  const corrections = v2.correctionSuggestions.map((item) => {
+    const label = document.createElement('label');
+    label.className = 'v2-follow-up-card';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.correctionId = item.correction_id;
+    label.append(
+      checkbox,
+      document.createTextNode(` “${item.source_text}” → “${item.suggested_text}”`),
+      node('small', '', `${item.confidence} · ${item.reason}`),
+    );
+    return label;
+  });
+  const questions = v2.transcriptQuestions.map((item) => {
+    const card = node('div', 'v2-follow-up-card');
+    card.append(node('strong', '', 'Critical action clarification'), node('p', '', item.question), node('small', '', item.reason));
+    return card;
+  });
+  v2El['v2-transcript-corrections'].replaceChildren(...corrections);
+  v2El['v2-transcript-questions'].replaceChildren(...questions);
+  v2El['v2-transcript-apply'].hidden = corrections.length === 0;
+  section.hidden = corrections.length === 0 && questions.length === 0;
+}
+
+v2El['v2-transcript-apply'].addEventListener('click', () => {
+  const accepted = new Set([...v2El['v2-transcript-corrections'].querySelectorAll('input[data-correction-id]:checked')]
+    .map((input) => input.dataset.correctionId));
+  if (!accepted.size) {
+    v2SetStatus('v2-facts-status', 'Select at least one correction that the technician confirms.');
+    return;
+  }
+  let text = v2El['v2-facts-text'].value;
+  const selected = v2.correctionSuggestions
+    .filter((item) => accepted.has(item.correction_id))
+    .sort((a, b) => b.start - a.start);
+  for (const item of selected) {
+    if (text.slice(item.start, item.end) !== item.source_text) continue;
+    text = `${text.slice(0, item.start)}${item.suggested_text}${text.slice(item.end)}`;
+  }
+  v2El['v2-facts-text'].value = text;
+  v2SetStatus('v2-facts-status', `Applied ${selected.length} technician-confirmed correction(s); extracting facts again…`);
+  v2El['v2-facts-extract'].click();
+});
+
 v2El['v2-follow-up-apply'].addEventListener('click', () => {
   let applied = 0;
   for (const input of v2El['v2-follow-up-list'].querySelectorAll('textarea[data-field]')) {
@@ -946,6 +1005,7 @@ v2El['v2-facts-extract'].addEventListener('click', async () => {
   try {
     const result = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: raw });
     v2.facts = Array.isArray(result.data?.facts) ? result.data.facts : [];
+    v2RenderTranscriptReview(result.data?.transcript_review || {});
     v2.reportBlocked = false;
     v2RenderFacts(v2.facts);
     v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;

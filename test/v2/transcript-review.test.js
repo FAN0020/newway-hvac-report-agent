@@ -1,0 +1,49 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../../src/v2/transcript-review.js';
+
+const realBaseline = "Today's aerial corrective maintenance on train set Z751A car 3 are the passenger door would not close.\nInspection from the door control model 40.\nI replaced the door control module after replacement, the door opening and closing test passed.";
+
+test('Rail review proposes bounded domain corrections without silently changing the transcript', () => {
+  const review = reviewV2Transcript({ scopeId: 'SBS_RAIL', rawText: realBaseline });
+  assert.deepEqual(review.correction_suggestions.map((item) => item.correction_id), [
+    'rail_asset_c751a_z751a',
+    'rail_door_module_model_40',
+  ]);
+  assert.ok(review.correction_suggestions.every((item) => item.requires_confirmation));
+  assert.equal(realBaseline.includes('Z751A'), true);
+});
+
+test('only explicitly accepted corrections are applied', () => {
+  const review = reviewV2Transcript({ scopeId: 'SBS_RAIL', rawText: realBaseline });
+  const assetOnly = applyConfirmedTranscriptCorrections(
+    realBaseline,
+    review.correction_suggestions,
+    ['rail_asset_c751a_z751a'],
+  );
+  assert.match(assetOnly, /C751A/u);
+  assert.match(assetOnly, /door control model 40/u);
+
+  const all = applyConfirmedTranscriptCorrections(
+    realBaseline,
+    review.correction_suggestions,
+    review.correction_suggestions.map((item) => item.correction_id),
+  );
+  assert.match(all, /C751A/u);
+  assert.match(all, /door control module faulty/u);
+});
+
+test('future or planned work raises a critical clarification and is never auto-corrected', () => {
+  const text = 'I will replace the door control module. After replacement, the test passed.';
+  const review = reviewV2Transcript({ scopeId: 'SBS_RAIL', rawText: text });
+  assert.equal(review.confirmation_questions.length, 1);
+  assert.equal(review.confirmation_questions[0].field, 'work_performed');
+  assert.equal(review.confirmation_questions[0].critical, true);
+  assert.equal(applyConfirmedTranscriptCorrections(text, review.correction_suggestions, []), text);
+});
+
+test('Bus scope does not apply Rail correction rules', () => {
+  const review = reviewV2Transcript({ scopeId: 'SBS_BUS', rawText: realBaseline });
+  assert.deepEqual(review.correction_suggestions, []);
+});
+

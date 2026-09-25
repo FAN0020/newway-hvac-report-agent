@@ -117,7 +117,7 @@
       "id": "part_train_door",
       "kind": "part",
       "canonical": "列车车门",
-      "aliases": ["train door", "车门", "door system", "车门机构"],
+      "aliases": ["train door", "车门", "door system", "车门机构", "door control module"],
       "risk": "LOW",
       "description": "列车车门机构（含门控）。车门循环计数维护为可比行业惯例（C）。",
       "evidence": {

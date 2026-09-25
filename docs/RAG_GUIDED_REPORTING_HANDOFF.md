@@ -9,6 +9,22 @@
 - Missing required report modules become domain-specific follow-up questions.
 - Follow-up answers enter the report only as `CONFIRMED_BY_TECHNICIAN` facts.
 - RAG results never create service actions, test outcomes, completion states or safety facts.
+- Real Whisper transcripts are copied directly into the active SBS Bus/Rail facts input.
+- Rail ASR corrections are shown as reviewable suggestions and require an explicit technician selection before they change the working transcript.
+- Future/planned action wording such as `I will replace` raises a critical clarification and is never converted to completed work automatically.
+
+## Real voice regression: RAIL-VOICE-001
+
+The first iPhone recording produced two domain-critical ASR errors: `C751A` became `Z751A`, and `door control module faulty` became `door control model 40`. The first-round repair now proposes both corrections for technician confirmation.
+
+After both suggestions are explicitly accepted, the same transcript extracts six facts instead of two, including:
+
+- `asset.stock_class = Alstom Metropolis C751A`;
+- `work.description = ...door control module faulty`;
+- `parts.part_number = door control module`;
+- `parts.replaced = true`.
+
+The corrected Top-3 retrieval ranks Rail door knowledge first and Rail asset numbering second. Use the same audio again for the second-round test; the expected visible behavior is: transcript auto-routed to V2 → two unchecked suggestions → explicit technician acceptance → six extracted facts.
 
 ## Run
 

@@ -185,6 +185,19 @@ test('POST /api/v2/facts/extract produces facts with critical flags for SBS/BUS'
   assert.ok(body.data.facts.every((fact) => fact.support_status === 'DIRECT_TRANSCRIPT'));
 });
 
+test('POST /api/v2/facts/extract returns reviewable Rail ASR corrections without applying them', async () => {
+  const raw = 'Corrective maintenance on train set Z751A. Inspection found the door control model 40.';
+  const { status, body } = await json(api('/api/v2/facts/extract', {
+    method: 'POST',
+    body: { context_id: 'SBS/RAIL', raw_text: raw },
+  }));
+  assert.equal(status, 200);
+  assert.equal(body.status, 'PASS');
+  assert.equal(body.data.transcript_review.correction_suggestions.length, 2);
+  assert.ok(body.data.transcript_review.correction_suggestions.every((item) => item.requires_confirmation));
+  assert.ok(!body.data.facts.some((fact) => String(fact.value).includes('C751A')), 'unconfirmed correction must not enter facts');
+});
+
 test('POST /api/v2/facts/extract fails for HVAC with UNSUPPORTED_SCOPE', async () => {
   const { status, body } = await json(api('/api/v2/facts/extract', {
     method: 'POST',

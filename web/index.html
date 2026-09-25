@@ -210,6 +210,13 @@
         <h2 id="v2-facts-title">SBS fact extraction &amp; report preview</h2>
         <label for="v2-facts-text">Dictation / manual on-site statement</label>
         <textarea id="v2-facts-text" rows="8" placeholder="e.g. (Bus): Vehicle plate SBS 1234, work type maintenance, replaced the left front door lock actuator, tested door opening/closing normal, completion status completed."></textarea>
+        <section id="v2-transcript-review" class="v2-follow-up" hidden aria-labelledby="v2-transcript-review-title">
+          <h3 id="v2-transcript-review-title">Review speech recognition before extracting facts</h3>
+          <p class="hint">Domain terminology corrections are suggestions only. Select each correction you personally confirm. Planned or future actions are never converted into completed work automatically.</p>
+          <div id="v2-transcript-corrections" class="stack"></div>
+          <div id="v2-transcript-questions" class="stack"></div>
+          <button id="v2-transcript-apply" type="button">Apply selected corrections &amp; re-extract</button>
+        </section>
         <div class="controls">
           <button id="v2-facts-extract" type="button">Extract facts</button>
           <button id="v2-report-build" type="button" disabled>Build report</button>
