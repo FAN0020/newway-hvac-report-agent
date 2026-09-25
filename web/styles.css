@@ -151,6 +151,7 @@ input::placeholder, textarea::placeholder { color: #9da7a2; }
 .divider span { padding: 0 12px; }
 .field-foot { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 8px; font-size: .78rem; }
 .source-row { display: flex; gap: 11px; align-items: center; margin-top: 16px; padding: 12px; border-radius: 10px; background: var(--soft); }
+.source-row[hidden] { display: none; }
 .source-row .live-status { font-size: .75rem; }
 .side-column { display: grid; gap: 12px; }
 .checklist ul { margin: 16px 0 0; padding: 0; list-style: none; }

@@ -315,6 +315,11 @@ function renderValue(fact) {
   return factText(value);
 }
 
+function sentence(text) {
+  const value = String(text).trim();
+  return /[.!?。！？]$/u.test(value) ? value : `${value}.`;
+}
+
 /** Human label for a fact field, falling back to family-prefix labels. */
 function labelFor(field, scopeId) {
   const exact = LABELS_BY_SCOPE[scopeId]?.[field];
@@ -365,7 +370,7 @@ function buildReportSections({ scopeId, facts = [], factsReceiptId }) {
     if (!sectionId || !byId.has(sectionId)) continue;
     const label = labelFor(fact.field, scopeId);
     const unit = fact.unit ? ` ${fact.unit}` : '';
-    byId.get(sectionId).content.push(`${label}: ${renderValue(fact)}${unit}.`);
+    byId.get(sectionId).content.push(sentence(`${label}: ${renderValue(fact)}${unit}`));
   }
   if (factsReceiptId) {
     const provenance = byId.get('provenance');

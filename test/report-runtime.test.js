@@ -246,3 +246,63 @@ test('session runtime rejects an older request in the same session and scope', (
   assert.equal(controller.accepts(older), false);
   assert.equal(controller.accepts(newer), true);
 });
+
+test('an unchanged confirmed report stays confirmed while a material change makes it stale', () => {
+  assert.equal(typeof runtime.bindSessionConfirmation, 'function');
+  assert.equal(typeof runtime.hasMaterialReportChange, 'function');
+  assert.equal(typeof runtime.invalidateSessionConfirmation, 'function');
+  assert.equal(typeof runtime.confirmationViewState, 'function');
+
+  const session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'confirmed_bus' });
+  session.transcript = { original: 'Inspected MAN A95.', normalized: 'Inspected MAN A95.', hash: 'sha256:statement' };
+  session.structuredState = { 'asset.bus_model': 'MAN A95' };
+  session.reportDraft = { report_id: 'report-1', sections: [{ id: 'asset', content: ['Bus model: MAN A95.'] }] };
+  runtime.bindSessionConfirmation(session, { confirmation_token: 'confirm-1', confirmed_at: '2026-09-26T00:00:00.000Z' });
+
+  assert.equal(runtime.hasMaterialReportChange(session), false);
+  assert.deepEqual(runtime.confirmationViewState(session, { reviewable: true }), {
+    confirmed: true,
+    checkboxChecked: true,
+    confirmationDisabled: true,
+    canFinalize: true,
+    message: 'Confirmed at 2026-09-26T00:00:00.000Z. This exact report version remains official.',
+  });
+
+  session.structuredState['asset.bus_model'] = 'MAN A22';
+  assert.equal(runtime.hasMaterialReportChange(session), true);
+  runtime.invalidateSessionConfirmation(session);
+  assert.equal(session.confirmation, null);
+  assert.equal(session.status, 'REVIEW');
+  assert.deepEqual(session.complete, { summary: '', meta: '', copyableText: '' });
+  assert.deepEqual(session.exportState, { saved: false, files: [], error: null });
+});
+
+test('report search includes authoritative asset values as well as report and technician identity', () => {
+  assert.equal(typeof runtime.reportSearchText, 'function');
+  const session = runtime.createReportSession({
+    reportType: 'sbs_bus_maintenance',
+    id: 'report_bus_47',
+    jobContext: { technicianName: 'Alex Tan' },
+  });
+  session.structuredState = {
+    'asset.registration_no': 'SG3050Z',
+    'asset.bus_model': 'MAN A95',
+  };
+  const text = runtime.reportSearchText(session);
+  for (const expected of ['report_bus_47', 'alex tan', 'sg3050z', 'man a95']) assert.match(text, new RegExp(expected, 'i'));
+});
+
+test('Knowledge search requires a non-empty trimmed query', () => {
+  assert.equal(typeof runtime.knowledgeQueryState, 'function');
+  assert.deepEqual(runtime.knowledgeQueryState('   '), { valid: false, query: '' });
+  assert.deepEqual(runtime.knowledgeQueryState('  MAN A95 door  '), { valid: true, query: 'MAN A95 door' });
+});
+
+test('global surfaces expose their own context instead of the last report scope', () => {
+  assert.equal(typeof runtime.globalViewStatus, 'function');
+  assert.equal(runtime.globalViewStatus('reports'), 'Local report workspace');
+  assert.equal(runtime.globalViewStatus('new-report'), 'Choose a report type');
+  assert.equal(runtime.globalViewStatus('knowledge', 'SBS_RAIL'), 'Knowledge · SBS Rail Maintenance · scope isolated');
+  assert.equal(runtime.globalViewStatus('settings'), 'Local runtime settings');
+  assert.equal(runtime.globalViewStatus('help'), 'Demo help and walkthroughs');
+});

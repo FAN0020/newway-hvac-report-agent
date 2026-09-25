@@ -3,12 +3,19 @@ import { t } from './i18n.js';
 import {
   REPORT_SCHEMAS,
   applyResolveAnswer,
+  bindSessionConfirmation,
+  confirmationViewState,
   correctionDecisionPayload,
   createReportSession,
   createResolveQueue,
   createSessionRuntime,
   factsFromStructuredState,
+  globalViewStatus,
+  hasMaterialReportChange,
+  invalidateSessionConfirmation,
+  knowledgeQueryState,
   mapFactsToStructuredState,
+  reportSearchText,
   schemaFor,
 } from './report-runtime.js';
 
@@ -73,6 +80,7 @@ let ollamaReady = false;
 let currentView = 'reports';
 let knowledgeScope = 'SBS_BUS';
 let knowledgeRequestGeneration = 0;
+let knowledgeSearchPending = false;
 const knowledgeTransients = new Map();
 
 function node(tag, className, text) {
@@ -193,6 +201,7 @@ function navigate(view) {
   const journeyView = ['capture', 'resolve', 'review', 'complete'].includes(view);
   el.journey.hidden = !journeyView;
   if (journeyView) updateJourney(view);
+  else el['topbar-status'].textContent = globalViewStatus(view, knowledgeScope);
   document.querySelector('.sidebar').classList.remove('open');
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -204,7 +213,8 @@ function updateJourney(step) {
     const buttonIndex = order.indexOf(button.dataset.step);
     button.classList.toggle('active', buttonIndex === index);
     button.classList.toggle('done', buttonIndex < index);
-    button.disabled = !activeSession || buttonIndex > index || (buttonIndex === 1 && step !== 'resolve' && !activeSession.visitedResolve);
+    const confirmedComplete = button.dataset.step === 'complete' && Boolean(activeSession?.confirmation);
+    button.disabled = !activeSession || (buttonIndex > index && !confirmedComplete) || (buttonIndex === 1 && step !== 'resolve' && !activeSession.visitedResolve);
   }
 }
 
@@ -296,8 +306,7 @@ function renderReports() {
   const rows = [...sessions.values()].filter((session) => {
     const confirmed = Boolean(session.confirmation);
     const matchesFilter = filter === 'all' || (filter === 'confirmed' ? confirmed : !confirmed);
-    const haystack = `${session.id} ${session.schemaId} ${session.jobContext?.technicianName || ''}`.toLowerCase();
-    return matchesFilter && haystack.includes(query);
+    return matchesFilter && reportSearchText(session).includes(query);
   });
   if (!rows.length) {
     renderEmptyState(el['reports-list'], {
@@ -346,8 +355,9 @@ async function unlockWithToken(token) {
     await refreshHealth();
     el['auth-gate'].hidden = true;
     el['auth-status'].textContent = '';
-    el['topbar-status'].textContent = 'Local workspace ready';
+    el['topbar-status'].textContent = globalViewStatus(currentView, knowledgeScope);
     renderReports();
+    await refreshKnowledgeUploads();
   } catch (error) {
     if (sessionToken) requireLogin(`Cannot establish session: ${error.message}`);
   }
@@ -373,18 +383,28 @@ async function initializeSession() {
 
 function invalidateConfirmation(message = 'Report content changed; validation and confirmation are required again.') {
   confirmationToken = null;
-  if (activeSession) activeSession.confirmation = null;
+  if (activeSession) invalidateSessionConfirmation(activeSession);
   el['save-report'].disabled = true;
   el['export-report'].disabled = true;
   el['copy-export'].disabled = true;
   el['export-output'].hidden = true;
+  el['export-output'].value = '';
+  el['complete-summary'].textContent = '';
+  renderCompleteMeta('');
   el['confirmation-status'].textContent = message;
+  if (activeSession) updateJourney(currentView);
+  renderReports();
+}
+
+function invalidateConfirmationIfMaterialChanged(message) {
+  if (activeSession?.confirmation && hasMaterialReportChange(activeSession)) invalidateConfirmation(message);
 }
 
 function acceptTranscript(artifact, message) {
   currentTranscript = artifact;
   activeSession.transcriptArtifact = artifact;
   activeSession.transcript = { original: artifact.raw_text, normalized: artifact.raw_text, hash: artifact.source_hash || artifact.artifact_id };
+  invalidateConfirmationIfMaterialChanged('The source statement changed; validation and confirmation are required again.');
   el['transcript-output'].textContent = artifact.raw_text;
   el['transcript-output'].classList.remove('empty');
   el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
@@ -534,6 +554,7 @@ function collectGenericResolveDecisions() {
     }
   }
   currentFacts = factsFromStructuredState(session);
+  invalidateConfirmationIfMaterialChanged('Resolved report information changed; validation and confirmation are required again.');
 }
 
 async function prepareHvacResolve() {
@@ -601,6 +622,7 @@ async function buildSbsReport(existingToken, resolveMissing = false) {
     return;
   }
   session.status = 'REVIEW';
+  invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
   addAudit('Report built and validated', result.status);
   renderReview();
   navigate('review');
@@ -651,6 +673,7 @@ async function generateHvacReport() {
   session.inputValidation = inputValidation;
   session.status = 'REVIEW';
   session.processing = { status: 'idle', error: null };
+  invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
   addAudit('Report built and independently validated', currentValidation.status);
   renderReview();
   navigate('review');
@@ -673,6 +696,7 @@ function renderReportSections() {
 
 function renderReview() {
   resetCurrentReferences();
+  invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
   renderReportSections();
   const reviewable = Boolean(currentValidation?.data?.can_enter_technician_review);
   el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
@@ -685,10 +709,13 @@ function renderReview() {
   const transient = runtime.getTransient(activeSession.id);
   el['technician-name'].value = transient.technicianName || '';
   el['technician-id'].value = transient.technicianId || '';
-  el['confirm-check'].checked = false;
-  el['confirm-report'].disabled = true;
-  el['confirmation-status'].textContent = reviewable ? 'Review and confirm this exact version.' : 'Confirmation is blocked by validation.';
-  invalidateConfirmation(el['confirmation-status'].textContent);
+  const confirmationState = confirmationViewState(activeSession, { reviewable });
+  el['confirm-check'].checked = confirmationState.checkboxChecked;
+  el['confirm-check'].disabled = confirmationState.confirmed;
+  el['confirm-report'].disabled = confirmationState.confirmationDisabled;
+  el['confirmation-status'].textContent = confirmationState.message;
+  el['save-report'].disabled = !confirmationState.canFinalize;
+  el['export-report'].disabled = !confirmationState.canFinalize;
 }
 
 async function confirmCurrentReport() {
@@ -702,9 +729,8 @@ async function confirmCurrentReport() {
   const result = await api(endpoint, { draft: currentDraft, validator_run_id: currentValidation.trace_id, technician_id: technicianId, technician_name: technicianName });
   if (!runtime.accepts(requestToken)) return;
   confirmationToken = result.data.confirmation.confirmation_token;
-  session.confirmation = result.data.confirmation;
+  bindSessionConfirmation(session, result.data.confirmation);
   session.jobContext = { technicianId, technicianName };
-  session.status = 'CONFIRMED';
   session.updatedAt = new Date().toISOString();
   addAudit('Report confirmed', `${technicianName} · ${technicianId}`);
   el['save-report'].disabled = false;
@@ -749,6 +775,7 @@ async function uploadSbsDocument(file) {
     const result = await apiRaw('/api/v2/uploads', file, { 'x-file-name': file.name, 'x-scope-id': scopeAtStart, 'x-mime-type': file.type || 'application/octet-stream', 'x-uploader': el['v2-uploader'].value || 'demo-technician', 'x-scenario': 'report-capture', 'content-type': 'application/octet-stream' });
     if (!runtime.accepts(requestToken)) return;
     session.evidence.push(result.data.upload);
+    invalidateConfirmationIfMaterialChanged('Report evidence changed; validation and confirmation are required again.');
     el['v2-upload-status'].textContent = result.data.upload.status === 'READY' ? `${file.name} attached and indexed in ${scopeAtStart}.` : `${file.name} could not be processed.`;
     addAudit('Reference document uploaded', `${file.name} · ${result.data.upload.status}`);
   } catch (error) { if (runtime.accepts(requestToken)) el['v2-upload-status'].textContent = `Upload failed: ${error.message}`; }
@@ -783,7 +810,15 @@ function setKnowledgeScope(scope) {
   for (const button of el['scope-selector-buttons'].querySelectorAll('button')) button.classList.toggle('active', button.dataset.scopeId === scope);
   el['v2-retrieve-results'].replaceChildren();
   el['v2-retrieve-warnings'].replaceChildren();
+  updateKnowledgeSearchState();
+  if (currentView === 'knowledge') el['topbar-status'].textContent = globalViewStatus('knowledge', knowledgeScope);
   refreshKnowledgeUploads();
+}
+
+function updateKnowledgeSearchState() {
+  const state = knowledgeQueryState(el['v2-retrieve-query'].value);
+  el['v2-retrieve-submit'].disabled = knowledgeSearchPending || !state.valid;
+  return state;
 }
 
 function renderKnowledgeResults(results) {
@@ -811,6 +846,10 @@ document.addEventListener('click', (event) => {
 });
 document.getElementById('report-type-grid').addEventListener('click', (event) => { const card = event.target.closest('[data-report-type]'); if (card) createNewReport(card.dataset.reportType); });
 el['report-search'].addEventListener('input', renderReports);
+el['v2-retrieve-query'].addEventListener('input', () => {
+  const state = updateKnowledgeSearchState();
+  if (!state.valid) el['v2-retrieve-status'].textContent = 'Enter a search term to search this scope.';
+});
 for (const filter of document.querySelectorAll('.filter')) filter.addEventListener('click', () => { document.querySelector('.filter.active')?.classList.remove('active'); filter.classList.add('active'); renderReports(); });
 for (const id of ['open-evidence', 'review-evidence']) el[id].addEventListener('click', showEvidence);
 el['close-evidence'].addEventListener('click', hideEvidence);
@@ -837,7 +876,7 @@ el['v2-upload-file'].addEventListener('change', () => { const file = el['v2-uplo
 el['use-manual'].addEventListener('click', async () => {
   const raw = el['manual-transcript'].value.trim();
   if (!activeSession || !raw) { el['transcription-status'].textContent = 'Enter or record a service statement first.'; return; }
-  saveTransientFromDom(); invalidateConfirmation();
+  saveTransientFromDom();
   activeSession.status = 'PROCESSING';
   const requestToken = runtime.beginRequest(activeSession.id, 'process-statement');
   const session = activeSession;
@@ -868,6 +907,7 @@ el['confirm-corrections'].addEventListener('click', async () => {
     if (session.scope === 'HVAC' && session.hvacMissingPhase) {
       collectGenericResolveDecisions();
       for (const item of session.unresolvedItems) session.manualFields[item.fieldId] = item.answer.decision === 'CONFIRM' ? item.answer.value : '未提供/待确认';
+      invalidateConfirmationIfMaterialChanged('Resolved report information changed; validation and confirmation are required again.');
       session.hvacMissingPhase = false;
       session.hvacMissingResolved = true;
       addAudit('Missing fields resolved', `${session.unresolvedItems.length} explicit decisions`);
@@ -890,6 +930,7 @@ el['confirm-corrections'].addEventListener('click', async () => {
         const decision = decisions.find((entry) => entry.candidate_id === candidateId);
         return decision ? { ...item, answer: { decision: decision.decision, criticalValueConfirmed: decision.critical_value_confirmed === true } } : item;
       });
+      invalidateConfirmationIfMaterialChanged('Transcript decisions changed; validation and confirmation are required again.');
       addAudit('Transcript decisions confirmed', `${decisions.length} decisions`);
       await generateHvacReport();
     } else {
@@ -933,8 +974,10 @@ el['scope-selector-buttons'].addEventListener('click', (event) => {
   if (v2Wt.active) v2WtRestart();
 });
 el['v2-retrieve-submit'].addEventListener('click', async () => {
-  const scopeAtStart = knowledgeScope; const generation = ++knowledgeRequestGeneration; const query = el['v2-retrieve-query'].value.trim();
-  el['v2-retrieve-submit'].disabled = true; el['v2-retrieve-status'].textContent = 'Searching within the selected scope…';
+  const queryState = updateKnowledgeSearchState();
+  if (!queryState.valid) { el['v2-retrieve-status'].textContent = 'Enter a search term to search this scope.'; return; }
+  const scopeAtStart = knowledgeScope; const generation = ++knowledgeRequestGeneration; const query = queryState.query;
+  knowledgeSearchPending = true; updateKnowledgeSearchState(); el['v2-retrieve-status'].textContent = 'Searching within the selected scope…';
   try {
     const result = await api('/api/v2/retrieve', { context_id: scopeMeta[scopeAtStart].contextId, query, top_k: Number(el['v2-retrieve-topk'].value) || 5, include_uploads: true });
     if (generation !== knowledgeRequestGeneration || scopeAtStart !== knowledgeScope) return;
@@ -942,7 +985,7 @@ el['v2-retrieve-submit'].addEventListener('click', async () => {
     el['v2-retrieve-warnings'].replaceChildren(...warnings.map((warning) => node('p', 'warning-line', warning === 'CROSS_DOMAIN_BLOCKED' ? 'Cross-domain content was blocked.' : warning)));
     renderKnowledgeResults(result.data.results || []); el['v2-retrieve-status'].textContent = `${result.data.results?.length || 0} results.`;
   } catch (error) { if (generation === knowledgeRequestGeneration) el['v2-retrieve-status'].textContent = `Search failed: ${error.message}`; }
-  finally { el['v2-retrieve-submit'].disabled = false; }
+  finally { knowledgeSearchPending = false; updateKnowledgeSearchState(); }
 });
 
 const v2Wt = { active: false, index: 0 };

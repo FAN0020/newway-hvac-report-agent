@@ -140,6 +140,125 @@ function supportStatus(fact, support) {
 }
 function sameValue(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
 
+const VOLATILE_MATERIAL_KEYS = new Set([
+  "createdAt", "updatedAt", "created_at", "updated_at", "recorded_at", "generated_at",
+  "trace_id", "validator_run_id", "confirmation_token", "confirmed_at",
+]);
+
+function canonicalMaterialValue(value) {
+  if (value === null || value === undefined || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.map(canonicalMaterialValue);
+  if (typeof value === "object") {
+    if (typeof value.name === "string" && typeof value.size === "number" && typeof value.type === "string") {
+      return { name: value.name, size: value.size, type: value.type, lastModified: value.lastModified ?? null };
+    }
+    return Object.fromEntries(Object.keys(value)
+      .filter((key) => !VOLATILE_MATERIAL_KEYS.has(key))
+      .sort()
+      .map((key) => [key, canonicalMaterialValue(value[key])]));
+  }
+  return String(value);
+}
+
+export function reportMaterialSignature(session) {
+  return JSON.stringify(canonicalMaterialValue({
+    transcript: session.transcript,
+    transcriptArtifact: session.transcriptArtifact,
+    corrections: session.corrections,
+    correctionDecisions: session.correctionDecisions,
+    correctionReceipt: session.correctionReceipt,
+    manualFields: session.manualFields,
+    evidence: session.evidence,
+    sources: session.sources,
+    attachment: session.capture?.attachment,
+    facts: session.facts,
+    structuredState: session.structuredState,
+    fieldStates: session.fieldStates,
+    unresolvedItems: session.unresolvedItems,
+    reportDraft: session.reportDraft,
+    validation: session.validation,
+  }));
+}
+
+export function bindSessionConfirmation(session, confirmation) {
+  session.confirmation = copy(confirmation);
+  session.status = "CONFIRMED";
+  session.confirmedMaterialSignature = reportMaterialSignature(session);
+  return session;
+}
+
+export function hasMaterialReportChange(session) {
+  return Boolean(session.confirmation && session.confirmedMaterialSignature
+    && session.confirmedMaterialSignature !== reportMaterialSignature(session));
+}
+
+export function invalidateSessionConfirmation(session) {
+  session.confirmation = null;
+  session.confirmedMaterialSignature = null;
+  session.status = session.reportDraft ? "REVIEW" : (session.transcript?.original ? "RESOLVE" : "CAPTURE");
+  session.complete = { summary: "", meta: "", copyableText: "" };
+  session.exportState = { saved: false, files: [], error: null };
+  session.updatedAt = new Date().toISOString();
+  return session;
+}
+
+export function confirmationViewState(session, { reviewable = false } = {}) {
+  if (session.confirmation) {
+    const at = session.confirmation.confirmed_at ? ` at ${session.confirmation.confirmed_at}` : "";
+    return {
+      confirmed: true,
+      checkboxChecked: true,
+      confirmationDisabled: true,
+      canFinalize: true,
+      message: `Confirmed${at}. This exact report version remains official.`,
+    };
+  }
+  return {
+    confirmed: false,
+    checkboxChecked: false,
+    confirmationDisabled: true,
+    canFinalize: false,
+    message: reviewable ? "Review and confirm this exact version." : "Confirmation is blocked by validation.",
+  };
+}
+
+function collectSearchValues(value, result) {
+  if (value === null || value === undefined) return;
+  if (["string", "number", "boolean"].includes(typeof value)) { result.push(String(value)); return; }
+  if (Array.isArray(value)) { for (const item of value) collectSearchValues(item, result); return; }
+  if (typeof value === "object") for (const item of Object.values(value)) collectSearchValues(item, result);
+}
+
+export function reportSearchText(session) {
+  const values = [];
+  collectSearchValues({
+    id: session.id,
+    schemaId: session.schemaId,
+    reportType: session.reportType,
+    jobContext: session.jobContext,
+    structuredState: session.structuredState,
+    facts: session.facts,
+    reportDraft: session.reportDraft,
+  }, values);
+  return values.join(" ").toLowerCase();
+}
+
+export function knowledgeQueryState(rawQuery) {
+  const query = String(rawQuery || "").trim();
+  return { valid: query.length > 0, query };
+}
+
+export function globalViewStatus(view, scope = "SBS_BUS") {
+  const statuses = {
+    reports: "Local report workspace",
+    "new-report": "Choose a report type",
+    settings: "Local runtime settings",
+    help: "Demo help and walkthroughs",
+  };
+  if (view === "knowledge") return `Knowledge · ${schemaFor(scope).name} · scope isolated`;
+  return statuses[view] || "Local workspace ready";
+}
+
 export function mapFactsToStructuredState(session, facts = []) {
   const next = copy(session);
   const reportSchema = schemaFor(next.schemaId);
