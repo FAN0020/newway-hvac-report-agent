@@ -382,6 +382,12 @@ test('Review status truthfully distinguishes ready, needs information, failed, a
   assert.equal(runtime.reviewStatus(session, { reviewable: false, issueCount: 4 }), 'CONFIRMED');
 });
 
+test('audio preferences accept only supported transcription defaults', () => {
+  assert.equal(typeof runtime.audioPreferenceState, 'function');
+  assert.deepEqual(runtime.audioPreferenceState({ language: 'zh', model: 'small' }), { language: 'zh', model: 'small' });
+  assert.deepEqual(runtime.audioPreferenceState({ language: 'unsupported', model: 'huge' }), { language: 'auto', model: 'base' });
+});
+
 test('transcript provenance preserves immutable voice evidence when the statement is edited', () => {
   assert.equal(typeof runtime.applyTranscriptArtifact, 'function');
   assert.equal(typeof runtime.transcriptSourceLabel, 'function');

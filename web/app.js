@@ -2,6 +2,7 @@ import { PcmWavRecorder } from './audio-recorder.js';
 import { t } from './i18n.js';
 import {
   REPORT_SCHEMAS,
+  audioPreferenceState,
   applyResolveDecision,
   applyTranscriptArtifact,
   beginResolveFlow,
@@ -50,7 +51,7 @@ const ids = [
   'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status', 'v2-facts-table-wrap',
   'v2-facts-table', 'v2-report-output', 'v2-report-banner', 'v2-report-missing', 'v2-report-gates',
   'v2-report-sections', 'v2-demo-play', 'v2-demo-status', 'v2-demo-captions', 'v2-demo-fixes',
-  'v2-demo-fix-list', 'v2-walkthrough-start', 'v2-walkthrough', 'v2-wt-progress', 'v2-wt-step',
+  'v2-demo-fix-list', 'v2-walkthrough-start', 'v2-walkthrough', 'v2-wt-progress', 'v2-wt-step', 'settings-language', 'settings-model',
   'v2-wt-title', 'v2-wt-desc', 'v2-wt-skip', 'v2-wt-next',
 ];
 const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
@@ -94,6 +95,9 @@ let knowledgeScope = 'SBS_BUS';
 let knowledgeRequestGeneration = 0;
 let knowledgeSearchPending = false;
 let previousEvidenceFocus = null;
+let audioDefaults = audioPreferenceState();
+let demoRunGeneration = 0;
+let activeDemoRun = null;
 const knowledgeTransients = new Map();
 
 function node(tag, className, text) {
@@ -114,6 +118,15 @@ function renderEmptyState(container, { icon = '▤', title, message, actionLabel
   const wrapper = node('div', 'empty-state');
   wrapper.append(body);
   container.replaceChildren(wrapper);
+}
+
+function cancelDemoRun(message = 'Demo stopped. Its synthetic report remains in this local demo workspace.') {
+  if (!activeDemoRun) return;
+  demoRunGeneration += 1;
+  runtime.beginRequest(activeDemoRun.sessionId, 'demo-statement');
+  activeDemoRun = null;
+  el['v2-demo-play'].disabled = false;
+  el['v2-demo-status'].textContent = message;
 }
 
 function setSessionToken(value) {
@@ -270,6 +283,10 @@ function navigate(view) {
   el.journey.hidden = !journeyView;
   if (journeyView) updateJourney(view);
   else el['topbar-status'].textContent = globalViewStatus(view, knowledgeScope);
+  if (view === 'settings') {
+    el['settings-language'].value = audioDefaults.language;
+    el['settings-model'].value = audioDefaults.model;
+  }
   document.querySelector('.sidebar').classList.remove('open');
   el['mobile-menu'].setAttribute('aria-expanded', 'false');
   window.scrollTo({ top: 0, behavior: 'instant' });
@@ -376,13 +393,15 @@ function activateSession(session) {
   if (session.capture.audioBlob && !session.transcriptArtifact && session.processing.status === 'idle') transcribe(1, session);
 }
 
-function createNewReport(reportType) {
+function createNewReport(reportType, { demo = false } = {}) {
   const session = createReportSession({ reportType });
+  session.capture = { ...session.capture, ...audioDefaults };
+  session.demo = demo;
   session.audit = [];
   session.status = 'CAPTURE';
   sessions.set(session.id, session);
   activateSession(session);
-  addAudit('Report created', `${session.schemaId} · version ${session.schemaVersion}`);
+  addAudit(demo ? 'Synthetic demo report created' : 'Report created', `${session.schemaId} · version ${session.schemaVersion}`);
   navigate('capture');
 }
 
@@ -399,7 +418,7 @@ function updateCaptureContext() {
   el['v2-upload-status'].textContent = activeSession.scope === 'HVAC' ? '' : (lastReference
     ? `${lastReference.filename || 'Supporting document'} is attached as reference material only; it is not proof that work occurred.`
     : 'Optional reference material for this report scope; it is not proof that work occurred.');
-  el['topbar-status'].textContent = `${schema.name} · scope locked`;
+  el['topbar-status'].textContent = `${activeSession.demo ? 'Demo · ' : ''}${schema.name} · scope locked`;
 }
 
 function renderReports() {
@@ -423,8 +442,8 @@ function renderReports() {
     const schema = schemaFor(session.schemaId);
     const row = node('button', 'report-row');
     const title = node('div');
-    title.append(node('strong', '', schema.name), node('small', '', session.id));
-    row.append(title, node('span', '', session.updatedAt.slice(0, 10)), node('span', 'status-pill', session.confirmation ? 'Confirmed' : session.status.replaceAll('_', ' ')), node('b', '', '→'));
+    title.append(node('strong', '', schema.name), node('small', '', `${session.demo ? 'DEMO · ' : ''}${session.id}`));
+    row.append(title, node('span', '', session.updatedAt.slice(0, 10)), node('span', 'status-pill', `${session.demo ? 'Demo · ' : ''}${session.confirmation ? 'Confirmed' : session.status.replaceAll('_', ' ')}`), node('b', '', '→'));
     row.addEventListener('click', () => {
       activateSession(session);
       const destination = session.confirmation ? 'complete' : (session.reportDraft ? 'review' : 'capture');
@@ -1019,18 +1038,25 @@ async function refreshKnowledgeUploads() {
     if (generation !== knowledgeRequestGeneration || scopeAtStart !== knowledgeScope) return;
     const uploads = result.data?.uploads || [];
     el['v2-upload-list'].replaceChildren(...(uploads.length ? uploads.map(renderUploadRow) : [node('p', 'supporting', 'No upload records in this scope yet.')]));
-  } catch (error) { el['v2-upload-list'].replaceChildren(node('p', 'supporting', `Could not load uploads: ${error.message}`)); }
+  } catch (error) {
+    if (generation === knowledgeRequestGeneration && scopeAtStart === knowledgeScope) el['v2-upload-list'].replaceChildren(node('p', 'supporting', `Could not load uploads: ${error.message}`));
+  }
 }
 
 function setKnowledgeScope(scope) {
   knowledgeTransients.set(knowledgeScope, { query: el['v2-retrieve-query'].value });
   knowledgeScope = scope;
+  knowledgeSearchPending = false;
   const schema = scope === 'SBS_BUS' ? REPORT_SCHEMAS.SBS_BUS : REPORT_SCHEMAS.SBS_RAIL;
   el['v2-retrieve-query'].value = knowledgeTransients.get(scope)?.query || '';
   el['scope-selector-status'].textContent = `${schema.name} · scope isolated`;
   el['v2-upload-scope-hint'].textContent = `Documents stay inside ${schema.name}.`;
   el['v2-retrieve-scope-hint'].textContent = `Search cannot return content from HVAC or the other SBS domain.`;
-  for (const button of el['scope-selector-buttons'].querySelectorAll('button')) button.classList.toggle('active', button.dataset.scopeId === scope);
+  for (const button of el['scope-selector-buttons'].querySelectorAll('button')) {
+    const selected = button.dataset.scopeId === scope;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  }
   el['v2-retrieve-results'].replaceChildren();
   el['v2-retrieve-warnings'].replaceChildren();
   updateKnowledgeSearchState();
@@ -1055,8 +1081,11 @@ function renderKnowledgeResults(results) {
 
 // The filler is deliberately non-submitting; security tests assert this handler stays free of network calls.
 el['fill-demo'].addEventListener('click', () => {
-  if (!activeSession) createNewReport('hvac_service');
+  if (!activeSession) createNewReport('hvac_service', { demo: true });
   else navigate('capture');
+  activeSession.demo = true;
+  addAudit('Synthetic example added', 'Demo data · no real customer or asset data');
+  updateCaptureContext();
   activeSession.capture.manualEntryOpen = true;
   el['manual-entry'].hidden = false;
   el['manual-transcript'].value = examples[activeSession.scope] || demoNarration;
@@ -1070,13 +1099,22 @@ el['fill-demo'].addEventListener('click', () => {
 el['auth-submit'].addEventListener('click', (event) => { event.preventDefault(); unlockWithToken(el['auth-token'].value); });
 el['auth-token'].addEventListener('keydown', (event) => { if (event.key === 'Enter') el['auth-submit'].click(); });
 el['refresh-health'].addEventListener('click', () => refreshHealth().catch((error) => { el['health-summary'].textContent = `Health check failed: ${error.message}`; }));
+for (const id of ['settings-language', 'settings-model']) el[id].addEventListener('change', () => {
+  audioDefaults = audioPreferenceState({ language: el['settings-language'].value, model: el['settings-model'].value });
+});
 el['mobile-menu'].addEventListener('click', () => {
   const open = document.querySelector('.sidebar').classList.toggle('open');
   el['mobile-menu'].setAttribute('aria-expanded', String(open));
 });
 document.addEventListener('click', (event) => {
   const nav = event.target.closest('[data-nav]');
-  if (nav) { if (currentView === 'capture') saveTransientFromDom(); if (nav.dataset.nav === 'reports') renderReports(); navigate(nav.dataset.nav); }
+  if (nav) {
+    if (activeDemoRun && nav.dataset.nav !== 'help') cancelDemoRun('Demo stopped because you left Help. Its synthetic report remains labelled Demo.');
+    if (v2Wt.active) v2WtStop('stopped');
+    if (currentView === 'capture') saveTransientFromDom();
+    if (nav.dataset.nav === 'reports') renderReports();
+    navigate(nav.dataset.nav);
+  }
   const sidebar = document.querySelector('.sidebar');
   if (sidebar.classList.contains('open') && !sidebar.contains(event.target) && !el['mobile-menu'].contains(event.target)) {
     sidebar.classList.remove('open');
@@ -1351,11 +1389,17 @@ el['v2-retrieve-submit'].addEventListener('click', async () => {
     const warnings = result.data?.warnings || [];
     el['v2-retrieve-warnings'].replaceChildren(...warnings.map((warning) => node('p', 'warning-line', warning === 'CROSS_DOMAIN_BLOCKED' ? 'Cross-domain content was blocked.' : warning)));
     renderKnowledgeResults(result.data.results || []); el['v2-retrieve-status'].textContent = `${result.data.results?.length || 0} results.`;
-  } catch (error) { if (generation === knowledgeRequestGeneration) el['v2-retrieve-status'].textContent = `Search failed: ${error.message}`; }
-  finally { knowledgeSearchPending = false; updateKnowledgeSearchState(); }
+  } catch (error) {
+    if (generation === knowledgeRequestGeneration && scopeAtStart === knowledgeScope) el['v2-retrieve-status'].textContent = `Search failed: ${error.message}`;
+  } finally {
+    if (generation === knowledgeRequestGeneration && scopeAtStart === knowledgeScope) {
+      knowledgeSearchPending = false;
+      updateKnowledgeSearchState();
+    }
+  }
 });
 
-const v2Wt = { active: false, index: 0 };
+const v2Wt = { active: false, index: 0, generation: 0, sessionId: null };
 const walkthroughStatement = examples.SBS_BUS;
 function v2WtSteps() {
   const domain = knowledgeScope === 'SBS_RAIL' ? 'SBS / Rail' : 'SBS / Bus';
@@ -1384,8 +1428,11 @@ function v2WtRender() {
   el['v2-wt-title'].textContent = title;
   el['v2-wt-desc'].textContent = `${description}${v2Wt.index === 1 ? ` Example: ${v2WtSampleDoc()}` : ''}${v2Wt.index === 2 ? ` Example: ${v2WtQuery()}` : ''}`;
   el['v2-wt-progress'].style.opacity = String(.35 + (v2Wt.index + 1) / steps.length * .65);
-  el['v2-wt-next'].textContent = v2Wt.index === steps.length - 1 ? 'Finish' : 'Next';
-  if (v2Wt.index === 0) { navigate('new-report'); v2WtTarget('[data-report-type="sbs_bus_maintenance"]'); }
+  el['v2-wt-next'].textContent = v2Wt.index === steps.length - 1 ? 'Finish · keep demo data' : 'Next';
+  if (v2Wt.index === 0) {
+    navigate('new-report');
+    v2WtTarget(`[data-report-type="${knowledgeScope === 'SBS_RAIL' ? 'sbs_rail_maintenance' : 'sbs_bus_maintenance'}"]`);
+  }
   if (v2Wt.index === 1) { navigate('capture'); v2WtTarget('#sbs-source-row'); }
   if (v2Wt.index === 2) { navigate('knowledge'); setKnowledgeScope(activeSession?.scope === 'SBS_RAIL' ? 'SBS_RAIL' : 'SBS_BUS'); el['v2-retrieve-query'].value = v2WtQuery(); v2WtTarget('#v2-retrieve-submit'); }
   if (v2Wt.index === 3) { navigate('capture'); el['manual-transcript'].value = activeSession?.scope === 'SBS_RAIL' ? examples.SBS_RAIL : walkthroughStatement; v2WtTarget('#manual-transcript'); }
@@ -1393,20 +1440,51 @@ function v2WtRender() {
   if (v2Wt.index === 5) v2WtTarget('#report-section');
   if (v2Wt.index === 6) v2WtTarget('#confirm-section');
 }
-function v2WtStop() { v2Wt.active = false; el['v2-walkthrough'].hidden = true; document.querySelector('.walkthrough-target')?.classList.remove('walkthrough-target'); }
-function v2WtRestart() { if (!v2Wt.active) return; v2Wt.index = 0; v2WtRender(); }
-function v2WtStart() { if (v2Wt.active) v2WtStop(); v2Wt.active = true; v2Wt.index = 0; el['v2-walkthrough'].hidden = false; v2WtRender(); }
+function v2WtOwns(generation) { return v2Wt.active && generation === v2Wt.generation && (!v2Wt.sessionId || activeSession?.id === v2Wt.sessionId); }
+function v2WtStop(reason = '') {
+  v2Wt.active = false;
+  v2Wt.generation += 1;
+  el['v2-walkthrough'].hidden = true;
+  document.querySelector('.walkthrough-target')?.classList.remove('walkthrough-target');
+  if (reason) el['v2-demo-status'].textContent = `Walkthrough ${reason}. Any demo report or upload already created remains in this local demo workspace.`;
+}
+function v2WtRestart() {
+  if (!v2Wt.active) return;
+  v2Wt.generation += 1;
+  v2Wt.index = 0;
+  v2Wt.sessionId = null;
+  v2WtRender();
+}
+function v2WtStart() {
+  if (v2Wt.active) v2WtStop();
+  v2Wt.active = true;
+  v2Wt.index = 0;
+  v2Wt.sessionId = null;
+  v2Wt.generation += 1;
+  el['v2-wt-next'].disabled = false;
+  el['v2-demo-status'].textContent = 'Guided walkthrough started. Any generated demo data will be kept until this page reloads.';
+  el['v2-walkthrough'].hidden = false;
+  v2WtRender();
+}
 async function v2WtAdvance() {
+  const generation = v2Wt.generation;
   el['v2-wt-next'].disabled = true;
   try {
-    if (v2Wt.index === 0) createNewReport(knowledgeScope === 'SBS_RAIL' ? 'sbs_rail_maintenance' : 'sbs_bus_maintenance');
+    if (v2Wt.index === 0) {
+      createNewReport(knowledgeScope === 'SBS_RAIL' ? 'sbs_rail_maintenance' : 'sbs_bus_maintenance', { demo: true });
+      v2Wt.sessionId = activeSession.id;
+    }
     if (v2Wt.index === 1) {
       const sample = new File(['Synthetic walkthrough reference: inspect the door mechanism and record the actual on-site result.'], v2WtSampleDoc(), { type: 'text/plain' });
       await uploadSbsDocument(sample);
+      if (!v2WtOwns(generation)) return;
     }
     if (v2Wt.index === 2) {
-      const result = await api('/api/v2/retrieve', { context_id: scopeMeta[activeSession.scope].contextId, query: v2WtQuery(), top_k: 5, include_uploads: true });
-      activeSession.knowledgeHits = (result.data.results || []).map((item) => item.text);
+      const session = activeSession;
+      const requestToken = runtime.beginRequest(session.id, 'walkthrough-retrieve');
+      const result = await api('/api/v2/retrieve', { context_id: scopeMeta[session.scope].contextId, query: v2WtQuery(), top_k: 5, include_uploads: true });
+      if (!v2WtOwns(generation) || !runtime.accepts(requestToken)) return;
+      session.knowledgeHits = (result.data.results || []).map((item) => item.text);
       renderKnowledgeResults(result.data.results || []);
     }
     if (v2Wt.index === 3) {
@@ -1414,35 +1492,44 @@ async function v2WtAdvance() {
       runtime.setTransient(activeSession.id, { statement: raw });
       const token = runtime.beginRequest(activeSession.id, 'walkthrough-statement');
       await processSbsStatement(raw, token);
+      if (!v2WtOwns(generation)) return;
     }
     if (v2Wt.index === 4 && currentView === 'resolve') {
       for (const item of activeSession.unresolvedItems) item.answer = { decision: 'NOT_PROVIDED', value: null };
       addAudit('Walkthrough marked missing sections as pending', 'Synthetic guided walkthrough');
       await buildSbsReport();
+      if (!v2WtOwns(generation)) return;
     }
-    if (v2Wt.index >= v2WtSteps().length - 1) return v2WtStop();
+    if (!v2WtOwns(generation)) return;
+    if (v2Wt.index >= v2WtSteps().length - 1) return v2WtStop('finished');
     v2Wt.index += 1;
     v2WtRender();
   } catch (error) {
-    el['v2-wt-desc'].textContent = `The walkthrough could not continue: ${error.message}`;
-  } finally { el['v2-wt-next'].disabled = false; }
+    if (v2WtOwns(generation)) el['v2-wt-desc'].textContent = `The walkthrough could not continue: ${error.message}`;
+  } finally { if (generation === v2Wt.generation) el['v2-wt-next'].disabled = false; }
 }
 el['v2-walkthrough-start'].addEventListener('click', v2WtStart);
-el['v2-wt-skip'].addEventListener('click', v2WtStop);
+el['v2-wt-skip'].addEventListener('click', () => v2WtStop('stopped'));
 el['v2-wt-next'].addEventListener('click', v2WtAdvance);
 el['v2-demo-play'].addEventListener('click', async () => {
   if (v2Wt.active) v2WtStop();
+  const runGeneration = ++demoRunGeneration;
   el['v2-demo-play'].disabled = true;
   el['v2-demo-fixes'].hidden = true;
   el['v2-demo-captions'].textContent = '';
   try {
     const session = createReportSession({ reportType: 'sbs_bus_maintenance' });
     session.audit = []; session.status = 'CAPTURE'; session.demo = true;
+    activeDemoRun = { generation: runGeneration, sessionId: session.id };
     sessions.set(session.id, session); activateSession(session); addAudit('Synthetic guided demo started', 'No real customer or asset data');
     navigate('help');
     el['v2-demo-status'].textContent = 'Simulating an on-site recording…';
     const misheard = 'Preventive maintenance on bus MAN A ninety five. The front door would not close. Inspection found the door control modular was faulty.';
-    for (const word of misheard.split(' ')) { el['v2-demo-captions'].textContent += `${word} `; await new Promise((resolve) => setTimeout(resolve, 24)); }
+    for (const word of misheard.split(' ')) {
+      await new Promise((resolve) => setTimeout(resolve, 24));
+      if (runGeneration !== demoRunGeneration || activeSession?.id !== session.id) return;
+      el['v2-demo-captions'].textContent += `${word} `;
+    }
     el['v2-demo-fix-list'].replaceChildren(node('div', 'resolve-item', 'A ninety five → A95'), node('div', 'resolve-item', 'door control modular → door control module'));
     el['v2-demo-fixes'].hidden = false;
     el['v2-demo-status'].textContent = 'Applying synthetic terminology decisions, then running the real extraction and report builder…';
@@ -1450,15 +1537,23 @@ el['v2-demo-play'].addEventListener('click', async () => {
     runtime.setTransient(session.id, { statement: examples.SBS_BUS });
     const token = runtime.beginRequest(session.id, 'demo-statement');
     await processSbsStatement(examples.SBS_BUS, token);
+    if (runGeneration !== demoRunGeneration || activeSession?.id !== session.id) return;
     if (currentView === 'resolve') {
       for (const item of activeSession.unresolvedItems) item.answer = { decision: 'NOT_PROVIDED', value: null };
       addAudit('Demo explicitly marked missing sections pending', 'Synthetic demo decision');
       await buildSbsReport();
+      if (runGeneration !== demoRunGeneration || activeSession?.id !== session.id) return;
     }
     el['v2-demo-status'].textContent = 'Demo report ready for review. No technician confirmation was applied.';
+    activeDemoRun = null;
   } catch (error) {
-    el['v2-demo-status'].textContent = `Demo stopped: ${error.message}`;
-  } finally { el['v2-demo-play'].disabled = false; }
+    if (runGeneration === demoRunGeneration && activeSession?.demo) el['v2-demo-status'].textContent = `Demo stopped: ${error.message}`;
+  } finally {
+    if (runGeneration === demoRunGeneration) {
+      activeDemoRun = null;
+      el['v2-demo-play'].disabled = false;
+    }
+  }
 });
 
 for (const button of el.journey.querySelectorAll('button')) button.addEventListener('click', () => {

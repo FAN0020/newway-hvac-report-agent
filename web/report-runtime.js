@@ -280,6 +280,15 @@ export function knowledgeQueryState(rawQuery) {
   return { valid: query.length > 0, query };
 }
 
+export function audioPreferenceState({ language, model } = {}) {
+  const languages = new Set(["auto", "zh", "en", "ms", "ta"]);
+  const models = new Set(["base", "tiny", "small"]);
+  return {
+    language: languages.has(language) ? language : "auto",
+    model: models.has(model) ? model : "base",
+  };
+}
+
 export function globalViewStatus(view, scope = "SBS_BUS") {
   const statuses = {
     reports: "Local report workspace",

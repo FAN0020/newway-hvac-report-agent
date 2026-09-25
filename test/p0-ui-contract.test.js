@@ -93,3 +93,22 @@ test('Review, Evidence, and Complete expose the P0 trust and recovery controls',
   assert.match(client, /navigator\.clipboard\.writeText/);
   assert.match(client, /Copy failed:/);
 });
+
+test('Knowledge, Demo, and Settings expose bounded P0 trust controls', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/app.js', 'utf8'),
+  ]);
+  for (const id of ['settings-language', 'settings-model', 'knowledge-boundary', 'demo-boundary']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  assert.match(html, /Manual search only/);
+  assert.match(html, /Stop · keep demo data/);
+  assert.match(client, /session\.demo/);
+  assert.match(client, /demoRunGeneration/);
+  assert.match(client, /function cancelDemoRun/);
+  assert.match(client, /v2Wt\.generation/);
+  assert.match(client, /knowledgeScope === 'SBS_RAIL' \? 'sbs_rail_maintenance' : 'sbs_bus_maintenance'/);
+  assert.match(client, /setAttribute\('aria-pressed'/);
+  assert.match(client, /generation === knowledgeRequestGeneration/);
+});
