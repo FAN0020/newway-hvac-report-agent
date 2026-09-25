@@ -28,6 +28,7 @@ test('splitSentences splits mixed Chinese/English on terminators', () => {
 
 test('splitSentences keeps decimal points and untruncated sentences', () => {
   assert.deepEqual(splitSentences('胎纹深度 3.5 mm'), ['胎纹深度 3.5 mm']);
+  assert.deepEqual(splitSentences('Bus MAN A95. Door fault reported.'), ['Bus MAN A95', 'Door fault reported']);
   assert.deepEqual(splitSentences('更换了一个35 µF电容'), ['更换了一个35 µF电容']);
   assert.deepEqual(splitSentences(''), []);
   assert.deepEqual(splitSentences('   '), []);
