@@ -161,6 +161,7 @@ async function handleApi(request, response, url, traceId, config) {
       ...result,
       source_hash: audioMetadata.source_hash,
       attempt,
+      input_mode: 'VOICE_TRANSCRIPT',
     }, { idempotencyKey });
     writeJson(response, 201, toolEnvelope('transcribe_audio', traceId, 'PASS', { transcript, reused: false }));
     return;
@@ -169,8 +170,13 @@ async function handleApi(request, response, url, traceId, config) {
   if (request.method === 'POST' && url.pathname === '/api/transcripts/manual') {
     const input = await readJson(request);
     const rawText = String(input.raw_text || '').trim();
-    const keyHash = crypto.createHash('sha256').update(`${input.language || 'zh'}:${rawText}`).digest('hex');
-    const transcript = await artifacts.putManualTranscript({ raw_text: rawText, language: input.language }, {
+    const editedFromArtifactId = String(input.edited_from_artifact_id || '').trim() || null;
+    const inputMode = editedFromArtifactId ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT';
+    if (input.input_mode && input.input_mode !== inputMode) {
+      throw Object.assign(new Error('Transcript source mode does not match its evidence binding.'), { code: 'TRANSCRIPT_SOURCE_MISMATCH', status: 400 });
+    }
+    const keyHash = crypto.createHash('sha256').update(`${input.language || 'zh'}:${inputMode}:${editedFromArtifactId || ''}:${rawText}`).digest('hex');
+    const transcript = await artifacts.putManualTranscript({ raw_text: rawText, language: input.language, input_mode: inputMode, edited_from_artifact_id: editedFromArtifactId }, {
       idempotencyKey: String(input.idempotency_key || `manual:${keyHash}`),
     });
     writeJson(response, 201, toolEnvelope('create_manual_transcript', traceId, 'PASS', { transcript }));

@@ -3,6 +3,7 @@ import { t } from './i18n.js';
 import {
   REPORT_SCHEMAS,
   applyResolveAnswer,
+  applyTranscriptArtifact,
   bindSessionConfirmation,
   confirmationViewState,
   correctionDecisionPayload,
@@ -17,6 +18,7 @@ import {
   mapFactsToStructuredState,
   reportSearchText,
   schemaFor,
+  transcriptSourceLabel,
 } from './report-runtime.js';
 
 const ids = [
@@ -25,8 +27,10 @@ const ids = [
   'context-icon', 'context-title', 'context-schema', 'sbs-source-row', 'open-evidence', 'review-evidence',
   'evidence-drawer', 'close-evidence', 'drawer-backdrop', 'audit-timeline', 'fill-demo',
   'refresh-health', 'health-summary', 'health-details', 'start-recording', 'stop-recording', 'audio-file',
-  'recording-status', 'audio-preview', 'language', 'model', 'transcribe', 'retry', 'manual-transcript',
+  'recording-status', 'audio-preview', 'language', 'model', 'transcribe', 'retry', 'type-instead', 'manual-entry',
+  'manual-transcript', 'manual-source-hint', 'statement-ready', 'statement-source', 'view-statement', 'edit-statement', 'statement-preview',
   'use-manual', 'transcription-status', 'transcript-output', 'artifact-output', 'build-report',
+  'transcript-source', 'transcript-history',
   'correction-section', 'correction-raw', 'correction-proposed', 'correction-list', 'correction-technician-name',
   'correction-technician-id', 'confirm-corrections', 'correction-status', 'correction-evidence', 'resolve-count',
   'questions-section', 'questions-list', 'apply-answers', 'evidence-section', 'facts-output', 'issues-output',
@@ -67,6 +71,8 @@ let sessionToken = '';
 let activeSession = null;
 let recorder;
 let recordingTimer;
+let recordingElapsedTimer;
+let recordingStartedAt = 0;
 let recordingSessionId;
 let currentTranscript;
 let currentNormalization;
@@ -170,12 +176,27 @@ function renderAudit() {
 function showEvidence() {
   el['evidence-drawer'].hidden = false;
   el['drawer-backdrop'].hidden = false;
+  renderTranscriptEvidence();
   renderAudit();
 }
 
 function hideEvidence() {
   el['evidence-drawer'].hidden = true;
   el['drawer-backdrop'].hidden = true;
+}
+
+function renderTranscriptEvidence() {
+  const artifact = activeSession?.transcriptArtifact;
+  el['transcript-source'].textContent = artifact ? transcriptSourceLabel(artifact) : 'No source yet';
+  el['transcript-output'].textContent = artifact?.raw_text || 'No transcript captured for this report.';
+  el['transcript-output'].classList.toggle('empty', !artifact);
+  el['artifact-output'].textContent = artifact ? JSON.stringify(artifact, null, 2) : '—';
+  const history = activeSession?.transcriptHistory || [];
+  el['transcript-history'].replaceChildren(...history.map((item) => {
+    const entry = node('article');
+    entry.append(node('small', '', `${transcriptSourceLabel(item)} · immutable earlier version`), document.createTextNode(item.raw_text));
+    return entry;
+  }));
 }
 
 function resetCurrentReferences() {
@@ -242,15 +263,32 @@ function restoreTransientToDom() {
 
 function restoreSessionUi() {
   const capture = activeSession?.capture;
+  const artifact = activeSession?.transcriptArtifact;
   el['audio-preview'].hidden = !capture?.previewUrl;
   el['audio-preview'].src = capture?.previewUrl || '';
-  el.transcribe.disabled = !capture?.audioBlob;
-  el.retry.disabled = true;
-  el['recording-status'].textContent = activeSession?.processing.error || (capture?.audioBlob ? 'Audio ready for this report.' : 'No audio selected for this report.');
-  el['transcript-output'].textContent = activeSession?.transcriptArtifact?.raw_text || 'No transcript captured for this report.';
-  el['transcript-output'].classList.toggle('empty', !activeSession?.transcriptArtifact);
-  el['artifact-output'].textContent = activeSession?.transcriptArtifact ? JSON.stringify(activeSession.transcriptArtifact, null, 2) : '';
-  el['transcription-status'].textContent = activeSession?.processing.status === 'processing' ? 'Processing this report…' : '';
+  el.transcribe.disabled = true;
+  const transcriptionFailed = activeSession?.processing.status === 'error' && /^Transcription failed:/i.test(activeSession.processing.error || '');
+  el.retry.hidden = !transcriptionFailed;
+  el.retry.disabled = !transcriptionFailed;
+  const ownsRecording = Boolean(recorder && recordingSessionId === activeSession?.id);
+  const anotherReportRecording = Boolean(recorder && recordingSessionId !== activeSession?.id);
+  el['recording-status'].textContent = ownsRecording
+    ? `Recording… ${formatElapsed(Date.now() - recordingStartedAt)}`
+    : (anotherReportRecording ? 'A recording is active in another report.' : (activeSession?.processing.error || (artifact ? 'Statement ready.' : (capture?.audioBlob ? 'Audio ready for transcription.' : 'Ready to record.'))));
+  el['manual-entry'].hidden = !capture?.manualEntryOpen;
+  el['statement-ready'].hidden = !artifact;
+  el['statement-source'].textContent = artifact ? transcriptSourceLabel(artifact) : 'Captured statement';
+  el['statement-preview'].textContent = artifact?.raw_text || '';
+  el['statement-preview'].hidden = true;
+  el['view-statement'].setAttribute('aria-expanded', 'false');
+  el['manual-source-hint'].textContent = artifact ? 'Saving changes creates a new edited transcript and keeps this source immutable.' : 'Typed text is stored as manual input.';
+  el['transcription-status'].textContent = activeSession?.processing.status === 'processing' ? 'Processing…' : (artifact ? 'Statement ready.' : 'Waiting for a statement.');
+  el['start-recording'].hidden = ownsRecording;
+  el['start-recording'].disabled = anotherReportRecording;
+  el['start-recording'].classList.toggle('recording', ownsRecording);
+  el['stop-recording'].hidden = !ownsRecording;
+  el['stop-recording'].disabled = !ownsRecording;
+  renderTranscriptEvidence();
   el['complete-summary'].textContent = activeSession?.complete.summary || '';
   renderCompleteMeta(activeSession?.complete.meta || '');
   el['export-output'].value = activeSession?.complete.copyableText || '';
@@ -258,10 +296,9 @@ function restoreSessionUi() {
   el['copy-export'].disabled = !activeSession?.complete.copyableText;
   el['save-report'].disabled = !activeSession?.confirmation;
   el['export-report'].disabled = !activeSession?.confirmation;
-  el['use-manual'].disabled = false;
+  el['use-manual'].disabled = !(artifact || el['manual-transcript'].value.trim());
   el['use-manual'].textContent = 'Continue';
   el['confirm-corrections'].disabled = false;
-  el['v2-upload-status'].textContent = '';
 }
 
 function renderCompleteMeta(meta) {
@@ -276,6 +313,7 @@ function activateSession(session) {
   restoreTransientToDom();
   restoreSessionUi();
   updateCaptureContext();
+  if (session.capture.audioBlob && !session.transcriptArtifact && session.processing.status === 'idle') transcribe(1, session);
 }
 
 function createNewReport(reportType) {
@@ -297,6 +335,10 @@ function updateCaptureContext() {
   el['context-schema'].textContent = `Schema ${schema.id} · v${schema.version}`;
   el['manual-transcript'].placeholder = schema.statementPlaceholder;
   el['sbs-source-row'].hidden = activeSession.scope === 'HVAC';
+  const lastReference = activeSession.evidence?.at(-1);
+  el['v2-upload-status'].textContent = activeSession.scope === 'HVAC' ? '' : (lastReference
+    ? `${lastReference.filename || 'Supporting document'} is attached as reference material only; it is not proof that work occurred.`
+    : 'Optional reference material for this report scope; it is not proof that work occurred.');
   el['topbar-status'].textContent = `${schema.name} · scope locked`;
 }
 
@@ -400,16 +442,27 @@ function invalidateConfirmationIfMaterialChanged(message) {
   if (activeSession?.confirmation && hasMaterialReportChange(activeSession)) invalidateConfirmation(message);
 }
 
-function acceptTranscript(artifact, message) {
-  currentTranscript = artifact;
-  activeSession.transcriptArtifact = artifact;
-  activeSession.transcript = { original: artifact.raw_text, normalized: artifact.raw_text, hash: artifact.source_hash || artifact.artifact_id };
+function acceptTranscript(artifact, message, session = activeSession) {
+  applyTranscriptArtifact(session, artifact);
+  runtime.setTransient(session.id, { ...runtime.getTransient(session.id), statement: artifact.raw_text });
+  session.capture.manualEntryOpen = false;
+  session.audit ||= [];
+  session.audit.push({ label: 'Statement source captured', detail: `${transcriptSourceLabel(artifact)} · ${artifact.artifact_id}`, at: new Date().toISOString() });
+  if (session.confirmation && hasMaterialReportChange(session)) invalidateSessionConfirmation(session);
+  if (activeSession?.id !== session.id) return;
+  currentTranscript = session.transcriptArtifact;
   invalidateConfirmationIfMaterialChanged('The source statement changed; validation and confirmation are required again.');
-  el['transcript-output'].textContent = artifact.raw_text;
-  el['transcript-output'].classList.remove('empty');
-  el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
+  renderTranscriptEvidence();
+  renderAudit();
+  el['statement-ready'].hidden = false;
+  el['statement-source'].textContent = transcriptSourceLabel(artifact);
+  el['statement-preview'].textContent = artifact.raw_text;
+  el['manual-entry'].hidden = true;
+  el.retry.hidden = true;
+  el.retry.disabled = true;
+  el['recording-status'].textContent = 'Statement ready.';
+  el['use-manual'].disabled = false;
   el['transcription-status'].textContent = message;
-  addAudit('Original transcript captured', artifact.provider || 'manual');
 }
 
 function selectAudio(blob, message, session = activeSession) {
@@ -420,11 +473,55 @@ function selectAudio(blob, message, session = activeSession) {
   if (capture.previewUrl) URL.revokeObjectURL(capture.previewUrl);
   capture.previewUrl = URL.createObjectURL(blob);
   if (activeSession?.id !== session.id) return;
-  el.transcribe.disabled = false;
+  el.retry.hidden = true;
   el.retry.disabled = true;
   el['recording-status'].textContent = message;
   el['audio-preview'].src = capture.previewUrl;
   el['audio-preview'].hidden = false;
+}
+
+function formatElapsed(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function stopRecordingClock() {
+  clearTimeout(recordingTimer);
+  clearInterval(recordingElapsedTimer);
+  recordingTimer = null;
+  recordingElapsedTimer = null;
+}
+
+async function finishRecording() {
+  if (!recorder || !recordingSessionId) return;
+  stopRecordingClock();
+  const ownedRecorder = recorder;
+  const targetSession = sessions.get(recordingSessionId);
+  if (activeSession?.id === targetSession?.id) {
+    el['stop-recording'].disabled = true;
+    el['recording-status'].textContent = 'Preparing recording…';
+  }
+  try {
+    const wav = await ownedRecorder.stop();
+    selectAudio(wav, `Recording captured · ${Math.round(wav.size / 1024)} KB`, targetSession);
+    recorder = null;
+    recordingSessionId = null;
+    if (activeSession?.id === targetSession?.id) await transcribe(1, targetSession);
+  } catch (error) {
+    if (activeSession?.id === targetSession?.id) {
+      el['recording-status'].textContent = `Could not finish the recording: ${error.message}`;
+      el['transcription-status'].textContent = 'Use Type instead or upload a valid WAV recording.';
+    }
+  } finally {
+    if (recorder === ownedRecorder) recorder = null;
+    recordingSessionId = null;
+    if (activeSession?.id === targetSession?.id) restoreSessionUi();
+    else {
+      el['start-recording'].hidden = false;
+      el['start-recording'].disabled = false;
+      el['stop-recording'].hidden = true;
+    }
+  }
 }
 
 async function uploadIfNeeded(session, requestToken) {
@@ -435,31 +532,54 @@ async function uploadIfNeeded(session, requestToken) {
   return session.capture.audioId;
 }
 
-async function transcribe(attempt) {
-  if (!activeSession) return;
-  const session = activeSession;
+async function transcribe(attempt, session = activeSession) {
+  if (!session) return;
   const requestToken = runtime.beginRequest(session.id, 'transcribe');
-  session.capture.language = el.language.value;
-  session.capture.model = el.model.value;
+  if (activeSession?.id === session.id) {
+    session.capture.language = el.language.value;
+    session.capture.model = el.model.value;
+  }
   session.processing = { status: 'processing', error: null };
-  el.transcribe.disabled = true;
-  el.retry.disabled = true;
-  el['transcription-status'].textContent = 'Transcribing locally…';
+  if (activeSession?.id === session.id) {
+    el['start-recording'].hidden = false;
+    el['start-recording'].disabled = true;
+    el['stop-recording'].hidden = true;
+    el['use-manual'].disabled = true;
+    el.retry.hidden = true;
+    el.retry.disabled = true;
+    el['recording-status'].textContent = 'Transcribing…';
+    el['transcription-status'].textContent = 'Transcribing locally…';
+  }
   try {
     const audioId = await uploadIfNeeded(session, requestToken);
     if (!audioId) return;
     const result = await api('/api/transcriptions', { audio_id: audioId, model: session.capture.model, language: session.capture.language, attempt, idempotency_key: `${audioId}:${session.capture.model}:${session.capture.language}:attempt-${attempt}` });
     if (!runtime.accepts(requestToken)) return;
-    acceptTranscript(result.data.transcript, result.data.reused ? 'Reused the same transcription request.' : 'Speech transcription complete.');
-    el['manual-transcript'].value = result.data.transcript.raw_text;
+    acceptTranscript(result.data.transcript, result.data.reused ? 'Statement ready · reused verified transcription.' : 'Statement ready.', session);
     session.processing = { status: 'idle', error: null };
+    if (activeSession?.id === session.id) {
+      el['manual-transcript'].value = result.data.transcript.raw_text;
+      el['recording-status'].textContent = 'Statement ready.';
+    }
   } catch (error) {
     if (runtime.accepts(requestToken)) {
       session.processing = { status: 'error', error: `Transcription failed: ${error.message}` };
-      el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}. Manual entry is still available.`;
-      el.retry.disabled = attempt >= 2;
+      if (activeSession?.id === session.id) {
+        const reason = String(error.message || 'Transcription failed').replace(/[.!?。！？]+$/u, '');
+        el['recording-status'].textContent = 'Transcription failed.';
+        el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${reason}. Retry once or type instead.`;
+        el.retry.hidden = false;
+        el.retry.disabled = attempt >= 2;
+        el['use-manual'].disabled = !el['manual-transcript'].value.trim();
+      }
     }
-  } finally { if (runtime.accepts(requestToken)) el.transcribe.disabled = false; }
+  } finally {
+    if (activeSession?.id === session.id && !recorder) {
+      el['start-recording'].hidden = false;
+      el['start-recording'].disabled = false;
+      el['stop-recording'].hidden = true;
+    }
+  }
 }
 
 function renderCorrectionReview(normalization) {
@@ -567,6 +687,8 @@ async function prepareHvacResolve() {
   session.normalization = normalization;
   session.correctionCandidates = normalization.data.correction_candidates || [];
   session.unresolvedItems = createResolveQueue({ correctionCandidates: session.correctionCandidates, missingFields: [], conflicts: [] });
+  session.processing = { status: 'idle', error: null };
+  el['transcription-status'].textContent = 'Statement ready.';
   renderCorrectionReview(currentNormalization);
   addAudit('Terminology candidates prepared', `${session.correctionCandidates.length} candidates`);
   navigate('resolve');
@@ -575,13 +697,27 @@ async function prepareHvacResolve() {
 async function processSbsStatement(raw, requestToken) {
   const session = activeSession;
   const meta = scopeMeta[session.scope];
-  const artifact = { artifact_id: `manual_${session.id}`, provider: 'manual', raw_text: raw, source_hash: null, language: 'en' };
+  const previous = session.transcriptArtifact;
+  const sameStatement = previous?.raw_text === raw;
+  const editedFromArtifactId = !sameStatement && previous?.artifact_id ? previous.artifact_id : null;
+  const artifact = sameStatement ? previous : {
+    artifact_id: `manual_${session.id}_${(session.transcriptHistory?.length || 0) + 1}`,
+    provider: 'manual',
+    model: 'manual-entry',
+    raw_text: raw,
+    source_hash: null,
+    language: 'en',
+    input_mode: editedFromArtifactId ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT',
+    edited_from_artifact_id: editedFromArtifactId,
+  };
   acceptTranscript(artifact, 'Manual statement captured.');
   const extracted = await api('/api/v2/facts/extract', { context_id: meta.contextId, raw_text: raw });
   if (!runtime.accepts(requestToken)) return;
   currentFacts = extracted.data.facts || [];
   Object.assign(session, mapFactsToStructuredState(session, currentFacts));
   session.unresolvedItems = createResolveQueue(session);
+  session.processing = { status: 'idle', error: null };
+  el['transcription-status'].textContent = 'Statement ready.';
   addAudit('Facts extracted', `${currentFacts.length} grounded facts`);
   if (session.unresolvedItems.length) {
     renderGenericResolve(session.unresolvedItems);
@@ -776,7 +912,9 @@ async function uploadSbsDocument(file) {
     if (!runtime.accepts(requestToken)) return;
     session.evidence.push(result.data.upload);
     invalidateConfirmationIfMaterialChanged('Report evidence changed; validation and confirmation are required again.');
-    el['v2-upload-status'].textContent = result.data.upload.status === 'READY' ? `${file.name} attached and indexed in ${scopeAtStart}.` : `${file.name} could not be processed.`;
+    el['v2-upload-status'].textContent = result.data.upload.status === 'READY'
+      ? `${file.name} is attached as reference material only; it is not proof that work occurred.`
+      : `${file.name} could not be processed.`;
     addAudit('Reference document uploaded', `${file.name} · ${result.data.upload.status}`);
   } catch (error) { if (runtime.accepts(requestToken)) el['v2-upload-status'].textContent = `Upload failed: ${error.message}`; }
 }
@@ -832,8 +970,16 @@ function renderKnowledgeResults(results) {
 
 // The filler is deliberately non-submitting; security tests assert this handler stays free of network calls.
 el['fill-demo'].addEventListener('click', () => {
-  el['manual-transcript'].value = activeSession ? examples[activeSession.scope] : demoNarration;
+  if (!activeSession) createNewReport('hvac_service');
+  else navigate('capture');
+  activeSession.capture.manualEntryOpen = true;
+  el['manual-entry'].hidden = false;
+  el['manual-transcript'].value = examples[activeSession.scope] || demoNarration;
+  runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), statement: el['manual-transcript'].value });
+  el['use-manual'].disabled = false;
+  el['manual-source-hint'].textContent = 'Synthetic demo text is stored as manual input only if you continue.';
   el['transcription-status'].textContent = 'Synthetic example filled in. Review it, then choose Continue.';
+  el['manual-transcript'].focus();
 });
 
 el['auth-submit'].addEventListener('click', (event) => { event.preventDefault(); unlockWithToken(el['auth-token'].value); });
@@ -856,21 +1002,73 @@ el['close-evidence'].addEventListener('click', hideEvidence);
 el['drawer-backdrop'].addEventListener('click', hideEvidence);
 
 el['start-recording'].addEventListener('click', async () => {
+  if (recorder) return;
+  const session = activeSession;
   el['start-recording'].disabled = true;
-  recordingSessionId = activeSession?.id;
-  try { recorder = new PcmWavRecorder(); const { sampleRate } = await recorder.start(); el['stop-recording'].disabled = false; el['recording-status'].textContent = `Recording ${sampleRate} Hz input…`; recordingTimer = setTimeout(() => el['stop-recording'].click(), 90_000); }
-  catch (error) { el['recording-status'].textContent = `Cannot start recording: ${error.message}`; el['start-recording'].disabled = false; }
+  recordingSessionId = session?.id;
+  el['recording-status'].textContent = 'Waiting for microphone permission…';
+  try {
+    recorder = new PcmWavRecorder();
+    await recorder.start();
+    recordingStartedAt = Date.now();
+    if (activeSession?.id === session?.id) {
+      el['start-recording'].hidden = true;
+      el['stop-recording'].hidden = false;
+      el['stop-recording'].disabled = false;
+      el['recording-status'].textContent = 'Recording… 0:00';
+    }
+    recordingElapsedTimer = setInterval(() => {
+      if (activeSession?.id === recordingSessionId) el['recording-status'].textContent = `Recording… ${formatElapsed(Date.now() - recordingStartedAt)}`;
+    }, 1000);
+    recordingTimer = setTimeout(() => { finishRecording(); }, 90_000);
+  } catch (error) {
+    recorder = null;
+    recordingSessionId = null;
+    if (activeSession?.id === session?.id) {
+      el['recording-status'].textContent = `Microphone permission or capture failed: ${error.message}`;
+      el['transcription-status'].textContent = 'Use Type instead or upload a valid WAV recording.';
+      el['start-recording'].disabled = false;
+    }
+  }
 });
-el['stop-recording'].addEventListener('click', async () => {
-  clearTimeout(recordingTimer); el['stop-recording'].disabled = true;
-  const targetSession = sessions.get(recordingSessionId);
-  try { const wav = await recorder.stop(); selectAudio(wav, `Recording ready · ${Math.round(wav.size / 1024)} KB`, targetSession); }
-  catch (error) { el['recording-status'].textContent = `Failed to stop recording: ${error.message}`; }
-  finally { recorder = null; recordingSessionId = null; el['start-recording'].disabled = false; }
+el['stop-recording'].addEventListener('click', finishRecording);
+el['audio-file'].addEventListener('change', async () => {
+  const file = el['audio-file'].files?.[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.wav') && file.type !== 'audio/wav') {
+    el['recording-status'].textContent = 'Choose a valid WAV recording.';
+    el['transcription-status'].textContent = 'The selected file was not sent.';
+    return;
+  }
+  activeSession.capture.audioOrigin = 'upload';
+  selectAudio(file, `Uploaded ${file.name}`);
+  await transcribe(1);
 });
-el['audio-file'].addEventListener('change', () => { const file = el['audio-file'].files?.[0]; if (file) selectAudio(file, `Selected ${file.name}`); });
-el.transcribe.addEventListener('click', () => transcribe(1));
-el.retry.addEventListener('click', () => transcribe(2));
+el.retry.addEventListener('click', async () => transcribe(2));
+el['type-instead'].addEventListener('click', () => {
+  if (!activeSession) return;
+  activeSession.capture.manualEntryOpen = true;
+  el['manual-entry'].hidden = false;
+  el['manual-source-hint'].textContent = activeSession.transcriptArtifact ? 'Saving changes creates a new edited transcript and keeps the prior source immutable.' : 'Typed text is stored as manual input.';
+  el['manual-transcript'].focus();
+});
+el['view-statement'].addEventListener('click', () => {
+  const expanded = el['statement-preview'].hidden;
+  el['statement-preview'].hidden = !expanded;
+  el['view-statement'].setAttribute('aria-expanded', String(expanded));
+  el['view-statement'].textContent = expanded ? 'Hide transcript' : 'View transcript';
+});
+el['edit-statement'].addEventListener('click', () => {
+  if (!activeSession) return;
+  activeSession.capture.manualEntryOpen = true;
+  el['manual-entry'].hidden = false;
+  el['manual-transcript'].value = activeSession.transcriptArtifact?.raw_text || el['manual-transcript'].value;
+  el['manual-source-hint'].textContent = 'Saving changes creates a new edited transcript and keeps the prior source immutable.';
+  el['manual-transcript'].focus();
+});
+el['manual-transcript'].addEventListener('input', () => {
+  el['use-manual'].disabled = !el['manual-transcript'].value.trim() || activeSession?.processing.status === 'processing';
+});
 el['v2-upload-file'].addEventListener('change', () => { const file = el['v2-upload-file'].files?.[0]; if (file) uploadSbsDocument(file); });
 
 el['use-manual'].addEventListener('click', async () => {
@@ -881,14 +1079,24 @@ el['use-manual'].addEventListener('click', async () => {
   const requestToken = runtime.beginRequest(activeSession.id, 'process-statement');
   const session = activeSession;
   session.processing = { status: 'processing', error: null };
-  el['use-manual'].disabled = true; el['use-manual'].textContent = 'Organising report…'; el['transcription-status'].textContent = 'Preserving the original statement and checking grounded facts…';
+  el['use-manual'].disabled = true; el['use-manual'].textContent = 'Organising report…'; el['transcription-status'].textContent = 'Organising report…';
   try {
     if (activeSession.scope === 'HVAC') {
-      const result = currentTranscript?.raw_text === raw ? { data: { transcript: currentTranscript } } : await api('/api/transcripts/manual', { raw_text: raw, language: 'zh' });
+      const changedSource = currentTranscript?.artifact_id && currentTranscript.raw_text !== raw ? currentTranscript : null;
+      const result = currentTranscript?.raw_text === raw ? { data: { transcript: currentTranscript } } : await api('/api/transcripts/manual', {
+        raw_text: raw,
+        language: activeSession.capture.language === 'auto' ? (currentTranscript?.language || 'zh') : activeSession.capture.language,
+        input_mode: changedSource ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT',
+        edited_from_artifact_id: changedSource?.artifact_id || null,
+      });
       if (!runtime.accepts(requestToken)) return;
-      acceptTranscript(result.data.transcript, 'Manual statement saved as the immutable original.');
+      acceptTranscript(result.data.transcript, changedSource ? 'Edited statement saved; original evidence preserved.' : 'Manual statement saved as immutable input.');
+      el['transcription-status'].textContent = 'Checking required information…';
       await prepareHvacResolve();
-    } else await processSbsStatement(raw, requestToken);
+    } else {
+      el['transcription-status'].textContent = 'Checking required information…';
+      await processSbsStatement(raw, requestToken);
+    }
   } catch (error) { if (runtime.accepts(requestToken)) { session.processing = { status: 'error', error: error.message }; el['transcription-status'].textContent = `Could not prepare the report (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`; } }
   finally { if (runtime.accepts(requestToken)) { el['use-manual'].disabled = false; el['use-manual'].textContent = 'Continue'; } }
 });

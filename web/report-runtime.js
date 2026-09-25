@@ -117,7 +117,7 @@ export function createReportSession({ id, reportType, jobContext = {} } = {}) {
     createdAt, updatedAt: createdAt, jobContext: copy(jobContext),
     capture: { audioBlob: null, audioId: null, previewUrl: null, attachment: null, language: "auto", model: "base" },
     manualFields: {}, processing: { status: "idle", error: null }, complete: { summary: "", meta: "", copyableText: "" },
-    evidence: [], sources: [], transcript: { original: "", normalized: "", hash: null }, corrections: [], correctionCandidates: [], correctionDecisions: [],
+    evidence: [], sources: [], transcript: { original: "", normalized: "", hash: null }, transcriptArtifact: null, originalTranscriptArtifact: null, transcriptHistory: [], corrections: [], correctionCandidates: [], correctionDecisions: [],
     facts: [], unsupportedFacts: [], structuredState: {}, fieldStates, completeness: null, unresolvedItems: [], resolveQueue: [],
     reportDraft: null, reportDocument: null, validation: null, confirmation: null, exportState: { saved: false, files: [], error: null },
   };
@@ -178,6 +178,32 @@ export function reportMaterialSignature(session) {
     reportDraft: session.reportDraft,
     validation: session.validation,
   }));
+}
+
+export function transcriptSourceLabel(artifact) {
+  const mode = String(artifact?.input_mode || "").toUpperCase();
+  if (mode === "EDITED_TRANSCRIPT") return "Edited transcript";
+  if (mode === "MANUAL_TRANSCRIPT" || mode === "MANUAL_INPUT") return "Manual input";
+  if (mode === "VOICE_TRANSCRIPT" || artifact?.audio_id) return "Voice transcript";
+  return "Captured statement";
+}
+
+export function applyTranscriptArtifact(session, artifact) {
+  if (!artifact || !String(artifact.raw_text || "").trim()) throw new TypeError("A transcript artifact with statement text is required.");
+  const previous = session.transcriptArtifact;
+  session.transcriptHistory ||= [];
+  if (previous?.artifact_id && previous.artifact_id !== artifact.artifact_id
+    && !session.transcriptHistory.some((item) => item.artifact_id === previous.artifact_id)) {
+    session.transcriptHistory.push(copy(previous));
+  }
+  session.originalTranscriptArtifact ||= copy(artifact);
+  session.transcriptArtifact = copy(artifact);
+  session.transcript = {
+    original: artifact.raw_text,
+    normalized: artifact.raw_text,
+    hash: artifact.source_hash || artifact.artifact_id,
+  };
+  return session;
 }
 
 export function bindSessionConfirmation(session, confirmation) {

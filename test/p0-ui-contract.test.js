@@ -43,3 +43,22 @@ test('V2 finalization routes are present and use the shared confirmation tools',
   assert.match(server, /saveConfirmedReport/);
   assert.match(server, /exportConfirmedReport/);
 });
+
+test('Capture keeps voice primary while manual entry, retry, and transcript disclosure are progressive', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/app.js', 'utf8'),
+  ]);
+  for (const id of ['type-instead', 'manual-entry', 'statement-ready', 'view-statement', 'edit-statement']) {
+    assert.match(html, new RegExp(`id="${id}"`));
+    assert.match(client, new RegExp(id));
+  }
+  assert.match(html, /id="manual-entry"[^>]*hidden/);
+  assert.match(html, /id="retry"[^>]*hidden/);
+  assert.doesNotMatch(html, />\s*Transcribe audio\s*</i);
+  assert.match(client, /await transcribe\(1\)/);
+  assert.match(html, /Audio &amp; transcription options/);
+  assert.match(html, /Add supporting document/);
+  assert.match(html, /not proof that work occurred/i);
+  assert.match(client, /reference material only; it is not proof that work occurred/i);
+});

@@ -116,13 +116,24 @@ export class ArtifactStore {
     return immutable;
   }
 
-  async putManualTranscript({ raw_text, language = 'zh' } = {}, { idempotencyKey } = {}) {
+  async putManualTranscript({ raw_text, language = 'zh', input_mode = 'MANUAL_TRANSCRIPT', edited_from_artifact_id = null } = {}, { idempotencyKey } = {}) {
     const rawText = String(raw_text || '').trim();
     if (!rawText) {
       throw Object.assign(new Error('Manual transcript text is required.'), { code: 'MANUAL_TEXT_REQUIRED', status: 400 });
     }
     if (rawText.length > 20_000) {
       throw Object.assign(new Error('Manual transcript exceeds 20000 characters.'), { code: 'MANUAL_TEXT_TOO_LARGE', status: 413 });
+    }
+    const inputMode = String(input_mode || 'MANUAL_TRANSCRIPT').toUpperCase();
+    if (!['MANUAL_TRANSCRIPT', 'EDITED_TRANSCRIPT'].includes(inputMode)) {
+      throw Object.assign(new Error('Manual transcript input mode is invalid.'), { code: 'MANUAL_INPUT_MODE_INVALID', status: 400 });
+    }
+    const editedFromArtifactId = edited_from_artifact_id ? String(edited_from_artifact_id) : null;
+    if (inputMode === 'EDITED_TRANSCRIPT') {
+      if (!editedFromArtifactId) throw Object.assign(new Error('Edited transcript requires its source artifact.'), { code: 'EDITED_TRANSCRIPT_SOURCE_REQUIRED', status: 400 });
+      await this.readTranscript(editedFromArtifactId);
+    } else if (editedFromArtifactId) {
+      throw Object.assign(new Error('Only edited transcripts may reference a source artifact.'), { code: 'EDITED_TRANSCRIPT_MODE_REQUIRED', status: 400 });
     }
     return this.putTranscript({
       audio_id: null,
@@ -133,7 +144,8 @@ export class ArtifactStore {
       model: 'manual-entry',
       source_hash: `sha256:${sha256(Buffer.from(rawText, 'utf8'))}`,
       attempt: 1,
-      input_mode: 'MANUAL_TRANSCRIPT',
+      input_mode: inputMode,
+      edited_from_artifact_id: editedFromArtifactId,
     }, { idempotencyKey });
   }
 

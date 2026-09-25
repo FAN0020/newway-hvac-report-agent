@@ -306,3 +306,32 @@ test('global surfaces expose their own context instead of the last report scope'
   assert.equal(runtime.globalViewStatus('settings'), 'Local runtime settings');
   assert.equal(runtime.globalViewStatus('help'), 'Demo help and walkthroughs');
 });
+
+test('transcript provenance preserves immutable voice evidence when the statement is edited', () => {
+  assert.equal(typeof runtime.applyTranscriptArtifact, 'function');
+  assert.equal(typeof runtime.transcriptSourceLabel, 'function');
+  const session = runtime.createReportSession({ reportType: 'HVAC', id: 'capture_hvac' });
+  const voice = {
+    artifact_id: 'transcript_voice',
+    raw_text: 'Replaced a 35 microfarad capacitor.',
+    source_hash: 'sha256:voice',
+    input_mode: 'VOICE_TRANSCRIPT',
+  };
+  const edited = {
+    artifact_id: 'transcript_edit',
+    raw_text: 'Replaced a 35 µF capacitor.',
+    source_hash: 'sha256:edit',
+    input_mode: 'EDITED_TRANSCRIPT',
+    edited_from_artifact_id: voice.artifact_id,
+  };
+
+  runtime.applyTranscriptArtifact(session, voice);
+  runtime.applyTranscriptArtifact(session, edited);
+
+  assert.equal(session.transcriptArtifact.artifact_id, edited.artifact_id);
+  assert.equal(session.originalTranscriptArtifact.artifact_id, voice.artifact_id);
+  assert.deepEqual(session.transcriptHistory.map((artifact) => artifact.artifact_id), [voice.artifact_id]);
+  assert.equal(runtime.transcriptSourceLabel(voice), 'Voice transcript');
+  assert.equal(runtime.transcriptSourceLabel({ input_mode: 'MANUAL_TRANSCRIPT' }), 'Manual input');
+  assert.equal(runtime.transcriptSourceLabel(edited), 'Edited transcript');
+});
