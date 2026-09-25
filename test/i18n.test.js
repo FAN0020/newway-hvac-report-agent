@@ -185,3 +185,26 @@ test('interpolation inserts dynamic source data without translating it', async (
     '当前工作范围：SBS·Rail',
   );
 });
+
+test('developer overrides can replace existing labels and add new semantic text without mutating base catalogs', async () => {
+  const i18n = await modulePromise;
+  assert.ok(i18n, 'expected the browser i18n module to exist');
+  const baseResources = {
+    en: { common: { save: 'Save', cancel: 'Cancel' } },
+    'zh-CN': { common: { save: '保存', cancel: '取消' } },
+  };
+  const overrides = {
+    en: { common: { save: 'Store report' }, custom: { dispatch: 'Dispatch technician' } },
+    'zh-CN': { common: { save: '存储报告' }, custom: { dispatch: '派遣技术人员' } },
+  };
+
+  const translator = i18n.createI18n({ locale: 'zh-CN', resources: baseResources, overrides });
+
+  assert.equal(translator.t('common.save'), '存储报告');
+  assert.equal(translator.t('common.cancel'), '取消');
+  assert.equal(translator.t('custom.dispatch'), '派遣技术人员');
+  assert.equal(baseResources['zh-CN'].common.save, '保存');
+  translator.setLocale('en');
+  assert.equal(translator.t('common.save'), 'Store report');
+  assert.equal(translator.t('custom.dispatch'), 'Dispatch technician');
+});

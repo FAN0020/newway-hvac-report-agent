@@ -1,11 +1,39 @@
 import en from './locales/en.js';
 import zhCN from './locales/zh-CN.js';
+import developerOverrides from './locales/overrides.js';
 
 export const LOCALE_STORAGE_KEY = 'newway_ui_locale';
 export const DEFAULT_LOCALE = 'en';
 export const SUPPORTED_LOCALES = Object.freeze(['en', 'zh-CN']);
 
-export const resources = Object.freeze({ en, 'zh-CN': zhCN });
+export const baseResources = Object.freeze({ en, 'zh-CN': zhCN });
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeCatalog(base, overrides) {
+  const result = {};
+  for (const key of new Set([...Object.keys(base || {}), ...Object.keys(overrides || {})])) {
+    const baseValue = base?.[key];
+    const overrideValue = overrides?.[key];
+    if (isRecord(baseValue) || isRecord(overrideValue)) {
+      result[key] = mergeCatalog(isRecord(baseValue) ? baseValue : {}, isRecord(overrideValue) ? overrideValue : {});
+    } else {
+      result[key] = overrideValue === undefined ? baseValue : overrideValue;
+    }
+  }
+  return result;
+}
+
+export function applyResourceOverrides(sourceResources, overrides = {}) {
+  return Object.freeze(Object.fromEntries(SUPPORTED_LOCALES.map((locale) => [
+    locale,
+    mergeCatalog(sourceResources?.[locale] || {}, overrides?.[locale] || {}),
+  ])));
+}
+
+export const resources = applyResourceOverrides(baseResources, developerOverrides);
 
 function readPath(source, key) {
   return key.split('.').reduce((value, segment) => value?.[segment], source);
@@ -36,7 +64,9 @@ function browserDocument() {
 }
 
 export function createI18n(options = {}) {
-  const catalog = options.resources || resources;
+  const catalog = options.overrides
+    ? applyResourceOverrides(options.resources || resources, options.overrides)
+    : (options.resources || resources);
   const storage = options.storage === undefined ? browserStorage() : options.storage;
   const documentRef = options.documentRef === undefined ? browserDocument() : options.documentRef;
   const logger = options.logger || console;

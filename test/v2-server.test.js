@@ -72,7 +72,7 @@ async function json(responsePromise) {
 }
 
 test('localization browser modules are served as JavaScript', async () => {
-  for (const pathname of ['/i18n.js', '/locales/en.js', '/locales/zh-CN.js']) {
+  for (const pathname of ['/i18n.js', '/locales/en.js', '/locales/zh-CN.js', '/locales/overrides.js']) {
     const response = await fetch(`${base}${pathname}`);
     assert.equal(response.status, 200, pathname);
     assert.match(response.headers.get('content-type') || '', /^text\/javascript/);

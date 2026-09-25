@@ -35,6 +35,8 @@ The toolbar language selector switches the complete application interface betwee
 
 Interface localization is deliberately separate from business content. Technician statements, retrieved source text, template/report content, company and product names, hashes, receipt IDs, and other technical identifiers are never translated implicitly. In this MVP, report output stays in the language supplied by its template or source; the report preview makes that boundary explicit.
 
+Developers can change project terminology or any interface label without modifying the localization runtime. Use [the i18n developer guide](docs/I18N_DEVELOPER_GUIDE.md) and place project-specific wording in `web/locales/overrides.js`; it is deep-merged over the base English and Chinese catalogs automatically.
+
 `npm start` is the safe local default. It binds only to `127.0.0.1`; the page obtains an in-memory token through a bootstrap endpoint that accepts only a true loopback connection. Every `/api/*` request still carries `Authorization: Bearer ...`.
 
 For the lowest-risk rehearsal, use this local-only command and keep every browser on the demo Mac:
