@@ -250,7 +250,7 @@ const COMPLETION_NOT_DONE_RE = /未完成|尚未完成|没有完成|未解决|�
 
 const COMPLETION_OUT_OF_SERVICE_RE = /未回役|未恢复|未返回|out\s+of\s+service|not\s+return(?:ed)?\s+to\s+service|退出服务/iu;
 
-const COMPLETION_DONE_RE = /已完成|已解决|完成|解决|回役|恢复服务|恢复运营|恢复使用|重新上路|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|restored|recommissioned|cleared\s+for\s+passenger|complet(?:e|ed|ion)|resolved|fixed/iu;
+const COMPLETION_DONE_RE = /已完成|已解决|完成|解决|回役|恢复服务|恢复运营|恢复运行|恢复使用|重新上路|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|restored|recommissioned|cleared\s+for\s+passenger|complet(?:e|ed|ion)|resolved|fixed/iu;
 
 const COMPLETION_DEFERRED_RE = /延期|延后|延迟|改期|postpon|deferr/iu;
 
@@ -259,7 +259,7 @@ const COMPLETION_OFFROAD_RE = /off-?road|下线|停运/iu;
 const COMPLETION_RESTRICTED_RE = /限速|restricted\s*speed|speed\s+restriction/iu;
 
 /** Safety-critical assertion markers (drives safety.*). */
-const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|重新上路|安全措施|安全确认|安全隔离|HSE|restored|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|no\s+(?:additional\s+)?safety\s+(?:issue|concern|hazard)s?|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
+const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|恢复运行|重新上路|安全措施|安全确认|安全隔离|HSE|restored|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|no\s+(?:additional\s+)?safety\s+(?:issue|concern|hazard)s?|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
 
 /** Singapore bus vehicle registration as dictated by the technician. */
 const BUS_REGISTRATION_RE = /\b(?:SBS|SG)\d{1,4}[A-Z]\b/giu;
