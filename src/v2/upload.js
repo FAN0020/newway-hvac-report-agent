@@ -224,14 +224,14 @@ export async function extractPlainText({ buffer, filename, mimeType, execFile = 
       } catch (error) {
         throw new UploadUnsupportedError(
           `PDF "${filename}" cannot be parsed on this system (pdftotext missing or failed: ${error?.message || error}). ` +
-          '需要 PDF 文本层或 OCR，属未来范围 (scanned/image-only PDFs require OCR, which is future scope).',
+          'Scanned/image-only PDFs require OCR, which is future scope.',
           'PDF_TEXT_LAYER_REQUIRED',
         );
       }
       const text = String(stdout || '');
       if (!text.trim()) {
         throw new UploadUnsupportedError(
-          `PDF "${filename}" has no extractable text layer. 需要 PDF 文本层或 OCR，属未来范围 (scanned/image-only PDFs require OCR, which is future scope).`,
+          `PDF "${filename}" has no extractable text layer; scanned/image-only PDFs require OCR, which is future scope.`,
           'PDF_TEXT_LAYER_REQUIRED',
         );
       }

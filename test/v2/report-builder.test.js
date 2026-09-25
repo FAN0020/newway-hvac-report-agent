@@ -25,7 +25,7 @@ import {
   isCriticalField,
 } from '../../src/v2/fact-schemas.js';
 
-const PLACEHOLDER = '未提供/待确认';
+const PLACEHOLDER = 'Not provided / pending confirmation';
 
 test('module imports resolve real fact-schemas.js exports (contract surface)', () => {
   assert.deepEqual(SUPPORTED_V2_SCOPES, ['SBS_BUS', 'SBS_RAIL']);
@@ -120,17 +120,17 @@ test('Bus report: section ids/order/required match BUS_REPORT_SECTIONS; content 
 
   const byId = new Map(report.sections.map((s) => [s.id, s]));
   // Content is grounded in the passed facts (labels + values + optional units).
-  assert.deepEqual(byId.get('vehicle_identification').content, ['车牌号(VRN)：SG3050Z。', '车型：MAN A95。']);
-  assert.deepEqual(byId.get('works_summary').content, ['作业类型：corrective。']);
-  assert.deepEqual(byId.get('inspection_findings').content, ['故障代码：P0216。']);
-  assert.deepEqual(byId.get('diagnosis').content, ['根本原因：brake pad wear。']);
-  assert.deepEqual(byId.get('work_performed').content, ['已完成工作：replaced brake pads。']);
-  assert.deepEqual(byId.get('parts_materials').content, ['是否更换零件：是。']);
-  assert.deepEqual(byId.get('tests_results').content, ['测试结果：brake efficiency pass。']);
-  assert.deepEqual(byId.get('completion_state').content, ['完成状态：completed。']);
-  assert.deepEqual(byId.get('safety_hv_notes').content, ['安全 · hv_isolation：status: isolated，cert: NESS-2026-014。']);
+  assert.deepEqual(byId.get('vehicle_identification').content, ['Registration No. (VRN): SG3050Z.', 'Bus model: MAN A95.']);
+  assert.deepEqual(byId.get('works_summary').content, ['Work type: corrective.']);
+  assert.deepEqual(byId.get('inspection_findings').content, ['Fault code: P0216.']);
+  assert.deepEqual(byId.get('diagnosis').content, ['Root cause: brake pad wear.']);
+  assert.deepEqual(byId.get('work_performed').content, ['Work performed: replaced brake pads.']);
+  assert.deepEqual(byId.get('parts_materials').content, ['Part replaced: Yes.']);
+  assert.deepEqual(byId.get('tests_results').content, ['Test result: brake efficiency pass.']);
+  assert.deepEqual(byId.get('completion_state').content, ['Completion state: completed.']);
+  assert.deepEqual(byId.get('safety_hv_notes').content, ['Safety · hv_isolation: status: isolated, cert: NESS-2026-014.']);
   // Provenance gets the receipt id plus provenance.* facts.
-  assert.deepEqual(byId.get('provenance').content, ['事实收据: receipt-bus-1', '溯源 · upload：upload:u1。']);
+  assert.deepEqual(byId.get('provenance').content, ['Facts receipt: receipt-bus-1', 'Provenance · upload: upload:u1.']);
 });
 
 test('Bus report: missing required section renders the V1 placeholder', () => {
@@ -178,9 +178,9 @@ test('Rail report: Rail-unique sections exist and Bus report does not contain th
   const railById = new Map(rail.sections.map((s) => [s.id, s]));
 
   // Rail-unique sections present with their own content.
-  assert.deepEqual(railById.get('track_access_record').content, ['轨行区准入审批：approved。']);
-  assert.deepEqual(railById.get('reliability_compliance').content, ['可靠性 · mkbf：1,234,567 train-km。']);
-  assert.deepEqual(railById.get('asset_identification').content, ['线路：NEL。', '列车编组：C751A 7001/7002。']);
+  assert.deepEqual(railById.get('track_access_record').content, ['Track access approval: approved.']);
+  assert.deepEqual(railById.get('reliability_compliance').content, ['Reliability · mkbf: 1,234,567 train-km.']);
+  assert.deepEqual(railById.get('asset_identification').content, ['Line: NEL.', 'Train set: C751A 7001/7002.']);
 
   // The same-scope Bus report must NOT contain the Rail-unique sections.
   const bus = buildBusReportSections({ facts, factsReceiptId: 'bus-rc' });

@@ -31,7 +31,7 @@ let ollamaReady = false;
 let sessionToken = '';
 const manualFields = {};
 const sessionTokenKey = 'hvac_demo_session_token';
-const demoNarration = '客户反映不制冷。检查发现运刑电容损坏。更换了一个三十五微法电容。试机运行正常。问题已解决。建议下次保养清洗滤网。';
+const demoNarration = 'The customer reports the air conditioner is not cooling. Inspection found the operating capacitor is damaged. Replaced it with a 35 µF capacitor. Test run is normal. Problem resolved. Recommendation: clean the filter at the next service.';
 
 function setSessionToken(value) {
   sessionToken = String(value || '').trim();
@@ -39,7 +39,7 @@ function setSessionToken(value) {
   else sessionStorage.removeItem(sessionTokenKey);
 }
 
-function requireLogin(message = '请输入启动服务时设置的临时演示口令。') {
+function requireLogin(message = 'Enter the temporary demo passcode set when the server started.') {
   setSessionToken('');
   el['auth-gate'].hidden = false;
   el['auth-status'].textContent = message;
@@ -49,7 +49,7 @@ function requireLogin(message = '请输入启动服务时设置的临时演示�
 
 async function api(path, body, options = {}) {
   const { allowToolFailure = false, ...fetchOptions } = options;
-  if (!sessionToken) throw new Error('尚未建立演示会话。');
+  if (!sessionToken) throw new Error('No demo session established yet.');
   const headers = new Headers(fetchOptions.headers || {});
   headers.set('authorization', `Bearer ${sessionToken}`);
   const requestOptions = { ...fetchOptions, headers };
@@ -65,7 +65,7 @@ async function api(path, body, options = {}) {
   } catch {
     result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
   }
-  if (response.status === 401) requireLogin('口令无效或会话已失效，请重新输入。');
+  if (response.status === 401) requireLogin('Invalid passcode or expired session. Please re-enter.');
   if (!response.ok || (!allowToolFailure && (result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR'))) {
     const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
     error.result = result;
@@ -88,43 +88,43 @@ function healthBadge(label, ready, detail) {
 }
 
 async function refreshHealth() {
-  el['health-summary'].textContent = '正在检查本地组件…';
+  el['health-summary'].textContent = 'Checking local components…';
   try {
     const result = await api('/api/health', undefined, { allowToolFailure: true });
     const { whisper, ollama } = result.data;
     ollamaReady = ollama.ready;
-    el['health-summary'].textContent = whisper.ready ? '语音入口可用；也可以使用手动原文。' : 'Whisper 未准备；请使用右侧手动原文完成流程。';
+    el['health-summary'].textContent = whisper.ready ? 'Voice entry available; manual text can also be used.' : 'Whisper is not prepared; use manual text on the right to complete the flow.';
     el['health-details'].replaceChildren(
-      healthBadge('Whisper', whisper.ready, whisper.ready ? `${whisper.model} 可用` : whisper.error_code),
-      healthBadge('Ollama', ollama.ready, ollama.ready ? `${ollama.models.length} 个模型` : '将使用确定性流程'),
+      healthBadge('Whisper', whisper.ready, whisper.ready ? `${whisper.model} available` : whisper.error_code),
+      healthBadge('Ollama', ollama.ready, ollama.ready ? `${ollama.models.length} models` : 'will use the deterministic flow'),
     );
   } catch (error) {
-    el['health-summary'].textContent = `健康检查失败：${error.message}；手动入口仍可尝试。`;
+    el['health-summary'].textContent = `Health check failed: ${error.message}; the manual entry can still be tried.`;
     throw error;
   }
 }
 
 async function unlockWithToken(token) {
   setSessionToken(token);
-  el['auth-status'].textContent = '正在验证口令…';
+  el['auth-status'].textContent = 'Verifying passcode…';
   try {
     await refreshHealth();
     el['auth-gate'].hidden = true;
     el['auth-status'].textContent = '';
   } catch (error) {
-    if (sessionToken) requireLogin(`无法建立会话：${error.message}`);
+    if (sessionToken) requireLogin(`Cannot establish session: ${error.message}`);
   }
 }
 
 async function initializeSession() {
   const lanLike = !['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-  el['network-mode'].textContent = lanLike ? '局域网演示模式' : '本机演示模式';
+  el['network-mode'].textContent = lanLike ? 'LAN demo mode' : 'Local demo mode';
   el['network-warning'].textContent = !window.isSecureContext && lanLike
-    ? '当前是局域网 HTTP 页面：手机或其他电脑的浏览器通常会禁用麦克风。可在主机浏览器录音，异机观看；或在异机使用手动文本。'
-    : '临时口令只保存在当前标签页会话。请仅在可信 Wi-Fi 演示，不要暴露到公网。';
+    ? 'This is a LAN HTTP page: browsers on phones or other computers usually disable the microphone. Record in the host browser and watch from another device, or use manual text on another device.'
+    : 'The temporary passcode is kept only in the current tab session. Demo only on trusted Wi-Fi; do not expose it to the public internet.';
   if (!window.isSecureContext) {
     el['start-recording'].disabled = true;
-    el['recording-status'].textContent = '当前页面不是安全上下文，浏览器麦克风已停用；请上传 WAV 或使用手动文本。';
+    el['recording-status'].textContent = 'This page is not a secure context, so the browser microphone is disabled; upload a WAV or use manual text.';
   }
 
   const remembered = sessionStorage.getItem(sessionTokenKey);
@@ -145,7 +145,7 @@ async function initializeSession() {
   requireLogin();
 }
 
-function invalidateConfirmation(message = '报告内容已变化，需要重新校验和确认。') {
+function invalidateConfirmation(message = 'Report content has changed; re-validation and confirmation are required.') {
   confirmationToken = null;
   el['save-report'].disabled = true;
   el['export-report'].disabled = true;
@@ -162,11 +162,11 @@ function acceptTranscript(artifact, message) {
   currentNormalization = null;
   currentCorrectionReceipt = null;
   Object.keys(manualFields).forEach((key) => delete manualFields[key]);
-  invalidateConfirmation('已有原文，尚未生成和确认报告。');
+  invalidateConfirmation('Transcript exists; report not yet generated or confirmed.');
   el['transcript-output'].textContent = artifact.raw_text;
   el['transcript-output'].classList.remove('empty');
   el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
-  el['transcription-status'].textContent = `${message} 来源：${artifact.provider}。原文已作为不可变 Artifact 保存。`;
+  el['transcription-status'].textContent = `${message} Source: ${artifact.provider}. The original text is saved as an immutable Artifact.`;
   el['build-report'].disabled = false;
   ['correction-section', 'questions-section', 'evidence-section', 'report-section', 'confirm-section'].forEach((id) => { el[id].hidden = true; });
 }
@@ -189,10 +189,10 @@ el['start-recording'].addEventListener('click', async () => {
     recorder = new PcmWavRecorder();
     const { sampleRate } = await recorder.start();
     el['stop-recording'].disabled = false;
-    el['recording-status'].textContent = `录音中（输入 ${sampleRate} Hz，保存为 16 kHz mono PCM WAV）…`;
+    el['recording-status'].textContent = `Recording (input ${sampleRate} Hz, saved as 16 kHz mono PCM WAV)…`;
     recordingTimer = setTimeout(() => el['stop-recording'].click(), 90_000);
   } catch (error) {
-    el['recording-status'].textContent = `无法开始录音：${error.message}`;
+    el['recording-status'].textContent = `Cannot start recording: ${error.message}`;
     el['start-recording'].disabled = false;
   }
 });
@@ -202,9 +202,9 @@ el['stop-recording'].addEventListener('click', async () => {
   el['stop-recording'].disabled = true;
   try {
     const wav = await recorder.stop();
-    selectAudio(wav, `录音已就绪：${Math.round(wav.size / 1024)} KB。`);
+    selectAudio(wav, `Recording ready: ${Math.round(wav.size / 1024)} KB.`);
   } catch (error) {
-    el['recording-status'].textContent = `停止录音失败：${error.message}`;
+    el['recording-status'].textContent = `Failed to stop recording: ${error.message}`;
   } finally {
     recorder = null;
     el['start-recording'].disabled = false;
@@ -213,7 +213,7 @@ el['stop-recording'].addEventListener('click', async () => {
 
 el['audio-file'].addEventListener('change', () => {
   const file = el['audio-file'].files?.[0];
-  if (file) selectAudio(file, `已选择 ${file.name}，服务端将验证 WAV。`);
+  if (file) selectAudio(file, `Selected ${file.name}; the server will validate the WAV.`);
 });
 
 async function uploadIfNeeded() {
@@ -226,16 +226,16 @@ async function uploadIfNeeded() {
 async function transcribe(attempt) {
   el.transcribe.disabled = true;
   el.retry.disabled = true;
-  el['transcription-status'].textContent = '正在本地转写…';
+  el['transcription-status'].textContent = 'Transcribing locally…';
   try {
     const audioId = await uploadIfNeeded();
     const result = await api('/api/transcriptions', {
       audio_id: audioId, model: el.model.value, language: el.language.value, attempt,
       idempotency_key: `${audioId}:${el.model.value}:${el.language.value}:attempt-${attempt}`,
     });
-    acceptTranscript(result.data.transcript, result.data.reused ? '复用了同一转写请求' : '语音转写完成');
+    acceptTranscript(result.data.transcript, result.data.reused ? 'Reused the same transcription request' : 'Speech transcription complete');
   } catch (error) {
-    el['transcription-status'].textContent = `转写失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}。可改用手动原文。`;
+    el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}. Manual text can be used instead.`;
     el.retry.disabled = attempt >= 2;
   } finally {
     el.transcribe.disabled = false;
@@ -248,9 +248,9 @@ el['use-manual'].addEventListener('click', async () => {
   el['use-manual'].disabled = true;
   try {
     const result = await api('/api/transcripts/manual', { raw_text: el['manual-transcript'].value, language: 'zh' });
-    acceptTranscript(result.data.transcript, '手动原文已保存（不是语音识别结果）');
+    acceptTranscript(result.data.transcript, 'Manual text saved (not speech recognition)');
   } catch (error) {
-    el['transcription-status'].textContent = `手动原文保存失败：${error.message}`;
+    el['transcription-status'].textContent = `Failed to save manual text: ${error.message}`;
   } finally {
     el['use-manual'].disabled = false;
   }
@@ -267,12 +267,12 @@ function renderQuestions(inputValidation) {
     input.rows = 2;
     input.dataset.field = field;
     input.value = manualFields[field] || '';
-    input.placeholder = '填写技师实际观察或记录的内容';
+    input.placeholder = 'Enter what the technician actually observed or recorded';
     const missing = node('label', 'missing-check');
     const checkbox = node('input');
     checkbox.type = 'checkbox';
     checkbox.dataset.missingField = field;
-    missing.append(checkbox, document.createTextNode(' 本次未提供 / 稍后填写'));
+    missing.append(checkbox, document.createTextNode(' Not provided this time / fill in later'));
     label.append(input);
     wrapper.append(label, missing);
     return wrapper;
@@ -284,13 +284,13 @@ function renderEvidence(normalization, inputValidation) {
     const card = node('div', 'fact-card');
     card.append(node('strong', '', fact.field), node('span', '', typeof fact.value === 'string' ? fact.value : JSON.stringify(fact.value)), node('small', '', `${fact.support_status} · ${fact.source_refs.join(', ')}`));
     return card;
-  }) : [node('p', 'empty-note', '未提取到有来源的事实。')];
+  }) : [node('p', 'empty-note', 'No facts with sources were extracted.')];
   el['facts-output'].replaceChildren(...factNodes);
   const corrections = normalization.data.correction_candidates || [];
   const missing = inputValidation.data.missing_required_fields || [];
   const issueNodes = [
-    node('div', 'fact-card', corrections.length ? `术语修复候选：${corrections.length} 项` : '没有应用术语修复；原文保持不变。'),
-    node('div', `fact-card ${missing.length ? 'needs-attention' : ''}`, missing.length ? `仍缺失：${missing.join('、')}` : '最低事实集合已覆盖。'),
+    node('div', 'fact-card', corrections.length ? `Terminology fix candidates: ${corrections.length}` : 'No terminology fixes applied; the original text is unchanged.'),
+    node('div', `fact-card ${missing.length ? 'needs-attention' : ''}`, missing.length ? `Still missing: ${missing.join(', ')}` : 'Minimum fact set is covered.'),
   ];
   el['issues-output'].replaceChildren(...issueNodes);
   el['evidence-section'].hidden = false;
@@ -314,7 +314,7 @@ function renderCorrectionReview(normalization) {
     change.append(node('code', '', candidate.source_span.text), node('span', '', '→'), node('code', '', candidate.candidate));
     const reason = node('small', '', `${candidate.reason} · ${candidate.match_basis.match_basis} · ${candidate.knowledge_version}`);
     const controls = node('div', 'decision-controls');
-    for (const [value, labelText] of [['ACCEPT', '接受此修复'], ['REJECT', '保留原文']]) {
+    for (const [value, labelText] of [['ACCEPT', 'Accept this fix'], ['REJECT', 'Keep original']]) {
       const label = node('label');
       const radio = node('input');
       radio.type = 'radio';
@@ -329,15 +329,15 @@ function renderCorrectionReview(normalization) {
       const checkbox = node('input');
       checkbox.type = 'checkbox';
       checkbox.dataset.criticalCandidateId = candidate.candidate_id;
-      label.append(checkbox, document.createTextNode('我已人工核对该关键值/语义'));
+      label.append(checkbox, document.createTextNode('I have manually verified this critical value/meaning'));
       controls.append(label);
     }
     card.append(change, reason, controls);
     return card;
-  }) : [node('div', 'fact-card', '未找到受控修复候选。技师仍需确认原文，系统将签发“原文确认”凭证。')]));
+  }) : [node('div', 'fact-card', 'No controlled fix candidates found. The technician must still confirm the original text; the system will issue an "original text confirmation" receipt.')]));
   el['correction-status'].textContent = candidates.length
-    ? `找到 ${candidates.length} 项受控候选。请逐项决定；AI 建议尚未改动原文。`
-    : '没有修复候选；请确认技师身份以签发原文确认凭证。';
+    ? `Found ${candidates.length} controlled candidates. Decide each one; the AI suggestions have not changed the original text.`
+    : 'No fix candidates; confirm technician identity to issue the original-text confirmation receipt.';
   el['correction-section'].hidden = false;
 }
 
@@ -348,7 +348,7 @@ function renderDraft(validation) {
     for (const item of section.items) {
       const line = node('p', item.type === 'template_text' ? 'placeholder' : '');
       line.textContent = item.text;
-      if (item.fact_ids?.length) line.append(node('small', 'source-tag', `来源：${item.fact_ids.join(', ')}`));
+      if (item.fact_ids?.length) line.append(node('small', 'source-tag', `Source: ${item.fact_ids.join(', ')}`));
       block.append(line);
     }
     return block;
@@ -356,8 +356,8 @@ function renderDraft(validation) {
   const reviewable = validation.data.can_enter_technician_review;
   el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
   el['validator-banner'].textContent = reviewable
-    ? `Validator：${validation.status}。来源覆盖率 ${Math.round(validation.data.provenance_coverage * 100)}%，可以进入技师复核。`
-    : `Validator：${validation.status}。报告不能确认，请先修正校验问题。`;
+    ? `Validator: ${validation.status}. Source coverage ${Math.round(validation.data.provenance_coverage * 100)}%; ready for technician review.`
+    : `Validator: ${validation.status}. The report cannot be confirmed; fix the validation issues first.`;
   el['validator-output'].textContent = JSON.stringify(validation, null, 2);
   el['report-section'].hidden = false;
   el['confirm-section'].hidden = !reviewable;
@@ -369,13 +369,13 @@ async function prepareCorrectionReview() {
   invalidateConfirmation();
   el['build-report'].disabled = true;
   currentCorrectionReceipt = null;
-  el['transcription-status'].textContent = '正在由服务端检索版本化 HVAC 术语候选…';
+  el['transcription-status'].textContent = 'Searching versioned HVAC terminology candidates on the server…';
   try {
     currentNormalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
     renderCorrectionReview(currentNormalization);
-    el['transcription-status'].textContent = '修复建议已展示，原始 TranscriptArtifact 仍未改动。';
+    el['transcription-status'].textContent = 'Fix suggestions shown; the original TranscriptArtifact remains unchanged.';
   } catch (error) {
-    el['transcription-status'].textContent = `修复候选检查失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`;
+    el['transcription-status'].textContent = `Fix candidate check failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
   } finally {
     el['build-report'].disabled = false;
   }
@@ -384,7 +384,7 @@ async function prepareCorrectionReview() {
 async function generateReportFromReceipt() {
   if (!currentCorrectionReceipt) return;
   invalidateConfirmation();
-  el['transcription-status'].textContent = '正在执行固定流程：确认文本 → 事实提取 → 缺失检查 → 模块规划 → 草稿 → Validator…';
+  el['transcription-status'].textContent = 'Running the fixed flow: confirm text → fact extraction → missing check → section planning → draft → Validator…';
   try {
     const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: manualFields, use_llm: ollamaReady });
     currentFacts = extracted.data.facts;
@@ -398,9 +398,9 @@ async function generateReportFromReceipt() {
     renderQuestions(inputValidation);
     renderEvidence(currentNormalization, inputValidation);
     renderDraft(currentValidation);
-    el['transcription-status'].textContent = '报告草稿和独立校验已生成。请处理追问并完成技师复核。';
+    el['transcription-status'].textContent = 'Report draft and independent validation are ready. Answer follow-up questions and complete the technician review.';
   } catch (error) {
-    el['transcription-status'].textContent = `生成失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`;
+    el['transcription-status'].textContent = `Generation failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
   }
 }
 
@@ -411,7 +411,7 @@ el['confirm-corrections'].addEventListener('click', async () => {
   try {
     const decisions = (currentNormalization.data.correction_candidates || []).map((candidate) => {
       const selected = el['correction-list'].querySelector(`input[name="decision-${candidate.candidate_id}"]:checked`);
-      if (!selected) throw new Error(`请选择是否接受：${candidate.source_span.text} → ${candidate.candidate}`);
+      if (!selected) throw new Error(`Choose accept or reject: ${candidate.source_span.text} → ${candidate.candidate}`);
       const critical = el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`);
       return { candidate_id: candidate.candidate_id, decision: selected.value, critical_value_confirmed: critical ? critical.checked : false };
     });
@@ -425,10 +425,10 @@ el['confirm-corrections'].addEventListener('click', async () => {
     currentCorrectionReceipt = result.data.correction_receipt;
     el['technician-id'].value = el['correction-technician-id'].value;
     el['technician-name'].value = el['correction-technician-name'].value;
-    el['correction-status'].textContent = `已签发不可变文本凭证 ${currentCorrectionReceipt.correction_receipt_id}，确认时间 ${currentCorrectionReceipt.confirmed_at}。`;
+    el['correction-status'].textContent = `Immutable text receipt ${currentCorrectionReceipt.correction_receipt_id} issued; confirmed at ${currentCorrectionReceipt.confirmed_at}.`;
     await generateReportFromReceipt();
   } catch (error) {
-    el['correction-status'].textContent = `文本确认失败（${error.result?.error_code || 'INPUT'}）：${error.message}`;
+    el['correction-status'].textContent = `Text confirmation failed (${error.result?.error_code || 'INPUT'}): ${error.message}`;
   } finally {
     el['confirm-corrections'].disabled = false;
   }
@@ -446,7 +446,7 @@ el['confirm-check'].addEventListener('change', () => {
   el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review;
 });
 el['confirm-report'].addEventListener('click', async () => {
-  invalidateConfirmation('正在绑定当前报告和校验结果…');
+  invalidateConfirmation('Binding the current report and validation results…');
   try {
     const result = await api('/api/reports/confirm', {
       draft: currentDraft,
@@ -457,18 +457,18 @@ el['confirm-report'].addEventListener('click', async () => {
     confirmationToken = result.data.confirmation.confirmation_token;
     el['save-report'].disabled = false;
     el['export-report'].disabled = false;
-    el['confirmation-status'].textContent = `已确认版本 ${result.data.confirmation.report_version}；确认时间 ${result.data.confirmation.confirmed_at}。`;
+    el['confirmation-status'].textContent = `Confirmed version ${result.data.confirmation.report_version}; confirmed at ${result.data.confirmation.confirmed_at}.`;
   } catch (error) {
-    el['confirmation-status'].textContent = `确认失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`;
+    el['confirmation-status'].textContent = `Confirmation failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
   }
 });
 
 el['save-report'].addEventListener('click', async () => {
   try {
     const result = await api('/api/reports/save', { draft: currentDraft, confirmation_token: confirmationToken });
-    el['confirmation-status'].textContent = `${result.data.reused ? '已复用' : '已保存'}正式 JSON：${result.data.file}`;
+    el['confirmation-status'].textContent = `${result.data.reused ? 'Reused' : 'Saved'} official JSON: ${result.data.file}`;
   } catch (error) {
-    el['confirmation-status'].textContent = `保存被拒绝（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`;
+    el['confirmation-status'].textContent = `Save rejected (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
   }
 });
 el['export-report'].addEventListener('click', async () => {
@@ -477,18 +477,18 @@ el['export-report'].addEventListener('click', async () => {
     el['export-output'].value = result.data.copyable_text;
     el['export-output'].hidden = false;
     el['copy-export'].disabled = false;
-    el['confirmation-status'].textContent = `${result.data.reused ? '已复用' : '已导出'}文本：${result.data.file}`;
+    el['confirmation-status'].textContent = `${result.data.reused ? 'Reused' : 'Exported'} text: ${result.data.file}`;
   } catch (error) {
-    el['confirmation-status'].textContent = `导出被拒绝（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`;
+    el['confirmation-status'].textContent = `Export rejected (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
   }
 });
 el['copy-export'].addEventListener('click', async () => {
   await navigator.clipboard.writeText(el['export-output'].value);
-  el['confirmation-status'].textContent = '报告文本已复制到剪贴板。';
+  el['confirmation-status'].textContent = 'Report text copied to clipboard.';
 });
 el['fill-demo'].addEventListener('click', () => {
   el['manual-transcript'].value = demoNarration;
-  el['transcription-status'].textContent = '已填入合成演示文本；尚未保存、提交或确认。';
+  el['transcription-status'].textContent = 'Synthetic demo text filled in; not yet saved, submitted, or confirmed.';
 });
 el['auth-submit'].addEventListener('click', () => unlockWithToken(el['auth-token'].value));
 el['auth-token'].addEventListener('keydown', (event) => {
@@ -549,14 +549,14 @@ function v2UpdateScopeSelector() {
   }
   const info = V2_SCOPE_DEFAULTS[v2.scopeId];
   v2El['scope-selector-status'].textContent = info.v2
-    ? `当前作用域：${info.display}（V2 面板）`
-    : `当前作用域：${info.display}（V1 面板）`;
+    ? `Current scope: ${info.display} (V2 panel)`
+    : `Current scope: ${info.display} (V1 panel)`;
 }
 
 function v2SetScopeHints() {
-  v2El['v2-upload-scope-hint'].textContent = `上传文档将进入作用域 ${v2.display}（仅该作用域检索可见）。`;
-  const others = v2.scopeId === 'SBS_BUS' ? 'HVAC 或 Rail' : 'HVAC 或 Bus';
-  v2El['v2-retrieve-scope-hint'].textContent = `当前检索范围：${v2.display}，不会返回 ${others} 内容。`;
+  v2El['v2-upload-scope-hint'].textContent = `Uploaded documents enter scope ${v2.display} and are visible only to retrieval in that scope.`;
+  const others = v2.scopeId === 'SBS_BUS' ? 'HVAC or Rail' : 'HVAC or Bus';
+  v2El['v2-retrieve-scope-hint'].textContent = `Search scope: ${v2.display}; ${others} content will never be returned.`;
 }
 
 function v2SetScope(scopeId) {
@@ -568,6 +568,7 @@ function v2SetScope(scopeId) {
   v2.facts = [];
   v2.knowledgeHits = [];
   v2.reportBlocked = false;
+  v2StopDemo();
   v2StopUploadAnimation();
   v2UpdateScopeSelector();
   v2El['v1-panel'].hidden = info.v2;
@@ -583,7 +584,7 @@ function v2SetScope(scopeId) {
   v2SetScopeHints();
   v2El['v2-upload-status'].className = 'live-status';
   v2El['v2-facts-status'].className = 'live-status';
-  v2SetStatus('v2-upload-status', '尚未选择文档。');
+  v2SetStatus('v2-upload-status', 'No document selected yet.');
   v2SetStatus('v2-retrieve-status', '');
   v2SetStatus('v2-facts-status', '');
   v2RefreshScopes();
@@ -598,7 +599,7 @@ async function v2RefreshScopes() {
     v2.scopesLoaded = true;
     v2UpdateScopeSelector();
   } catch (error) {
-    v2SetStatus('v2-upload-status', `作用域信息暂不可用（${error.message}）；仍按默认作用域运行。`);
+    v2SetStatus('v2-upload-status', `Scope info temporarily unavailable (${error.message}); continuing with the default scope.`);
   }
 }
 
@@ -612,32 +613,32 @@ function v2UploadRow(upload) {
   const row = node('div', 'upload-row');
   const name = node('span', 'name', upload.filename || upload.upload_id || '—');
   const at = String(upload.provenance?.uploaded_at || '').slice(0, 19).replace('T', ' ');
-  const meta = node('span', 'meta', `${upload.scope_id || '—'} · ${upload.chunk_count ?? 0} 块 · ${at || '—'}`);
+  const meta = node('span', 'meta', `${upload.scope_id || '—'} · ${upload.chunk_count ?? 0} chunks · ${at || '—'}`);
   row.append(name, v2StatusBadge(upload.status), meta);
   return row;
 }
 
 async function v2RefreshUploads() {
   if (!sessionToken) {
-    v2El['v2-upload-list'].replaceChildren(node('p', 'empty-note', '登录后加载本作用域上传记录。'));
+    v2El['v2-upload-list'].replaceChildren(node('p', 'empty-note', 'Upload records for this scope load after login.'));
     return;
   }
-  v2SetStatus('v2-upload-status', '正在加载上传记录…');
+  v2SetStatus('v2-upload-status', 'Loading upload records…');
   try {
     const listPath = `/api/v2/uploads?scope_id=${encodeURIComponent(v2.scopeId)}`;
     const result = await api(listPath);
     const uploads = Array.isArray(result.data?.uploads) ? result.data.uploads : [];
     v2El['v2-upload-list'].replaceChildren(
-      uploads.length ? uploads.map(v2UploadRow) : [node('p', 'empty-note', '本作用域还没有上传记录。')],
+      uploads.length ? uploads.map(v2UploadRow) : [node('p', 'empty-note', 'No upload records in this scope yet.')],
     );
-    if (v2El['v2-upload-status'].textContent === '正在加载上传记录…') v2SetStatus('v2-upload-status', '');
+    if (v2El['v2-upload-status'].textContent === 'Loading upload records…') v2SetStatus('v2-upload-status', '');
   } catch (error) {
-    v2SetStatus('v2-upload-status', `上传记录加载失败：${error.message}`);
+    v2SetStatus('v2-upload-status', `Failed to load upload records: ${error.message}`);
   }
 }
 
 async function v2UploadFile(file) {
-  if (!sessionToken) throw new Error('尚未建立演示会话。');
+  if (!sessionToken) throw new Error('No demo session established yet.');
   const uploadPath = '/api/v2/uploads';
   const headers = {
     authorization: `Bearer ${sessionToken}`,
@@ -655,7 +656,7 @@ async function v2UploadFile(file) {
   } catch {
     result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
   }
-  if (response.status === 401) requireLogin('口令无效或会话已失效，请重新输入。');
+  if (response.status === 401) requireLogin('Invalid passcode or expired session. Please re-enter.');
   if (!response.ok || result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR') {
     const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
     error.result = result;
@@ -704,12 +705,12 @@ function v2RenderUploadRecord(upload) {
     ['scope_id', upload.scope_id],
     ['chunk_count', upload.chunk_count],
     ['token_count', upload.indexed?.token_count ?? '—'],
-    ['sha256（前 8 位）', upload.sha256 ? upload.sha256.slice(0, 8) : '—'],
+    ['sha256 (first 8 chars)', upload.sha256 ? upload.sha256.slice(0, 8) : '—'],
     ['size_bytes', upload.size_bytes],
   ];
   box.replaceChildren(...lines.map(([label, value]) => {
     const line = node('div', 'kv');
-    line.append(node('b', '', `${label}：`), document.createTextNode(String(value ?? '—')));
+    line.append(node('b', '', `${label}: `), document.createTextNode(String(value ?? '—')));
     return line;
   }));
 }
@@ -719,10 +720,10 @@ v2El['v2-upload-file'].addEventListener('change', () => {
   v2El['v2-upload-submit'].disabled = !file;
   v2El['v2-upload-status'].className = 'live-status';
   if (!file) {
-    v2SetStatus('v2-upload-status', '尚未选择文档。');
+    v2SetStatus('v2-upload-status', 'No document selected yet.');
     return;
   }
-  v2SetStatus('v2-upload-status', `已选择 ${file.name}（${(file.size / 1024).toFixed(1)} KB）。`);
+  v2SetStatus('v2-upload-status', `Selected ${file.name} (${(file.size / 1024).toFixed(1)} KB).`);
   if (!v2El['v2-uploader'].value.trim() && el['technician-name']?.value) {
     v2El['v2-uploader'].value = el['technician-name'].value;
   }
@@ -731,32 +732,32 @@ v2El['v2-upload-file'].addEventListener('change', () => {
 v2El['v2-upload-submit'].addEventListener('click', async () => {
   const file = v2El['v2-upload-file'].files?.[0];
   if (!file) {
-    v2SetStatus('v2-upload-status', '请先选择要上传的文档。');
+    v2SetStatus('v2-upload-status', 'Select a document to upload first.');
     return;
   }
   v2El['v2-upload-submit'].disabled = true;
   v2El['v2-upload-file'].disabled = true;
   v2El['v2-upload-record'].hidden = true;
-  v2SetStatus('v2-upload-status', '正在上传并入库（服务端执行 上传→解析→分块→索引→就绪 状态机）…');
+  v2SetStatus('v2-upload-status', 'Uploading and indexing (server runs the Upload → Parse → Chunk → Index → Ready state machine)…');
   v2StartUploadAnimation();
   try {
     const result = await v2UploadFile(file);
     const upload = result.data?.upload;
-    if (!upload) throw new Error('服务端未返回 upload 记录。');
+    if (!upload) throw new Error('The server did not return an upload record.');
     if (upload.status === 'FAILED') {
       v2El['v2-upload-progress'].append(v2UploadStepChip('FAILED', new Date().toLocaleTimeString()));
-      const reason = upload.errors?.[0]?.message || '文档处理失败。';
-      v2SetStatus('v2-upload-status', `上传失败：${reason}`);
+      const reason = upload.errors?.[0]?.message || 'Document processing failed.';
+      v2SetStatus('v2-upload-status', `Upload failed: ${reason}`);
       v2El['v2-upload-status'].className = 'live-status v2-error-text';
     } else {
       v2El['v2-upload-progress'].append(v2UploadStepChip('READY', new Date().toLocaleTimeString()));
       v2RenderUploadRecord(upload);
-      v2SetStatus('v2-upload-status', `上传完成：${upload.filename} 已就绪。`);
+      v2SetStatus('v2-upload-status', `Upload complete: ${upload.filename} is ready.`);
       v2El['v2-upload-status'].className = 'live-status';
     }
     v2RefreshUploads();
   } catch (error) {
-    v2SetStatus('v2-upload-status', `上传失败：${error.message}`);
+    v2SetStatus('v2-upload-status', `Upload failed: ${error.message}`);
     v2El['v2-upload-status'].className = 'live-status v2-error-text';
   } finally {
     v2StopUploadAnimation();
@@ -772,28 +773,28 @@ function v2RenderRetrieveWarnings(warnings) {
     return;
   }
   const blocked = warnings.includes('CROSS_DOMAIN_BLOCKED');
-  const note = blocked ? node('p', 'warning-line', '已阻止跨域内容：本次检索不会返回其他作用域（HVAC / 另一 SBS 域）的内容。') : null;
-  const detail = node('p', 'hint', `服务端警告：${warnings.join('、')}`);
+  const note = blocked ? node('p', 'warning-line', 'Cross-domain content blocked: this search cannot return content from other scopes (HVAC / the other SBS domain).') : null;
+  const detail = node('p', 'hint', `Server warnings: ${warnings.join(', ')}`);
   box.replaceChildren(...(note ? [note, detail] : [detail]));
 }
 
 function v2RenderRetrieveResults(results) {
   const box = v2El['v2-retrieve-results'];
   if (!results.length) {
-    box.replaceChildren(node('p', 'empty-note', '没有检索到结果。'));
+    box.replaceChildren(node('p', 'empty-note', 'No results found.'));
     return;
   }
   box.replaceChildren(...results.map((item) => {
     const card = node('div', 'result-card');
     const head = node('div', 'head');
     head.append(
-      node('span', 'status-badge', item.source === 'upload' ? '上传' : '知识库'),
+      node('span', 'status-badge', item.source === 'upload' ? 'Upload' : 'Knowledge base'),
       node('span', '', item.scope_id || '—'),
       node('span', 'score', `score ${Number(item.score || 0).toFixed(2)}`),
     );
     const full = String(item.text || '');
     const text = node('p', 'text', full.slice(0, 120) + (full.length > 120 ? '…' : ''));
-    const prov = node('p', 'prov', `来源：${item.provenance?.file || item.doc_id || '—'}${item.provenance?.uploader ? ` · 上传者：${item.provenance.uploader}` : ''}`);
+    const prov = node('p', 'prov', `Source: ${item.provenance?.file || item.doc_id || '—'}${item.provenance?.uploader ? ` · Uploader: ${item.provenance.uploader}` : ''}`);
     card.append(head, text, prov);
     return card;
   }));
@@ -805,7 +806,7 @@ v2El['v2-retrieve-submit'].addEventListener('click', async () => {
   v2El['v2-retrieve-submit'].disabled = true;
   v2El['v2-retrieve-results'].replaceChildren();
   v2El['v2-retrieve-warnings'].replaceChildren();
-  v2SetStatus('v2-retrieve-status', '正在检索…');
+  v2SetStatus('v2-retrieve-status', 'Searching…');
   try {
     const result = await api('/api/v2/retrieve', {
       context_id: v2.contextId,
@@ -816,10 +817,10 @@ v2El['v2-retrieve-submit'].addEventListener('click', async () => {
     v2.knowledgeHits = (result.data?.results || []).map((item) => item.text);
     v2RenderRetrieveWarnings(result.warnings || []);
     v2RenderRetrieveResults(result.data?.results || []);
-    v2SetStatus('v2-retrieve-status', `检索完成：${(result.data?.results || []).length} 条结果。`);
+    v2SetStatus('v2-retrieve-status', `Search complete: ${(result.data?.results || []).length} results.`);
   } catch (error) {
     v2.knowledgeHits = [];
-    v2SetStatus('v2-retrieve-status', `检索失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`);
+    v2SetStatus('v2-retrieve-status', `Search failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
   } finally {
     v2El['v2-retrieve-submit'].disabled = false;
   }
@@ -828,11 +829,11 @@ v2El['v2-retrieve-submit'].addEventListener('click', async () => {
 function v2RenderFacts(facts) {
   const table = v2El['v2-facts-table'];
   if (!facts.length) {
-    table.replaceChildren(node('p', 'empty-note', '未提取到事实。'));
+    table.replaceChildren(node('p', 'empty-note', 'No facts extracted.'));
     return;
   }
   const head = node('div', 'fact-table head');
-  head.append(node('span', '', '字段'), node('span', '', '值'), node('span', '', '单位'), node('span', '', '支持状态'), node('span', '', ''));
+  head.append(node('span', '', 'Field'), node('span', '', 'Value'), node('span', '', 'Unit'), node('span', '', 'Support status'), node('span', '', ''));
   const rows = facts.map((fact) => {
     const row = node('div', 'fact-table');
     row.append(
@@ -850,13 +851,13 @@ function v2RenderFacts(facts) {
 v2El['v2-facts-extract'].addEventListener('click', async () => {
   const raw = v2El['v2-facts-text'].value.trim();
   if (!raw) {
-    v2SetStatus('v2-facts-status', '请先输入口述或手动内容。');
+    v2SetStatus('v2-facts-status', 'Enter dictation or manual content first.');
     return;
   }
   v2El['v2-facts-extract'].disabled = true;
   v2El['v2-facts-status'].className = 'live-status';
   v2El['v2-report-output'].hidden = true;
-  v2SetStatus('v2-facts-status', '正在提取事实…');
+  v2SetStatus('v2-facts-status', 'Extracting facts…');
   try {
     const result = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: raw });
     v2.facts = Array.isArray(result.data?.facts) ? result.data.facts : [];
@@ -864,11 +865,11 @@ v2El['v2-facts-extract'].addEventListener('click', async () => {
     v2RenderFacts(v2.facts);
     v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
     v2El['v2-report-build'].disabled = v2.facts.length === 0;
-    v2SetStatus('v2-facts-status', `已提取 ${v2.facts.length} 条事实。`);
+    v2SetStatus('v2-facts-status', `Extracted ${v2.facts.length} facts.`);
   } catch (error) {
     v2.facts = [];
     v2El['v2-report-build'].disabled = true;
-    v2SetStatus('v2-facts-status', `事实提取失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`);
+    v2SetStatus('v2-facts-status', `Fact extraction failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
   } finally {
     v2El['v2-facts-extract'].disabled = false;
   }
@@ -883,13 +884,13 @@ function v2RenderReport(result) {
 
   const banner = v2El['v2-report-banner'];
   banner.className = `validator-banner ${needsConfirm ? 'fail' : 'pass'}`;
-  banner.textContent = needsConfirm ? '报告存在硬门禁违规，未确认。' : '报告已通过硬门禁校验。';
+  banner.textContent = needsConfirm ? 'Report has hard-gate violations and is not confirmed.' : 'Report passed hard-gate checks.';
 
   const missing = Array.isArray(report.missing_required_fields) ? report.missing_required_fields : [];
   const missingBox = v2El['v2-report-missing'];
   missingBox.textContent = missing.length
-    ? `缺失必填字段：${missing.join('、')}（请补充后再确认）。`
-    : '必填字段已全部覆盖。';
+    ? `Missing required fields: ${missing.join(', ')} (add them before confirming).`
+    : 'All required fields are covered.';
   missingBox.hidden = missing.length === 0;
 
   v2El['v2-report-gates'].replaceChildren(...(violations.length ? violations.map((violation) => {
@@ -905,9 +906,9 @@ function v2RenderReport(result) {
   const sections = Array.isArray(report.sections) ? report.sections : [];
   v2El['v2-report-sections'].replaceChildren(...sections.map((section) => {
     const block = node('div', 'report-section-block');
-    const content = Array.isArray(section.content) && section.content.length ? section.content : ['未提供/待确认'];
-    const isMissing = section.required === true && content.every((line) => line === '未提供/待确认');
-    block.append(node('h3', isMissing ? 'v2-section-missing' : '', `${section.title}${section.required ? '（必填）' : ''}`));
+    const content = Array.isArray(section.content) && section.content.length ? section.content : ['Not provided / pending confirmation'];
+    const isMissing = section.required === true && content.every((line) => line === 'Not provided / pending confirmation');
+    block.append(node('h3', isMissing ? 'v2-section-missing' : '', `${section.title}${section.required ? ' (required)' : ''}`));
     for (const line of content) block.append(node('p', '', line));
     return block;
   }));
@@ -916,7 +917,7 @@ function v2RenderReport(result) {
 v2El['v2-report-build'].addEventListener('click', async () => {
   if (!v2.facts.length) return;
   v2El['v2-report-build'].disabled = true;
-  v2SetStatus('v2-facts-status', '正在生成报告…');
+  v2SetStatus('v2-facts-status', 'Building report…');
   try {
     const result = await api('/api/v2/reports/build', {
       context_id: v2.contextId,
@@ -926,13 +927,13 @@ v2El['v2-report-build'].addEventListener('click', async () => {
     v2RenderReport(result);
     if (result.status === 'NEEDS_CONFIRMATION') {
       v2.reportBlocked = true;
-      v2SetStatus('v2-facts-status', '报告存在硬门禁违规，未确认。');
+      v2SetStatus('v2-facts-status', 'Report has hard-gate violations and is not confirmed.');
       v2El['v2-report-build'].disabled = true;
     } else {
-      v2SetStatus('v2-facts-status', `报告已生成（${result.data?.report?.reportVersion || 'v2'}），未包含硬门禁违规。`);
+      v2SetStatus('v2-facts-status', `Report generated (${result.data?.report?.reportVersion || 'v2'}) with no hard-gate violations.`);
     }
   } catch (error) {
-    v2SetStatus('v2-facts-status', `报告生成失败（${error.result?.error_code || 'UNKNOWN'}）：${error.message}`);
+    v2SetStatus('v2-facts-status', `Report build failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
   } finally {
     if (!v2.reportBlocked) v2El['v2-report-build'].disabled = false;
   }
@@ -961,3 +962,361 @@ function v2Init() {
 }
 
 v2Init();
+
+// =====================================================================
+// V2 · Guided demo player (additive — simulated recording, voice captions,
+// terminology fixes for mis-heard words, facts, report). No Whisper needed.
+// Uses only browser built-ins: speechSynthesis, setInterval/clearInterval,
+// and the existing api() / v2RenderFacts / v2RenderReport / v2SetStatus.
+// =====================================================================
+
+/** Demo scenarios keyed by SBS scope: dictation (with mis-heard words),
+ *  terminology fixes, and the corrected text used for fact extraction. */
+const V2_DEMO_SCOPES = Object.freeze({
+  SBS_BUS: Object.freeze({
+    dictation: 'Preventive maintenance on bus MAN A ninety five. The front door would not close. Inspection found the door control modular was faulty. Replaced the door control modular. Tested the door opening and closing normal. Completion status completed.',
+    fixes: Object.freeze([
+      Object.freeze({ from: 'A ninety five', to: 'A95' }),
+      Object.freeze({ from: 'door control modular', to: 'door control module' }),
+    ]),
+    correctedText: 'Preventive maintenance on bus MAN A95. The front door would not close. Inspection found the door control module was faulty. Replaced the door control module. Tested the door opening and closing normal. Completion status completed.',
+  }),
+  SBS_RAIL: Object.freeze({
+    dictation: 'Corrective maintenance on train set C seven five one A. Reported a door fault on car three. Inspection found the train door worn. Replaced the train door. Test passed. Returned to service.',
+    fixes: Object.freeze([
+      Object.freeze({ from: 'C seven five one A', to: 'C751A' }),
+    ]),
+    correctedText: 'Corrective maintenance on train set C751A. Reported a door fault on car three. Inspection found the train door worn. Replaced the train door. Test passed. Returned to service.',
+  }),
+});
+
+const V2_DEMO_SCOPE_IDS = Object.freeze(Object.keys(V2_DEMO_SCOPES));
+
+/** Caption pacing is aligned to a ~280 ms per-word speech estimate so the
+ *  subtitle text neither races ahead of nor trails the voice by much. */
+const V2_DEMO_MS_PER_WORD = 280;
+const V2_DEMO_SENTENCE_GAP_MS = 400;
+const V2_DEMO_FIX_PAUSE_MS = 800;
+
+/** Demo-specific element map (kept separate; v2Ids / v2El are untouched). */
+const v2DemoEl = {
+  play: document.getElementById('v2-demo-play'),
+  status: document.getElementById('v2-demo-status'),
+  captions: document.getElementById('v2-demo-captions'),
+  fixes: document.getElementById('v2-demo-fixes'),
+  fixList: document.getElementById('v2-demo-fix-list'),
+};
+
+/** Runtime state of the demo player. */
+const v2Demo = {
+  playing: false,
+  stopped: false,
+  captionsOnly: false,
+  timer: null,
+  pauseTimer: null,
+  sleepResolve: null,
+  utterance: null,
+};
+
+function v2DemoIdleStatus() {
+  const info = V2_SCOPE_DEFAULTS[v2.scopeId];
+  return info && info.v2
+    ? 'Ready. Click "Play demo" to run the guided SBS scenario automatically.'
+    : 'Demo is available for SBS Bus and SBS Rail only.';
+}
+
+/** Reflects scope availability on the play button (disabled for HVAC). */
+function v2UpdateDemoAvailability() {
+  const demoOnly = V2_DEMO_SCOPE_IDS.includes(v2.scopeId);
+  v2DemoEl.play.disabled = !demoOnly;
+  v2DemoEl.play.title = demoOnly ? '' : 'Demo is available for SBS Bus and SBS Rail only.';
+}
+
+function v2DemoResetStatusIfIdle() {
+  if (!v2Demo.playing) v2SetStatus('v2-demo-status', v2DemoIdleStatus());
+}
+
+/** Cancels in-flight timers / TTS without touching UI state. */
+function v2DemoCancelPlayback() {
+  if (v2Demo.timer) { clearInterval(v2Demo.timer); v2Demo.timer = null; }
+  if (v2Demo.pauseTimer) { clearTimeout(v2Demo.pauseTimer); v2Demo.pauseTimer = null; }
+  if (v2Demo.sleepResolve) { v2Demo.sleepResolve(); v2Demo.sleepResolve = null; }
+  if (v2Demo.utterance) {
+    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
+    v2Demo.utterance = null;
+  }
+}
+
+/** Stops the demo and resets its UI. Called from v2SetScope on scope change. */
+function v2StopDemo() {
+  v2DemoCancelPlayback();
+  v2Demo.playing = false;
+  v2Demo.stopped = true;
+  v2DemoEl.status.classList.remove('v2-recording');
+  v2DemoEl.captions.replaceChildren();
+  v2DemoEl.fixes.hidden = true;
+  v2DemoEl.fixList.replaceChildren();
+  v2UpdateDemoAvailability();
+  v2DemoResetStatusIfIdle();
+}
+
+/** Re-enables the play button after the demo ends (keeps final status). */
+function v2DemoFinish() {
+  v2Demo.playing = false;
+  v2UpdateDemoAvailability();
+}
+
+/** Whether the browser has speechSynthesis with at least one voice. */
+async function v2ResolveSpeechAvailability() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
+  const synth = window.speechSynthesis;
+  if (!synth) return false;
+  const hasVoices = () => {
+    try { return (synth.getVoices?.() || []).length > 0; } catch { return false; }
+  };
+  if (hasVoices()) return true;
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 400);
+    try {
+      synth.addEventListener('voiceschanged', () => { clearTimeout(timer); resolve(); }, { once: true });
+    } catch {
+      clearTimeout(timer);
+      resolve();
+    }
+  });
+  return hasVoices();
+}
+
+/** Picks an en-US (or any English) TTS voice, or null. */
+function v2PickEnVoice() {
+  try {
+    const voices = window.speechSynthesis?.getVoices?.() || [];
+    return voices.find((voice) => /en[-_]US/i.test(voice.lang || ''))
+      || voices.find((voice) => /^en/i.test(voice.lang || ''))
+      || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Splits dictation into sentences (keeps trailing punctuation). */
+function v2SplitSentences(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return [];
+  const matches = raw.match(/[^.!?]+(?:[.!?]+|$)/gu) || [];
+  return matches.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+/** Sleep helper that resolves immediately when the demo is stopped. */
+function v2DemoSleep(ms) {
+  return new Promise((resolve) => {
+    v2Demo.sleepResolve = resolve;
+    v2Demo.pauseTimer = setTimeout(() => {
+      v2Demo.sleepResolve = null;
+      resolve();
+    }, ms);
+  });
+}
+
+/** Speaks one sentence while its words appear one by one in the captions. */
+function v2SpeakSentence(sentence, index) {
+  return new Promise((resolve) => {
+    const words = sentence.split(/\s+/u).filter(Boolean);
+    const line = node('p', 'v2-demo-line');
+    v2DemoEl.captions.append(line);
+    const estimatedMs = Math.max(600, words.length * V2_DEMO_MS_PER_WORD);
+    const intervalMs = Math.max(90, Math.min(300, Math.round(estimatedMs / Math.max(1, words.length))));
+    let wordIndex = 0;
+    let settled = false;
+    let timer = null;
+    let timeout = null;
+
+    const cleanup = () => {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (timeout) { clearTimeout(timeout); timeout = null; }
+      if (v2Demo.utterance) v2Demo.utterance = null;
+    };
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (!v2Demo.stopped) {
+        while (wordIndex < words.length) appendWord();
+      }
+      resolve();
+    };
+    const appendWord = () => {
+      if (v2Demo.stopped || wordIndex >= words.length) return;
+      const span = node('span', 'v2-demo-word');
+      span.textContent = words[wordIndex];
+      const previous = line.querySelector('.v2-demo-word.current');
+      if (previous) previous.classList.remove('current');
+      span.classList.add('current');
+      line.append(span, document.createTextNode(' '));
+      wordIndex += 1;
+      v2DemoEl.captions.scrollTop = v2DemoEl.captions.scrollHeight;
+    };
+    const startCaptionTicker = () => {
+      appendWord();
+      if (index === 0) {
+        v2DemoEl.status.classList.remove('v2-recording');
+        v2SetStatus('v2-demo-status', '● Transcribing…');
+      }
+      timer = setInterval(() => {
+        if (v2Demo.stopped) { clearInterval(timer); timer = null; return; }
+        appendWord();
+        if (wordIndex >= words.length) { clearInterval(timer); timer = null; }
+      }, intervalMs);
+    };
+
+    startCaptionTicker();
+    if (v2Demo.captionsOnly) {
+      timeout = setTimeout(settle, estimatedMs);
+      return;
+    }
+    let utterance;
+    try {
+      utterance = new SpeechSynthesisUtterance(sentence);
+      utterance.lang = 'en-US';
+      utterance.rate = 0.95;
+      const voice = v2PickEnVoice();
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => settle();
+      utterance.onerror = (event) => {
+        if (event.error === 'canceled' || event.error === 'interrupted') { settle(); return; }
+        v2Demo.captionsOnly = true;
+        v2SetStatus('v2-demo-status', 'Voice unavailable; captions only.');
+        try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
+        settle();
+      };
+      v2Demo.utterance = utterance;
+      window.speechSynthesis?.resume?.();
+      window.speechSynthesis.speak(utterance);
+      timeout = setTimeout(settle, estimatedMs + 5000);
+    } catch {
+      v2Demo.captionsOnly = true;
+      v2SetStatus('v2-demo-status', 'Voice unavailable; captions only.');
+      timeout = setTimeout(settle, estimatedMs);
+    }
+  });
+}
+
+/** Reads every sentence sequentially with a short gap between them. */
+async function v2SpeakCaptions(sentences) {
+  for (let index = 0; index < sentences.length; index += 1) {
+    if (v2Demo.stopped) return;
+    await v2SpeakSentence(sentences[index], index);
+    if (v2Demo.stopped) return;
+    await v2DemoSleep(V2_DEMO_SENTENCE_GAP_MS);
+  }
+}
+
+/** Runs the full guided demo: recording → captions → fixes → facts → report. */
+async function v2PlayDemo() {
+  if (v2Demo.playing) return;
+  if (!V2_DEMO_SCOPE_IDS.includes(v2.scopeId)) return;
+  if (!sessionToken) {
+    requireLogin('Enter the temporary demo passcode set when the server started to run the guided demo.');
+    return;
+  }
+  const demo = V2_DEMO_SCOPES[v2.scopeId];
+  v2DemoCancelPlayback();
+  v2Demo.playing = true;
+  v2Demo.stopped = false;
+  v2DemoEl.play.disabled = true;
+  v2DemoEl.captions.replaceChildren();
+  v2DemoEl.fixes.hidden = true;
+  v2DemoEl.fixList.replaceChildren();
+  v2DemoEl.status.classList.remove('v2-recording');
+
+  v2Demo.captionsOnly = !(await v2ResolveSpeechAvailability());
+  if (v2Demo.stopped) return;
+  if (v2Demo.captionsOnly) {
+    v2SetStatus('v2-demo-status', 'Voice unavailable; captions only.');
+    v2DemoEl.captions.append(node('p', 'v2-demo-note', 'Voice unavailable; captions only.'));
+  }
+
+  v2DemoEl.status.classList.add('v2-recording');
+  v2SetStatus('v2-demo-status', 'Recording… (simulated)');
+
+  const sentences = v2SplitSentences(demo.dictation);
+  await v2SpeakCaptions(sentences);
+  if (v2Demo.stopped) return;
+
+  v2DemoEl.status.classList.remove('v2-recording');
+  v2SetStatus('v2-demo-status', 'Transcription complete.');
+
+  // Keep the dictated (mis-heard) text visible for the technician.
+  v2El['v2-facts-text'].value = demo.dictation;
+
+  // Show the terminology fixes applied to the mis-heard words.
+  v2DemoEl.fixList.replaceChildren(...demo.fixes.map((fix) => {
+    const row = node('div', 'v2-demo-fix-row');
+    row.append(
+      node('s', 'v2-demo-fix-from', `"${fix.from}"`),
+      node('span', 'v2-demo-fix-arrow', '→'),
+      node('b', 'v2-demo-fix-to', `"${fix.to}"`),
+    );
+    return row;
+  }));
+  v2DemoEl.fixes.hidden = false;
+  v2SetStatus('v2-demo-status', `ASR terminology fixes applied: ${demo.fixes.length}.`);
+  await v2DemoSleep(V2_DEMO_FIX_PAUSE_MS);
+  if (v2Demo.stopped) return;
+
+  // Extract facts from the corrected text (deterministic V2 extractor).
+  v2SetStatus('v2-demo-status', 'Extracting facts from corrected text…');
+  let extracted;
+  try {
+    extracted = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: demo.correctedText });
+  } catch (error) {
+    if (v2Demo.stopped) return;
+    v2.facts = [];
+    v2SetStatus('v2-demo-status', `Fact extraction failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2DemoFinish();
+    return;
+  }
+  if (v2Demo.stopped) return;
+  v2.facts = Array.isArray(extracted.data?.facts) ? extracted.data.facts : [];
+  v2.reportBlocked = false;
+  v2RenderFacts(v2.facts);
+  v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
+  v2El['v2-report-build'].disabled = v2.facts.length === 0;
+  v2SetStatus('v2-demo-status', `Extracted ${v2.facts.length} facts from corrected text.`);
+  v2El['v2-facts-table-wrap'].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Build the report from the corrected facts.
+  v2SetStatus('v2-demo-status', 'Building report…');
+  let report;
+  try {
+    report = await api('/api/v2/reports/build', {
+      context_id: v2.contextId,
+      facts: v2.facts,
+      knowledge_hits: v2.knowledgeHits,
+    });
+  } catch (error) {
+    if (v2Demo.stopped) return;
+    v2SetStatus('v2-demo-status', `Report build failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2DemoFinish();
+    return;
+  }
+  if (v2Demo.stopped) return;
+  v2RenderReport(report);
+  if (report.status === 'NEEDS_CONFIRMATION') {
+    const classes = (report.data?.gates?.violations || []).map((violation) => violation.class).join(', ') || 'UNKNOWN';
+    v2.reportBlocked = true;
+    v2El['v2-report-build'].disabled = true;
+    v2SetStatus('v2-demo-status', `Demo ended: hard-gate violations (${classes}); report not confirmed.`);
+    v2DemoFinish();
+    return;
+  }
+  v2El['v2-report-output'].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  v2SetStatus('v2-demo-status', `Report generated (${report.data?.report?.reportVersion || 'v2'}) with no hard-gate violations.`);
+  await v2DemoSleep(600);
+  if (v2Demo.stopped) return;
+  v2SetStatus('v2-demo-status', 'Demo complete: transcript → fixes → facts → report.');
+  v2DemoFinish();
+}
+
+v2DemoEl.play.addEventListener('click', () => { v2PlayDemo(); });
+v2UpdateDemoAvailability();

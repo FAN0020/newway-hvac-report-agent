@@ -1,26 +1,26 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Newway 空调检修报告 Agent</title>
+  <title>Newway Service Report Agent</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main>
-    <div class="demo-ribbon" role="note"><strong>演示模式 · 非生产</strong><span id="network-mode">正在确认访问模式</span></div>
+    <div class="demo-ribbon" role="note"><strong>Demo mode · not production</strong><span id="network-mode">Checking access mode…</span></div>
     <header>
       <p class="eyebrow">NEWWAY SYSTEMS · HVAC REPORT MVP</p>
-      <h1>说几个关键词，离场前核对一份检修报告</h1>
-      <p class="lead">语音和报告保存在运行服务的电脑。AI 负责整理，不替代维修、安全或报价判断；只有技师确认过的当前版本才能正式保存或导出。</p>
+      <h1>Speak a few words; review one service report before you leave</h1>
+      <p class="lead">Audio and reports are stored on the computer running the service. The AI organizes the content and does not replace repair, safety, or pricing judgment; only the current version confirmed by the technician can be officially saved or exported.</p>
     </header>
 
     <section id="scope-selector" class="scope-selector" aria-labelledby="scope-selector-title">
       <div class="scope-selector-head">
-        <h2 id="scope-selector-title">选择作业域</h2>
-        <p id="scope-selector-status" class="live-status">当前作用域：HVAC（V1 面板）</p>
+        <h2 id="scope-selector-title">Select work scope</h2>
+        <p id="scope-selector-status" class="live-status">Current scope: HVAC (V1 panel)</p>
       </div>
-      <div id="scope-selector-buttons" class="scope-selector-buttons" role="group" aria-label="作业域">
+      <div id="scope-selector-buttons" class="scope-selector-buttons" role="group" aria-label="Work scope">
         <button type="button" class="scope-button active" data-scope-id="HVAC">HVAC</button>
         <button type="button" class="scope-button" data-scope-id="SBS_BUS">SBS·Bus</button>
         <button type="button" class="scope-button" data-scope-id="SBS_RAIL">SBS·Rail</button>
@@ -29,182 +29,197 @@
 
     <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
       <div>
-        <div class="step">临时演示会话</div>
-        <h2 id="auth-title">输入局域网演示口令</h2>
-        <p>口令仅保存在当前标签页的 sessionStorage 和内存中，不会写入网址、本机长期存储、日志或报告。</p>
+        <div class="step">Temporary demo session</div>
+        <h2 id="auth-title">Enter the LAN demo passcode</h2>
+        <p>The passcode is kept only in this tab's sessionStorage and memory; it is never written to the URL, long-term local storage, logs, or reports.</p>
       </div>
       <div class="auth-controls">
-        <label for="auth-token">临时口令</label>
-        <input id="auth-token" type="password" autocomplete="off" spellcheck="false" placeholder="由演示者口头提供">
-        <button id="auth-submit">进入演示</button>
+        <label for="auth-token">Temporary passcode</label>
+        <input id="auth-token" type="password" autocomplete="off" spellcheck="false" placeholder="provided verbally by the presenter">
+        <button id="auth-submit">Enter demo</button>
       </div>
-      <p id="auth-status" class="live-status" role="status">正在建立安全会话…</p>
+      <p id="auth-status" class="live-status" role="status">Establishing secure session…</p>
     </section>
 
-    <div id="network-warning" class="network-warning" role="note">仅用于可信局域网演示，不是公网或生产部署。</div>
+    <div id="network-warning" class="network-warning" role="note">For trusted LAN demo use only; not a public or production deployment.</div>
 
     <div id="v1-panel">
     <section class="status-card" aria-labelledby="health-title">
-      <div><h2 id="health-title">本地运行状态</h2><p id="health-summary">正在检查本地组件…</p></div>
-      <button id="refresh-health" class="secondary">重新检查</button>
+      <div><h2 id="health-title">Local runtime status</h2><p id="health-summary">Checking local components…</p></div>
+      <button id="refresh-health" class="secondary">Check again</button>
       <div id="health-details" class="health-grid"></div>
     </section>
 
     <section aria-labelledby="capture-title">
-      <div class="step">01 · 提供现场原文</div>
-      <h2 id="capture-title">录音，或在没有 Whisper 时手动输入</h2>
-      <p class="hint">建议说明：客户问题、检查发现、完成工作、零件、测试结果、当前状态。手动输入会明确标记为 manual，不会伪装成语音识别。</p>
+      <div class="step">01 · Provide on-site statement</div>
+      <h2 id="capture-title">Record, or type manually when Whisper is unavailable</h2>
+      <p class="hint">Suggested statement: customer issue, inspection findings, work completed, parts, test results, current status. Manual input is clearly marked as manual and is never disguised as speech recognition.</p>
       <div class="capture-grid">
         <div class="input-panel">
-          <h3>语音原文</h3>
+          <h3>Record the statement</h3>
           <div class="controls">
-            <button id="start-recording">开始录音</button>
-            <button id="stop-recording" class="danger" disabled>停止录音</button>
-            <label class="file-button">上传 WAV<input id="audio-file" type="file" accept="audio/wav,.wav"></label>
+            <button id="start-recording">Start recording</button>
+            <button id="stop-recording" class="danger" disabled>Stop recording</button>
+            <label class="file-button">Upload WAV<input id="audio-file" type="file" accept="audio/wav,.wav"></label>
           </div>
-          <p id="recording-status" class="live-status" role="status">尚未选择音频。</p>
+          <p id="recording-status" class="live-status" role="status">No audio selected.</p>
           <audio id="audio-preview" controls hidden></audio>
           <div class="controls compact">
-            <label>语言<select id="language"><option value="auto">自动</option><option value="zh">中文</option><option value="en">English</option><option value="ms">Bahasa Melayu</option><option value="ta">தமிழ்</option></select></label>
-            <label>模型<select id="model"><option value="base">Base</option><option value="tiny">Tiny</option><option value="small">Small</option></select></label>
-            <button id="transcribe" disabled>开始转写</button>
-            <button id="retry" class="secondary" disabled>重试一次</button>
+            <label>Language<select id="language"><option value="auto">Auto</option><option value="zh">Chinese</option><option value="en">English</option><option value="ms">Bahasa Melayu</option><option value="ta">தமிழ்</option></select></label>
+            <label>Model<select id="model"><option value="base">Base</option><option value="tiny">Tiny</option><option value="small">Small</option></select></label>
+            <button id="transcribe" disabled>Transcribe</button>
+            <button id="retry" class="secondary" disabled>Retry once</button>
           </div>
         </div>
         <div class="input-panel manual-panel">
-          <h3>手动输入原文</h3>
-          <label for="manual-transcript">没有 Whisper 也能完成演示</label>
-          <textarea id="manual-transcript" rows="8" placeholder="示例：客户反映不制冷。检查发现运行电容损坏。更换了一个35微法电容。试机运行正常。问题已解决。"></textarea>
+          <h3>Type the statement manually</h3>
+          <label for="manual-transcript">Complete the demo without Whisper</label>
+          <textarea id="manual-transcript" rows="8" placeholder="Example: The customer reports the air conditioner is not cooling. Inspection found the operating capacitor is damaged. Replaced it with a 35 µF capacitor. Test run is normal. Problem resolved. Recommendation: clean the filter at the next service."></textarea>
           <div class="controls">
-            <button id="fill-demo" class="secondary" type="button">填入合成演示文本</button>
-            <button id="use-manual">保存为手动原文</button>
+            <button id="fill-demo" class="secondary" type="button">Fill in synthetic demo text</button>
+            <button id="use-manual">Save as manual statement</button>
           </div>
-          <p class="hint">“填入”只会填写文本，不会自动提交、生成或确认报告。</p>
+          <p class="hint">“Fill in” only populates the text; it will not submit, generate, or confirm a report.</p>
         </div>
       </div>
-      <p id="transcription-status" class="live-status" role="status">等待语音转写或手动原文。</p>
+      <p id="transcription-status" class="live-status" role="status">Waiting for voice transcription or a manual statement.</p>
     </section>
 
     <section aria-labelledby="source-title">
-      <div class="step">02 · 原文与来源</div>
-      <h2 id="source-title">不可变 TranscriptArtifact</h2>
-      <article id="transcript-output" class="transcript-output empty">原始转写会显示在这里。</article>
-      <div class="controls"><button id="build-report" disabled>检查术语修复候选</button></div>
-      <details><summary>查看不可变 Artifact</summary><pre id="artifact-output">—</pre></details>
+      <div class="step">02 · Raw text &amp; source</div>
+      <h2 id="source-title">Immutable TranscriptArtifact</h2>
+      <article id="transcript-output" class="transcript-output empty">The raw transcript will appear here.</article>
+      <div class="controls"><button id="build-report" disabled>Check terminology fix candidates</button></div>
+      <details><summary>View immutable Artifact</summary><pre id="artifact-output">—</pre></details>
     </section>
 
     <section id="correction-section" hidden aria-labelledby="correction-title">
-      <div class="step">03 · 术语修复人工门禁</div>
-      <h2 id="correction-title">原文与建议修复并排核对</h2>
-      <p class="hint">候选只能来自服务端版本化 HVAC 词表。AI 只提建议；请对每项选择接受或拒绝，关键数值和型号还要单独勾选已核对。</p>
+      <div class="step">03 · Manual gate on terminology fixes</div>
+      <h2 id="correction-title">Compare raw text and proposed fixes side by side</h2>
+      <p class="hint">Candidates come only from the server-side versioned HVAC vocabulary. The AI only suggests; accept or reject each item, and also check key values and model numbers as verified.</p>
       <div class="two-columns transcript-compare">
-        <div><h3>不可变原文</h3><article id="correction-raw" class="transcript-output"></article></div>
-        <div><h3>AI 建议文本（未生效）</h3><article id="correction-proposed" class="transcript-output proposed"></article></div>
+        <div><h3>Immutable raw text</h3><article id="correction-raw" class="transcript-output"></article></div>
+        <div><h3>AI-proposed text (not applied)</h3><article id="correction-proposed" class="transcript-output proposed"></article></div>
       </div>
       <div id="correction-list" class="stack"></div>
       <div class="form-grid">
-        <label>本次核对技师姓名<input id="correction-technician-name" autocomplete="name" placeholder="例如：陈师傅"></label>
-        <label>本次核对技师 ID<input id="correction-technician-id" autocomplete="off" placeholder="例如：TECH-007"></label>
+        <label>Reviewing technician name<input id="correction-technician-name" autocomplete="name" placeholder="e.g., Chen Wei"></label>
+        <label>Reviewing technician ID<input id="correction-technician-id" autocomplete="off" placeholder="e.g., TECH-007"></label>
       </div>
-      <button id="confirm-corrections">确认修复决策并生成报告草稿</button>
-      <p id="correction-status" class="live-status" role="status">尚未生成文本确认凭证。</p>
-      <details><summary>查看候选来源与版本</summary><pre id="correction-evidence">—</pre></details>
+      <button id="confirm-corrections">Confirm fix decisions and generate report draft</button>
+      <p id="correction-status" class="live-status" role="status">No text confirmation credential generated yet.</p>
+      <details><summary>View candidate sources &amp; versions</summary><pre id="correction-evidence">—</pre></details>
     </section>
 
     <section id="questions-section" hidden aria-labelledby="questions-title">
-      <div class="step">04 · 最多三个追问</div>
-      <h2 id="questions-title">补充缺失信息，或明确选择“未提供”</h2>
-      <p class="hint">留空不会被 AI 猜测；选择“未提供”后，正式草稿仍会清楚显示待确认。</p>
+      <div class="step">04 · Up to three follow-up questions</div>
+      <h2 id="questions-title">Fill missing details, or explicitly choose “Not provided”</h2>
+      <p class="hint">Empty fields are not guessed by the AI; after choosing “Not provided”, the official draft still clearly shows it as pending confirmation.</p>
       <div id="questions-list"></div>
-      <button id="apply-answers">应用回答并重新生成</button>
+      <button id="apply-answers">Apply answers and regenerate</button>
     </section>
 
     <section id="evidence-section" hidden aria-labelledby="evidence-title">
-      <div class="step">05 · 事实与证据</div>
-      <h2 id="evidence-title">AI 识别了什么、还缺什么</h2>
+      <div class="step">05 · Facts &amp; evidence</div>
+      <h2 id="evidence-title">What the AI identified and what is still missing</h2>
       <div class="two-columns">
-        <div><h3>有来源的事实</h3><div id="facts-output" class="stack"></div></div>
-        <div><h3>修复与缺失</h3><div id="issues-output" class="stack"></div></div>
+        <div><h3>Sourced facts</h3><div id="facts-output" class="stack"></div></div>
+        <div><h3>Fixes &amp; gaps</h3><div id="issues-output" class="stack"></div></div>
       </div>
     </section>
 
     <section id="report-section" hidden aria-labelledby="report-title">
-      <div class="step">06 · 草稿与独立校验</div>
-      <h2 id="report-title">完整检修报告草稿</h2>
-      <div class="warning">这是 AI 整理的草稿。AI 不替代维修、安全、报价或保修判断。</div>
+      <div class="step">06 · Draft &amp; independent validation</div>
+      <h2 id="report-title">Full service report draft</h2>
+      <div class="warning">This is an AI-organized draft. The AI does not replace repair, safety, pricing, or warranty judgment.</div>
       <div id="validator-banner" class="validator-banner"></div>
       <div id="report-output" class="report-paper"></div>
-      <details><summary>查看 Validator 详情</summary><pre id="validator-output">—</pre></details>
+      <details><summary>View Validator details</summary><pre id="validator-output">—</pre></details>
     </section>
 
     <section id="confirm-section" hidden aria-labelledby="confirm-title">
-      <div class="step">07 · 技师人工确认</div>
-      <h2 id="confirm-title">确认当前报告版本</h2>
+      <div class="step">07 · Technician confirmation</div>
+      <h2 id="confirm-title">Confirm the current report version</h2>
       <div class="form-grid">
-        <label>技师姓名<input id="technician-name" autocomplete="name" placeholder="例如：陈师傅"></label>
-        <label>技师 ID<input id="technician-id" autocomplete="off" placeholder="例如：TECH-007"></label>
+        <label>Technician name<input id="technician-name" autocomplete="name" placeholder="e.g., Chen Wei"></label>
+        <label>Technician ID<input id="technician-id" autocomplete="off" placeholder="e.g., TECH-007"></label>
       </div>
-      <label class="confirm-check"><input id="confirm-check" type="checkbox"> 我已核对原文、缺失项、报告草稿和校验结果，并确认当前版本。</label>
+      <label class="confirm-check"><input id="confirm-check" type="checkbox"> I have reviewed the raw text, gaps, report draft, and validation results, and I confirm the current version.</label>
       <div class="controls">
-        <button id="confirm-report" disabled>确认当前版本</button>
-        <button id="save-report" disabled>保存正式 JSON</button>
-        <button id="export-report" disabled>导出可复制文本</button>
-        <button id="copy-export" class="secondary" disabled>复制导出文本</button>
+        <button id="confirm-report" disabled>Confirm current version</button>
+        <button id="save-report" disabled>Save official JSON</button>
+        <button id="export-report" disabled>Export copyable text</button>
+        <button id="copy-export" class="secondary" disabled>Copy exported text</button>
       </div>
-      <p id="confirmation-status" class="live-status" role="status">尚未确认。未确认或内容变化后的旧确认不能保存或导出。</p>
-      <textarea id="export-output" rows="12" readonly hidden aria-label="导出的报告文本"></textarea>
+      <p id="confirmation-status" class="live-status" role="status">Not confirmed yet. Unconfirmed or stale confirmations cannot be saved or exported.</p>
+      <textarea id="export-output" rows="12" readonly hidden aria-label="Exported report text"></textarea>
     </section>
     </div>
 
-    <div id="v2-panel" hidden aria-label="SBS V2 面板">
+    <div id="v2-panel" hidden aria-label="SBS V2 panel">
+      <section id="v2-demo" class="v2-zone v2-demo-zone" aria-labelledby="v2-demo-title">
+        <div class="step">V2 · Guided demo</div>
+        <h3 id="v2-demo-title">Guided demo (no Whisper needed)</h3>
+        <p class="hint">Plays a pre-recorded scenario: simulated recording → live captions with voice → terminology fixes for mis-heard words → facts → report.</p>
+        <div class="controls v2-demo-controls">
+          <button id="v2-demo-play" type="button">▶ Play demo</button>
+        </div>
+        <p id="v2-demo-status" class="live-status" role="status"></p>
+        <div id="v2-demo-captions" class="v2-demo-captions" aria-live="polite"></div>
+        <div id="v2-demo-fixes" class="v2-demo-fixes" hidden>
+          <h4>Mis-heard words fixed</h4>
+          <div id="v2-demo-fix-list" class="stack"></div>
+        </div>
+      </section>
+
       <section class="v2-zone" aria-labelledby="v2-upload-title">
-        <div class="step">V2 · A · 文档入库</div>
-        <h2 id="v2-upload-title">上传检修文档（作用域隔离）</h2>
+        <div class="step">V2 · A · Document ingestion</div>
+        <h2 id="v2-upload-title">Upload service documents (scope-isolated)</h2>
         <p id="v2-upload-scope-hint" class="hint"></p>
         <div class="controls">
-          <label class="file-button">选择文档<input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label>
-          <button id="v2-upload-submit" type="button" disabled>上传文档</button>
+          <label class="file-button">Choose a document<input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label>
+          <button id="v2-upload-submit" type="button" disabled>Upload document</button>
         </div>
         <div class="v2-form-grid">
-          <label>上传者（X-Uploader）<input id="v2-uploader" autocomplete="off" placeholder="例如：陈师傅"></label>
+          <label>Uploader (X-Uploader)<input id="v2-uploader" autocomplete="off" placeholder="e.g., Chen Wei"></label>
         </div>
-        <p id="v2-upload-status" class="live-status" role="status">尚未选择文档。</p>
+        <p id="v2-upload-status" class="live-status" role="status">No document selected.</p>
         <div id="v2-upload-progress" class="v2-progress-row" hidden></div>
         <div id="v2-upload-record" class="upload-record" hidden></div>
-        <h3>本作用域上传记录</h3>
+        <h3>Uploads in this scope</h3>
         <div id="v2-upload-list" class="stack"></div>
       </section>
 
       <section class="v2-zone" aria-labelledby="v2-retrieve-title">
-        <div class="step">V2 · B · 知识检索</div>
-        <h2 id="v2-retrieve-title">作用域门控检索</h2>
+        <div class="step">V2 · B · Knowledge retrieval</div>
+        <h2 id="v2-retrieve-title">Scope-gated retrieval</h2>
         <p id="v2-retrieve-scope-hint" class="hint"></p>
         <div class="v2-form-grid">
-          <label>查询内容<textarea id="v2-retrieve-query" rows="2" placeholder="例如：车门无法关闭 或 更换牵引电机碳刷"></textarea></label>
+          <label>Query<textarea id="v2-retrieve-query" rows="2" placeholder="e.g., Door fails to close, or Replace traction motor carbon brushes"></textarea></label>
           <label>Top K<input id="v2-retrieve-topk" type="number" min="1" max="20" step="1" value="5"></label>
         </div>
-        <div class="controls"><button id="v2-retrieve-submit" type="button">检索</button></div>
+        <div class="controls"><button id="v2-retrieve-submit" type="button">Search</button></div>
         <p id="v2-retrieve-status" class="live-status" role="status"></p>
         <div id="v2-retrieve-warnings" class="stack"></div>
         <div id="v2-retrieve-results" class="stack"></div>
       </section>
 
       <section class="v2-zone" aria-labelledby="v2-facts-title">
-        <div class="step">V2 · C · 事实与报告</div>
-        <h2 id="v2-facts-title">SBS 事实提取与报告预览</h2>
-        <label for="v2-facts-text">口述 / 手动输入现场内容</label>
-        <textarea id="v2-facts-text" rows="8" placeholder="例如（Bus）：车牌号 SBS 1234，作业类型保养，更换了左前门锁执行器，测试车门开合正常，完成状态 completed。"></textarea>
+        <div class="step">V2 · C · Facts &amp; report</div>
+        <h2 id="v2-facts-title">SBS fact extraction &amp; report preview</h2>
+        <label for="v2-facts-text">Dictation / manual on-site statement</label>
+        <textarea id="v2-facts-text" rows="8" placeholder="e.g. (Bus): Vehicle plate SBS 1234, work type maintenance, replaced the left front door lock actuator, tested door opening/closing normal, completion status completed."></textarea>
         <div class="controls">
-          <button id="v2-facts-extract" type="button">提取事实</button>
-          <button id="v2-report-build" type="button" disabled>生成报告</button>
+          <button id="v2-facts-extract" type="button">Extract facts</button>
+          <button id="v2-report-build" type="button" disabled>Build report</button>
         </div>
         <p id="v2-facts-status" class="live-status" role="status"></p>
         <div id="v2-facts-table-wrap" hidden>
-          <h3>提取到的事实</h3>
+          <h3>Extracted facts</h3>
           <div id="v2-facts-table" class="fact-table-wrap"></div>
         </div>
         <div id="v2-report-output" hidden>
-          <h3>报告预览</h3>
+          <h3>Report preview</h3>
           <p id="v2-report-banner" class="validator-banner" role="status"></p>
           <p id="v2-report-missing" class="v2-missing"></p>
           <div id="v2-report-gates" class="stack"></div>
@@ -213,7 +228,7 @@
       </section>
     </div>
 
-    <footer>当前 MVP 使用合成测试验证流程边界，不代表真实业务准确率或生产可用性。</footer>
+    <footer>This MVP validates process boundaries with synthetic test data and does not represent real-world accuracy or production readiness.</footer>
   </main>
   <script type="module" src="/app.js"></script>
 </body>

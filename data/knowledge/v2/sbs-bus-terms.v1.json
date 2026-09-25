@@ -15,6 +15,20 @@
           "target": "A95",
           "match_basis": "CONTROLLED_ASR_CONFUSION",
           "reason": "口述字母数字组合的常见 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_a95_en_1",
+          "source": "A ninety five",
+          "target": "A95",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Common ASR confusion when the technician spells the alphanumeric model code aloud"
+        },
+        {
+          "id": "corr_asr_a95_en_2",
+          "source": "A ninety-five",
+          "target": "A95",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Common ASR confusion when the technician spells the alphanumeric model code aloud"
         }
       ],
       "risk": "LOW",
@@ -108,6 +122,13 @@
           "target": "K9",
           "match_basis": "CONTROLLED_ASR_CONFUSION",
           "reason": "口述字母数字组合的常见 ASR 误识别"
+        },
+        {
+          "id": "corr_asr_k9_en_1",
+          "source": "K nine",
+          "target": "K9",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Common ASR confusion when the technician spells the alphanumeric model code aloud"
         }
       ],
       "risk": "LOW",
@@ -711,6 +732,36 @@
         "confidence": "HIGH",
         "basis": ["SBS Transit NextBus（5 位站码，如 52039）"],
         "notes": "SBS 一手证据（A）。"
+      }
+    },
+    {
+      "id": "term_door_control_module",
+      "kind": "term",
+      "canonical": "door control module",
+      "aliases": ["door control module", "DCM", "door controller", "门控模块"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_dcm_en_1",
+          "source": "door control modular",
+          "target": "door control module",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Near-homophone ASR confusion"
+        },
+        {
+          "id": "corr_asr_dcm_en_2",
+          "source": "door controller module",
+          "target": "door control module",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Word-order ASR confusion"
+        }
+      ],
+      "risk": "LOW",
+      "description": "巴士车门控制模块/车门控制器。与 sbs-bus-parts.v1.json 的 part_door_control_module（canonical 门控模块）一致。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["sbs-bus-parts.v1.json part_door_control_module（仓库基线）"],
+        "notes": "门控模块部件级知识为可比行业（C），SBS 部件号未公开。ASR 纠正规则为推断（D）。"
       }
     }
   ]

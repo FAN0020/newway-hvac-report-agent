@@ -169,14 +169,20 @@ function containsToken(text, token) {
  *
  * @param {string} sentence
  * @param {Array<{ canonical: string, patterns: string[] }>} entries
- * @returns {Array<{ canonical: string, pattern: string }>}
+ * @returns {Array<{ canonical: string, pattern: string, display: string }>}
  */
 function findMatches(sentence, entries) {
   const found = [];
   for (const entry of entries) {
     for (const pattern of entry.patterns) {
       if (containsToken(sentence, pattern)) {
-        found.push({ canonical: entry.canonical, pattern });
+        // Prefer an English display value when the vocab canonical is CJK but
+        // the sentence matched an English alias (English-language SBS demo);
+        // Chinese dictation keeps the canonical value unchanged.
+        const display = /[\u4e00-\u9fff]/.test(entry.canonical) && !/[\u4e00-\u9fff]/.test(pattern)
+          ? pattern
+          : entry.canonical;
+        found.push({ canonical: entry.canonical, pattern, display });
         break;
       }
     }
@@ -310,7 +316,7 @@ function factsFromSentence(sentence, scopeId, vocab) {
   // --- parts.* --------------------------------------------------------
   const partsIndex = buildIndex(vocab.parts);
   const partHits = findMatches(sentence, partsIndex);
-  for (const hit of partHits) push('parts.part_number', hit.canonical);
+  for (const hit of partHits) push('parts.part_number', hit.display);
   const replaced = !NOT_REPLACED_RE.test(sentence)
     && !RECOMMENDATION_RE.test(sentence)
     && REPLACED_RE.test(sentence);
@@ -363,8 +369,8 @@ export async function extractV2Facts({ contextId, rawText, registry } = {}) {
   const { scopeId } = resolveContext(contextId, reg);
   if (!SBS_SCOPES.has(scopeId)) {
     throw new Error(
-      `V2 事实提取仅支持 SBS 域（SBS/BUS、SBS/RAIL）。上下文 "${String(contextId ?? '')}" ` +
-      `解析为作用域 "${scopeId}"，该域不支持确定性 v2 事实提取（HVAC 等非 SBS 域请走 V1 流程）。`,
+      `V2 fact extraction supports only the SBS domain (SBS/BUS, SBS/RAIL). ` +
+      `Context "${String(contextId ?? '')}" resolved to scope "${scopeId}", which does not support deterministic V2 fact extraction (non-SBS scopes such as HVAC use the V1 flow).`,
     );
   }
   const text = String(rawText ?? '').slice(0, MAX_TEXT_LENGTH);
@@ -376,7 +382,7 @@ export async function extractV2Facts({ contextId, rawText, registry } = {}) {
   for (const sentence of splitSentences(text)) {
     const candidates = factsFromSentence(sentence, scopeId, vocab);
     if (candidates.length === 0) {
-      warnings.push(`未识别: ${sentence}`);
+      warnings.push(`Unrecognized: ${sentence}`);
       continue;
     }
     for (const candidate of candidates) {

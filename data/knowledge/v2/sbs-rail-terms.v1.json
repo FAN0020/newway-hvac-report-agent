@@ -328,6 +328,22 @@
       "kind": "term",
       "canonical": "Alstom Metropolis C751A",
       "aliases": ["C751A", "Metropolis C751A", "阿尔斯通C751A", "C751A 系列"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_c751a_en_1",
+          "source": "C seven five one A",
+          "target": "C751A",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Common ASR confusion when the technician spells the alphanumeric train set code aloud"
+        },
+        {
+          "id": "corr_asr_c751a_en_2",
+          "source": "C seven five one a",
+          "target": "C751A",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Common ASR confusion when the technician spells the alphanumeric train set code aloud"
+        }
+      ],
       "risk": "LOW",
       "description": "NEL 第一代列车 Alstom Metropolis C751A（25 列 6 节编组，ONIX 1500 牵引）。正进行中期翻新（16 列已回役，余下预计 2026 年前完成）。",
       "evidence": {
@@ -356,6 +372,15 @@
       "kind": "term",
       "canonical": "Alstom Metropolis C851E",
       "aliases": ["C851E", "Metropolis C851E", "阿尔斯通C851E"],
+      "correction_rules": [
+        {
+          "id": "corr_asr_c851e_en_1",
+          "source": "C eight five one E",
+          "target": "C851E",
+          "match_basis": "CONTROLLED_ASR_CONFUSION",
+          "reason": "Common ASR confusion when the technician spells the alphanumeric train set code aloud"
+        }
+      ],
       "risk": "LOW",
       "description": "NEL 新一代列车 Alstom Metropolis C851E（6 列 6 节编组，OPTONIX 牵引；全部 6 列带状态监测，其中 2 列带自动轨道检测）。",
       "evidence": {

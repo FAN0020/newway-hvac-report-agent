@@ -204,7 +204,7 @@ test('missing/failing pdftotext records FAILED with the PDF unsupported boundary
 
   assert.equal(record.status, UPLOAD_STATUS.FAILED);
   assert.equal(record.errors[0].code, 'PDF_TEXT_LAYER_REQUIRED');
-  assert.match(record.errors[0].message, /未来范围/);
+  assert.match(record.errors[0].message, /future scope/);
 });
 
 test('unsupported upload types record FAILED', async (t) => {

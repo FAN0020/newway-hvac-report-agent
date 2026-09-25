@@ -15,7 +15,7 @@
  *   1. Every report claim traces to a fact in the facts receipt.
  *   2. UNCERTAIN facts are not rendered into report content (V1
  *      `validFacts` discipline); they remain visible to hard gates.
- *   3. Missing required sections render the V1 placeholder "未提供/待确认".
+ *   3. Missing required sections render the V1 placeholder "Not provided / pending confirmation".
  *   4. This module never invents a service fact; manual recommendations are
  *      only surfaced as violations via `assertNoServiceFactInvention`.
  *
@@ -29,7 +29,7 @@
 import { SUPPORTED_V2_SCOPES, SUPPORT_STATUSES } from './fact-schemas.js';
 
 /** V1 report placeholder for a section with no grounded content. */
-const PLACEHOLDER = '未提供/待确认';
+const PLACEHOLDER = 'Not provided / pending confirmation';
 
 /**
  * SBS Bus report sections (06 §2.2 — 11 sections). Each entry is
@@ -42,17 +42,17 @@ const PLACEHOLDER = '未提供/待确认';
  * @type {ReadonlyArray<Readonly<{ id: string, title: string, required: boolean }>>}
  */
 export const BUS_REPORT_SECTIONS = Object.freeze([
-  Object.freeze({ id: 'vehicle_identification', title: '车辆识别', required: true }),
-  Object.freeze({ id: 'works_summary', title: '作业摘要', required: true }),
-  Object.freeze({ id: 'inspection_findings', title: '检查发现', required: true }),
-  Object.freeze({ id: 'diagnosis', title: '诊断', required: false }),
-  Object.freeze({ id: 'work_performed', title: '完成工作', required: true }),
-  Object.freeze({ id: 'parts_materials', title: '零件材料', required: false }),
-  Object.freeze({ id: 'tests_results', title: '测试结果', required: true }),
-  Object.freeze({ id: 'completion_state', title: '完成状态', required: true }),
-  Object.freeze({ id: 'safety_hv_notes', title: '安全/HV 备注', required: true }),
-  Object.freeze({ id: 'compliance_audit', title: '合规审计', required: true }),
-  Object.freeze({ id: 'provenance', title: '溯源', required: true }),
+  Object.freeze({ id: 'vehicle_identification', title: 'Vehicle identification', required: true }),
+  Object.freeze({ id: 'works_summary', title: 'Work summary', required: true }),
+  Object.freeze({ id: 'inspection_findings', title: 'Inspection findings', required: true }),
+  Object.freeze({ id: 'diagnosis', title: 'Diagnosis', required: false }),
+  Object.freeze({ id: 'work_performed', title: 'Work performed', required: true }),
+  Object.freeze({ id: 'parts_materials', title: 'Parts & materials', required: false }),
+  Object.freeze({ id: 'tests_results', title: 'Test results', required: true }),
+  Object.freeze({ id: 'completion_state', title: 'Completion state', required: true }),
+  Object.freeze({ id: 'safety_hv_notes', title: 'Safety / HV notes', required: true }),
+  Object.freeze({ id: 'compliance_audit', title: 'Compliance audit', required: true }),
+  Object.freeze({ id: 'provenance', title: 'Provenance', required: true }),
 ]);
 
 /**
@@ -66,18 +66,18 @@ export const BUS_REPORT_SECTIONS = Object.freeze([
  * @type {ReadonlyArray<Readonly<{ id: string, title: string, required: boolean }>>}
  */
 export const RAIL_REPORT_SECTIONS = Object.freeze([
-  Object.freeze({ id: 'asset_identification', title: '资产识别', required: true }),
-  Object.freeze({ id: 'works_summary', title: '作业摘要', required: true }),
-  Object.freeze({ id: 'trigger_findings', title: '触发/故障发现', required: true }),
-  Object.freeze({ id: 'diagnosis', title: '诊断', required: false }),
-  Object.freeze({ id: 'work_performed', title: '完成工作', required: true }),
-  Object.freeze({ id: 'parts_materials', title: '零件材料', required: false }),
-  Object.freeze({ id: 'tests_results', title: '测试结果', required: true }),
-  Object.freeze({ id: 'track_access_record', title: '轨行区准入记录', required: true }),
-  Object.freeze({ id: 'completion_state_return_to_service', title: '完成状态/回役', required: true }),
-  Object.freeze({ id: 'safety_ops_notes', title: '安全/OPS 备注', required: true }),
-  Object.freeze({ id: 'reliability_compliance', title: '可靠性/合规', required: true }),
-  Object.freeze({ id: 'provenance', title: '溯源', required: true }),
+  Object.freeze({ id: 'asset_identification', title: 'Asset identification', required: true }),
+  Object.freeze({ id: 'works_summary', title: 'Work summary', required: true }),
+  Object.freeze({ id: 'trigger_findings', title: 'Trigger / fault findings', required: true }),
+  Object.freeze({ id: 'diagnosis', title: 'Diagnosis', required: false }),
+  Object.freeze({ id: 'work_performed', title: 'Work performed', required: true }),
+  Object.freeze({ id: 'parts_materials', title: 'Parts & materials', required: false }),
+  Object.freeze({ id: 'tests_results', title: 'Test results', required: true }),
+  Object.freeze({ id: 'track_access_record', title: 'Track access record', required: true }),
+  Object.freeze({ id: 'completion_state_return_to_service', title: 'Completion state / return to service', required: true }),
+  Object.freeze({ id: 'safety_ops_notes', title: 'Safety / OPS notes', required: true }),
+  Object.freeze({ id: 'reliability_compliance', title: 'Reliability / compliance', required: true }),
+  Object.freeze({ id: 'provenance', title: 'Provenance', required: true }),
 ]);
 
 /**
@@ -175,59 +175,60 @@ const RAIL_FAMILY_TO_SECTION = Object.freeze({
 
 /** Exact field labels (report rendering). */
 const BUS_LABELS = Object.freeze({
-  'asset.registration_no': '车牌号(VRN)',
-  'asset.internal_fleet_no': '内部车队编号',
-  'asset.bus_model': '车型',
-  'asset.depot': '车场',
-  'asset.package': '运营配套',
-  'work.type': '作业类型',
-  'work.trigger': '触发原因',
-  'work.work_order_id': '工单编号',
-  'work.fault_code': '故障代码',
-  'work.description': '作业描述',
-  'diagnosis.root_cause': '根本原因',
-  'parts.part_number': '零件编号',
-  'parts.replaced': '是否更换零件',
-  'test.result': '测试结果',
-  'completion.state': '完成状态',
-  'work_performed': '已完成工作',
-  'inspection_findings': '检查发现',
+  'asset.registration_no': 'Registration No. (VRN)',
+  'asset.internal_fleet_no': 'Internal fleet No.',
+  'asset.bus_model': 'Bus model',
+  'asset.depot': 'Depot',
+  'asset.package': 'Operational package',
+  'work.type': 'Work type',
+  'work.trigger': 'Trigger',
+  'work.work_order_id': 'Work order No.',
+  'work.fault_code': 'Fault code',
+  'work.description': 'Work description',
+  'diagnosis.root_cause': 'Root cause',
+  'parts.part_number': 'Part No.',
+  'parts.replaced': 'Part replaced',
+  'test.result': 'Test result',
+  'completion.state': 'Completion state',
+  'work_performed': 'Work performed',
+  'inspection_findings': 'Inspection findings',
 });
 
 const RAIL_LABELS = Object.freeze({
-  'asset.line': '线路',
-  'asset.train_set': '列车编组',
-  'asset.car': '车厢',
-  'asset.stock_class': '车辆等级',
-  'asset.subsystem': '子系统',
-  'work.type': '作业类型',
-  'work.trigger': '触发原因',
-  'work.order_id': '工单编号',
-  'work.fault_code': '故障代码',
-  'work.description': '作业描述',
-  'diagnosis.root_cause': '根本原因',
-  'parts.part_number': '零件编号',
-  'test.result': '测试结果',
-  'access.approval': '轨行区准入审批',
-  'completion.state': '完成状态',
-  'work_performed': '已完成工作',
+  'asset.line': 'Line',
+  'asset.train_set': 'Train set',
+  'asset.car': 'Car',
+  'asset.stock_class': 'Stock class',
+  'asset.subsystem': 'Subsystem',
+  'work.type': 'Work type',
+  'work.trigger': 'Trigger',
+  'work.order_id': 'Work order No.',
+  'work.fault_code': 'Fault code',
+  'work.description': 'Work description',
+  'diagnosis.root_cause': 'Root cause',
+  'parts.part_number': 'Part No.',
+  'parts.replaced': 'Part replaced',
+  'test.result': 'Test result',
+  'access.approval': 'Track access approval',
+  'completion.state': 'Completion state',
+  'work_performed': 'Work performed',
 });
 
 /** Family-prefix labels used when no exact label exists. */
 const FAMILY_LABELS = Object.freeze([
-  ['asset.', '资产'],
-  ['work.', '作业'],
-  ['diagnosis.', '诊断'],
-  ['parts.', '零件'],
-  ['measurement.', '测量'],
-  ['test.', '测试'],
-  ['completion.', '完成状态'],
-  ['safety.', '安全'],
-  ['provenance.', '溯源'],
-  ['compliance.', '合规'],
-  ['audit.', '审计'],
-  ['access.', '轨行区准入'],
-  ['reliability.', '可靠性'],
+  ['asset.', 'Asset'],
+  ['work.', 'Work'],
+  ['diagnosis.', 'Diagnosis'],
+  ['parts.', 'Part'],
+  ['measurement.', 'Measurement'],
+  ['test.', 'Test'],
+  ['completion.', 'Completion state'],
+  ['safety.', 'Safety'],
+  ['provenance.', 'Provenance'],
+  ['compliance.', 'Compliance'],
+  ['audit.', 'Audit'],
+  ['access.', 'Track access'],
+  ['reliability.', 'Reliability'],
 ]);
 
 /**
@@ -295,12 +296,12 @@ function normalizeUnit(raw) {
 /** Flattens a fact value (string | number | boolean | object | array) to searchable text. */
 function factText(value) {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
-  if (Array.isArray(value)) return value.map(factText).filter(Boolean).join('，');
+  if (Array.isArray(value)) return value.map(factText).filter(Boolean).join(', ');
   if (value && typeof value === 'object') {
     return Object.entries(value)
       .filter(([, item]) => item !== '' && item !== null && item !== undefined)
       .map(([key, item]) => `${key}: ${factText(item)}`)
-      .join('，');
+      .join(', ');
   }
   return String(value ?? '');
 }
@@ -308,8 +309,9 @@ function factText(value) {
 /** Renders a fact value for report content (bilingual labels, object flattening). */
 function renderValue(fact) {
   const value = fact?.value;
-  if (typeof value === 'boolean') return value ? '是' : '否';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (typeof value === 'number') return String(value);
+  if (fact?.field === 'parts.replaced' && (value === 'true' || value === 'false')) return value === 'true' ? 'Yes' : 'No';
   return factText(value);
 }
 
@@ -363,11 +365,11 @@ function buildReportSections({ scopeId, facts = [], factsReceiptId }) {
     if (!sectionId || !byId.has(sectionId)) continue;
     const label = labelFor(fact.field, scopeId);
     const unit = fact.unit ? ` ${fact.unit}` : '';
-    byId.get(sectionId).content.push(`${label}：${renderValue(fact)}${unit}。`);
+    byId.get(sectionId).content.push(`${label}: ${renderValue(fact)}${unit}.`);
   }
   if (factsReceiptId) {
     const provenance = byId.get('provenance');
-    if (provenance) provenance.content.unshift(`事实收据: ${factsReceiptId}`);
+    if (provenance) provenance.content.unshift(`Facts receipt: ${factsReceiptId}`);
   }
   return sections.map((section) => Object.freeze({
     id: section.id,

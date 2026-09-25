@@ -215,7 +215,7 @@ test('no matching input → empty facts and unrecognized warning', async () => {
     registry,
   });
   assert.deepEqual(facts, []);
-  assert.ok(warnings.some((warning) => warning.includes('未识别: 今天天气不错')));
+  assert.ok(warnings.some((warning) => warning.includes('Unrecognized: 今天天气不错')));
 });
 
 test('registry may be omitted (loaded internally)', async () => {
