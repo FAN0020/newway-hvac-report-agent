@@ -26,6 +26,7 @@ import { saveConfirmedReport } from './tools/save-confirmed-report.js';
 import { toolEnvelope } from './tools/tool-envelope.js';
 import { validateReportDraft } from './tools/validate-report-draft.js';
 import { validateReportInput } from './tools/validate-report-input.js';
+import { hashValue } from './tools/report-integrity.js';
 import { extractV2Facts } from './tools/extract-v2-facts.js';
 import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
@@ -447,7 +448,33 @@ async function handleApi(request, response, url, traceId, config) {
       ...assertNoServiceFactInvention({ facts, knowledgeHits }),
       ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
     ];
-    writeJson(response, 200, toolEnvelope('v2_report_build', traceId, violations.length ? 'NEEDS_CONFIRMATION' : 'PASS', {
+    const schema = resolved.scopeId === 'SBS_BUS'
+      ? { id: 'sbs_bus_maintenance', version: '0' }
+      : { id: 'sbs_rail_maintenance', version: '0' };
+    const draftFingerprint = hashValue({ contextId, facts, sections: report.sections });
+    const draft = {
+      report_id: `report_${draftFingerprint.slice(7, 19)}`,
+      report_version: 1,
+      schema_id: schema.id,
+      schema_version: schema.version,
+      scope_id: resolved.scopeId,
+      context_id: contextId,
+      template_version: report.reportVersion,
+      facts_hash: hashValue(facts),
+      sections: report.sections,
+      missing_required_fields: plan.missing_required_fields,
+      disclaimer: {
+        text: 'Technician review and confirmation are required. Knowledge references do not prove that work was performed.',
+      },
+    };
+    const status = violations.length ? 'NEEDS_CONFIRMATION' : 'PASS';
+    const validation = {
+      trace_id: traceId,
+      status,
+      data: { can_enter_technician_review: violations.length === 0, gates: { violations } },
+    };
+    const validationReceipt = await reports.recordStructuredValidation({ draft, validation, facts });
+    writeJson(response, 200, toolEnvelope('v2_report_build', traceId, status, {
       report: {
         scope_id: resolved.scopeId,
         context_id: contextId,
@@ -455,8 +482,45 @@ async function handleApi(request, response, url, traceId, config) {
         sections: report.sections,
         missing_required_fields: plan.missing_required_fields,
       },
+      draft,
+      validation_receipt: validationReceipt,
       gates: { violations },
     }, { retryable: false }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/confirm') {
+    const input = await readJson(request);
+    writeJson(response, 200, await confirmReportDraft({
+      draft: input.draft,
+      validatorRunId: input.validator_run_id,
+      technicianId: input.technician_id,
+      technicianName: input.technician_name,
+      store: reports,
+      traceId,
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/save') {
+    const input = await readJson(request);
+    writeJson(response, 200, await saveConfirmedReport({
+      draft: input.draft,
+      confirmationToken: input.confirmation_token,
+      store: reports,
+      traceId,
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/export') {
+    const input = await readJson(request);
+    writeJson(response, 200, await exportConfirmedReport({
+      draft: input.draft,
+      confirmationToken: input.confirmation_token,
+      store: reports,
+      traceId,
+    }));
     return;
   }
 
@@ -466,11 +530,8 @@ async function handleApi(request, response, url, traceId, config) {
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
-  ['/locales/en.js', ['locales/en.js', 'text/javascript; charset=utf-8']],
-  ['/locales/zh-CN.js', ['locales/zh-CN.js', 'text/javascript; charset=utf-8']],
-  ['/locales/overrides.js', ['locales/overrides.js', 'text/javascript; charset=utf-8']],
-  ['/favicon.svg', ['favicon.svg', 'image/svg+xml; charset=utf-8']],
+  ['/report-runtime.js', ['report-runtime.js', 'text/javascript; charset=utf-8']],
+  ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],
   ['/pcm-capture-worklet.js', ['pcm-capture-worklet.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],

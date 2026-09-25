@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { hashReportDraft } from '../tools/report-integrity.js';
+import { hashReportDraft, hashValue } from '../tools/report-integrity.js';
 
 async function writeExclusive(file, body) {
   await fs.mkdir(path.dirname(file), { recursive: true });
@@ -66,6 +66,36 @@ export class ReportStore {
     return receipt;
   }
 
+  async recordStructuredValidation({ draft, validation, facts }) {
+    const validatorRunId = safeId(validation?.trace_id, 'validator_run_id', /^trace_[A-Za-z0-9_-]{1,110}$/);
+    const schemaId = safeId(draft?.schema_id, 'schema_id', /^[a-z][a-z0-9_]{2,80}$/);
+    const schemaVersion = safeId(draft?.schema_version, 'schema_version', /^[A-Za-z0-9._-]{1,40}$/);
+    const receipt = Object.freeze({
+      validator_run_id: validatorRunId,
+      report_id: String(draft?.report_id || ''),
+      report_version: Number(draft?.report_version || 0),
+      report_hash: hashReportDraft(draft),
+      schema_id: schemaId,
+      schema_version: schemaVersion,
+      facts_hash: hashValue(Array.isArray(facts) ? facts : []),
+      validator_status: String(validation?.status || ''),
+      can_enter_technician_review: Boolean(validation?.data?.can_enter_technician_review),
+      validated_at: new Date().toISOString(),
+    });
+    const file = path.join(this.validationRoot, `${validatorRunId}.json`);
+    const created = await writeExclusive(file, `${JSON.stringify(receipt, null, 2)}\n`);
+    if (!created) {
+      const existing = JSON.parse(await fs.readFile(file, 'utf8'));
+      if (existing.report_hash !== receipt.report_hash || existing.validator_status !== receipt.validator_status
+        || existing.schema_id !== receipt.schema_id || existing.schema_version !== receipt.schema_version
+        || existing.facts_hash !== receipt.facts_hash) {
+        throw Object.assign(new Error('Validator run ID was already used for different content.'), { code: 'VALIDATOR_RUN_COLLISION', status: 409 });
+      }
+      return existing;
+    }
+    return receipt;
+  }
+
   async readValidation(validatorRunId) {
     const id = safeId(validatorRunId, 'validator_run_id', /^trace_[A-Za-z0-9_-]{1,110}$/);
     try {
@@ -99,6 +129,8 @@ export class ReportStore {
       facts_hash: receipt.facts_hash,
       correction_receipt_id: receipt.correction_receipt_id,
       correction_receipt_hash: receipt.correction_receipt_hash,
+      schema_id: receipt.schema_id,
+      schema_version: receipt.schema_version,
       technician_id: id,
       technician_name: name,
       confirmed_at: new Date().toISOString(),
@@ -132,7 +164,7 @@ export class ReportStore {
 
   async writeOfficialJson({ draft, confirmation }) {
     const body = `${JSON.stringify({
-      schema_version: 'hvac-confirmed-report.v1',
+      schema_version: draft?.schema_id ? 'newway-confirmed-report.v1' : 'hvac-confirmed-report.v1',
       report_hash: confirmation.report_hash,
       confirmation,
       report: draft,

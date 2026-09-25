@@ -274,6 +274,80 @@ test('POST /api/v2/reports/build fails for HVAC with UNSUPPORTED_SCOPE', async (
   assert.equal(body.error_code, 'UNSUPPORTED_SCOPE');
 });
 
+for (const scenario of [
+  {
+    name: 'Bus',
+    contextId: 'SBS/BUS',
+    schemaId: 'sbs_bus_maintenance',
+    schemaVersion: '0',
+    facts: [
+      { field: 'asset.bus_model', value: 'MAN A95', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: false },
+      { field: 'work.type', value: 'preventive', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: false },
+      { field: 'measurement.gap', value: '12', unit: 'mm', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: true },
+      { field: 'completion.state', value: 'completed', support_status: 'CONFIRMED_BY_TECHNICIAN', source: 'manual', critical: true },
+    ],
+  },
+  {
+    name: 'Rail',
+    contextId: 'SBS/RAIL',
+    schemaId: 'sbs_rail_maintenance',
+    schemaVersion: '0',
+    facts: [
+      { field: 'asset.train_set', value: 'C751A 7001/7002', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: true },
+      { field: 'access.approval', value: 'TAMS approved', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: true },
+    ],
+  },
+]) {
+  test(`${scenario.name} follows build → validate → confirm → save → export with exact schema binding`, async (t) => {
+    const facts = [...scenario.facts, {
+      field: 'test.run_id',
+      value: `${Date.now()}-${Math.random()}`,
+      support_status: 'DIRECT_TRANSCRIPT',
+      source: 'test',
+      critical: false,
+    }];
+    const built = await json(api('/api/v2/reports/build', {
+      method: 'POST',
+      body: { context_id: scenario.contextId, facts },
+    }));
+    assert.equal(built.body.status, 'PASS');
+    assert.equal(built.body.data.draft.schema_id, scenario.schemaId);
+    assert.equal(built.body.data.draft.schema_version, scenario.schemaVersion);
+    assert.equal(built.body.data.validation_receipt.schema_id, scenario.schemaId);
+
+    const confirmed = await json(api('/api/v2/reports/confirm', {
+      method: 'POST',
+      body: {
+        draft: built.body.data.draft,
+        validator_run_id: built.body.data.validation_receipt.validator_run_id,
+        technician_id: 'TECH-V2',
+        technician_name: 'V2 Technician',
+      },
+    }));
+    assert.equal(confirmed.body.status, 'PASS');
+    assert.equal(confirmed.body.data.confirmation.schema_id, scenario.schemaId);
+    const confirmationToken = confirmed.body.data.confirmation.confirmation_token;
+    t.after(() => fs.rm(path.join('data', 'validations', `${built.body.data.validation_receipt.validator_run_id}.json`), { force: true }));
+    t.after(() => fs.rm(path.join('data', 'confirmations', `${confirmationToken}.json`), { force: true }));
+
+    const saved = await json(api('/api/v2/reports/save', {
+      method: 'POST',
+      body: { draft: built.body.data.draft, confirmation_token: confirmationToken },
+    }));
+    assert.equal(saved.body.status, 'PASS');
+    assert.equal(saved.body.data.report_hash, confirmed.body.data.confirmation.report_hash);
+    t.after(() => fs.rm(saved.body.data.file, { force: true }));
+
+    const exported = await json(api('/api/v2/reports/export', {
+      method: 'POST',
+      body: { draft: built.body.data.draft, confirmation_token: confirmationToken },
+    }));
+    assert.equal(exported.body.status, 'PASS');
+    assert.match(exported.body.data.copyable_text, new RegExp(scenario.name, 'i'));
+    t.after(() => fs.rm(exported.body.data.file, { force: true }));
+  });
+}
+
 test('GET /api/v2/scopes without a token is rejected like V1 (401 FAIL)', async () => {
   const { status, body } = await json(api('/api/v2/scopes', { token: null }));
   assert.equal(status, 401);
