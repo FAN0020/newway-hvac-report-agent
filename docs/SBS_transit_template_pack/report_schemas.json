@@ -1,0 +1,34 @@
+{
+  "disclaimer": "Prototype schemas; not official SBS Transit forms.",
+  "bus_maintenance": {
+    "required": [
+      "job_id",
+      "bus_id",
+      "inspection_datetime",
+      "technician",
+      "odometer_km",
+      "inspection_results",
+      "defects",
+      "corrective_actions",
+      "parts_used",
+      "final_condition",
+      "technician_approval"
+    ]
+  },
+  "rail_track_inspection": {
+    "required": [
+      "work_order_no",
+      "inspection_datetime",
+      "line",
+      "track_direction",
+      "location_chainage",
+      "technician_team",
+      "inspection_results",
+      "defects",
+      "corrective_actions",
+      "final_track_condition",
+      "technician_verification"
+    ]
+  },
+  "unknown_policy": "If a required field lacks supporting evidence, store UNKNOWN and generate a targeted follow-up question."
+}
