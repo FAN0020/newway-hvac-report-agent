@@ -97,6 +97,18 @@ test('BUS model MAN A95 maps to asset.bus_model and work.type', async () => {
   );
 });
 
+test('BUS dictated registration, return to service, and explicit safety statement are extracted', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'Registration SBS6025Z. The bus was returned to the service and no additional safety issue was observed.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.registration_no'), 'SBS6025Z');
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.equal(valueOf(facts, 'safety.assertion'), 'The bus was returned to the service and no additional safety issue was observed');
+  assert.equal(facts.find((fact) => fact.field === 'asset.registration_no').critical, true);
+});
+
 test('BUS measurement sentence yields measurement fact with unit', async () => {
   const { facts } = await extractV2Facts({
     contextId: 'SBS/BUS',

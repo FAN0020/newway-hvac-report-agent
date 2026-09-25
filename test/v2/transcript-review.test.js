@@ -51,7 +51,21 @@ test('round-one retest catches repeated terminology errors and ASR future-action
   assert.match(review.confirmation_questions[0].source_text, /I will place/iu);
 });
 
-test('Bus scope does not apply Rail correction rules', () => {
+test('Bus scope does not apply Rail-only asset correction rules', () => {
   const review = reviewV2Transcript({ scopeId: 'SBS_BUS', rawText: realBaseline });
-  assert.deepEqual(review.correction_suggestions, []);
+  assert.equal(review.correction_suggestions.some((item) => item.suggested_text === 'C751A'), false);
+  assert.equal(review.correction_suggestions.some((item) => item.suggested_text === 'door control module'), true);
+});
+
+test('round-two Bus ASR variants are reviewable and registration requires identity confirmation', () => {
+  const text = 'MAN 9-5 bus. Registration SBS6025J. Inspection found the door control model faulty.';
+  const review = reviewV2Transcript({ scopeId: 'SBS_BUS', rawText: text });
+  assert.deepEqual(review.correction_suggestions.map((item) => item.suggested_text), [
+    'MAN A95',
+    'door control module',
+  ]);
+  assert.equal(review.confirmation_questions.length, 1);
+  assert.equal(review.confirmation_questions[0].field, 'asset.registration_no');
+  assert.equal(review.confirmation_questions[0].source_text, 'SBS6025J');
+  assert.equal(review.confirmation_questions[0].critical, true);
 });

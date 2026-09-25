@@ -33,6 +33,25 @@ const RAIL_RULES = Object.freeze([
   }),
 ]);
 
+const BUS_RULES = Object.freeze([
+  Object.freeze({
+    id: 'bus_model_man_a95_spoken_digits',
+    pattern: /\bMAN\s+9[-\s]?5\b/iu,
+    replacement: 'MAN A95',
+    reason: 'MAN A95 is present in the active Bus model vocabulary; “MAN 9-5” is a common spoken-letter ASR rendering.',
+    confidence: 'HIGH',
+    category: 'ASSET_IDENTIFIER',
+  }),
+  Object.freeze({
+    id: 'bus_door_module_model',
+    pattern: /\bdoor\s+control\s+model\b/iu,
+    replacement: 'door control module',
+    reason: 'The active Bus parts vocabulary supports “door control module”.',
+    confidence: 'MEDIUM',
+    category: 'DOMAIN_TERMINOLOGY',
+  }),
+]);
+
 const FUTURE_ACTION_RE = /\b(?:I|we|the\s+technician)\s+(?:will|plan(?:ned)?\s+to|intend(?:ed)?\s+to)\s+(replace|place|install|repair|renew|change)\b/giu;
 
 function correctionMatches(text, rules) {
@@ -69,9 +88,22 @@ function correctionMatches(text, rules) {
  */
 export function reviewV2Transcript({ scopeId, rawText } = {}) {
   const text = String(rawText ?? '');
-  const rules = scopeId === 'SBS_RAIL' ? RAIL_RULES : [];
+  const rules = scopeId === 'SBS_RAIL' ? RAIL_RULES : scopeId === 'SBS_BUS' ? BUS_RULES : [];
   const correctionSuggestions = correctionMatches(text, rules);
   const confirmationQuestions = [];
+
+  if (scopeId === 'SBS_BUS') {
+    for (const match of text.matchAll(/\b(?:SBS|SG)\d{1,4}[A-Z]\b/giu)) {
+      confirmationQuestions.push(Object.freeze({
+        question_id: `registration_identity_${match.index}`,
+        field: 'asset.registration_no',
+        source_text: match[0],
+        question: `Please confirm the vehicle registration “${match[0]}” against the vehicle or work order. Identity fields are never corrected automatically.`,
+        reason: 'A single ASR letter error can bind the report to the wrong vehicle.',
+        critical: true,
+      }));
+    }
+  }
 
   for (const match of text.matchAll(FUTURE_ACTION_RE)) {
     confirmationQuestions.push(Object.freeze({
