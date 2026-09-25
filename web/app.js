@@ -1,4 +1,108 @@
 import { PcmWavRecorder } from './audio-recorder.js';
+import { i18n, t } from './i18n.js';
+
+const uiLanguage = document.getElementById('ui-language');
+uiLanguage.value = i18n.getLocale();
+i18n.translateDom(document);
+
+function setLocalizedText(target, key, variables = {}) {
+  const item = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!item) return null;
+  item.dataset.i18nRuntimeKey = key;
+  item.dataset.i18nRuntimeVariables = JSON.stringify(variables);
+  item.textContent = t(key, resolveLocalizedVariables(variables));
+  return item;
+}
+
+function translatedVariable(key, variables = {}) {
+  return { $i18n: key, variables };
+}
+
+function resolveLocalizedVariables(variables = {}) {
+  return Object.fromEntries(Object.entries(variables).map(([name, value]) => {
+    if (value && typeof value === 'object' && value.$i18n) {
+      return [name, t(value.$i18n, resolveLocalizedVariables(value.variables || {}))];
+    }
+    return [name, value];
+  }));
+}
+
+function localizedNode(tag, className, key, variables = {}) {
+  const item = document.createElement(tag);
+  if (className) item.className = className;
+  return setLocalizedText(item, key, variables);
+}
+
+function translateRuntimeDom(root = document) {
+  for (const item of root.querySelectorAll('[data-i18n-runtime-key]')) {
+    let variables = {};
+    try { variables = JSON.parse(item.dataset.i18nRuntimeVariables || '{}'); } catch { /* keep safe empty variables */ }
+    item.textContent = t(item.dataset.i18nRuntimeKey, resolveLocalizedVariables(variables));
+  }
+}
+
+const STATUS_KEYS = Object.freeze({
+  UPLOADED: 'status.uploaded', PROCESSING: 'status.processing', PARSED: 'status.parsed',
+  CHUNKED: 'status.chunked', INDEXED: 'status.indexed', READY: 'status.ready', FAILED: 'status.failed',
+  PASS: 'status.pass', NEEDS_CONFIRMATION: 'status.needsConfirmation',
+  DIRECT_TRANSCRIPT: 'status.directTranscript', MANUAL_ENTRY: 'status.manualEntry',
+  CONFIRMED_BY_TECHNICIAN: 'status.confirmedByTechnician', UNCERTAIN: 'status.uncertain',
+});
+
+function localizedStatusVariable(value) {
+  const key = STATUS_KEYS[String(value || '').toUpperCase()];
+  return key ? translatedVariable(key) : String(value || t('common.unknown'));
+}
+
+const FIELD_KEYS = Object.freeze({
+  work_order: 'fields.work_order', equipment: 'fields.equipment', customer_complaint: 'fields.customer_complaint',
+  inspection_findings: 'fields.inspection_findings', work_performed: 'fields.work_performed', parts_used: 'fields.parts_used',
+  test_results: 'fields.test_results', completion_status: 'fields.completion_status', unresolved_issues: 'fields.unresolved_issues',
+  follow_up_recommendations: 'fields.follow_up_recommendations', refrigerant_record: 'fields.refrigerant_record',
+  measurements: 'fields.measurements', attachments: 'fields.attachments', cost_quote: 'fields.cost_quote',
+  warranty: 'fields.warranty', customer_feedback: 'fields.customer_feedback',
+  vehicle_identification: 'fieldLabels.vehicleIdentification', asset_identification: 'fieldLabels.assetIdentification',
+  works_summary: 'fieldLabels.worksSummary', trigger_findings: 'fieldLabels.triggerFindings',
+  diagnosis: 'fieldLabels.diagnosis', parts_materials: 'fieldLabels.partsMaterials', tests_results: 'fieldLabels.testsResults',
+  safety_hv_notes: 'fieldLabels.safetyHvNotes', compliance_audit: 'fieldLabels.complianceAudit',
+  track_access_record: 'fieldLabels.trackAccessRecord', completion_state_return_to_service: 'fieldLabels.completionReturnToService',
+  safety_ops_notes: 'fieldLabels.safetyOpsNotes', reliability_compliance: 'fieldLabels.reliabilityCompliance',
+  provenance: 'fieldLabels.provenance',
+  'asset.registration_no': 'fieldLabels.assetRegistrationNo', 'asset.internal_fleet_no': 'fieldLabels.assetInternalFleetNo',
+  'asset.bus_model': 'fieldLabels.assetBusModel', 'asset.depot': 'fieldLabels.assetDepot',
+  'asset.package': 'fieldLabels.assetPackage', 'asset.line': 'fieldLabels.assetLine',
+  'asset.train_set': 'fieldLabels.assetTrainSet', 'asset.car': 'fieldLabels.assetCar',
+  'asset.stock_class': 'fieldLabels.assetStockClass', 'asset.subsystem': 'fieldLabels.assetSubsystem',
+  'work.type': 'fieldLabels.workType', 'work.trigger': 'fieldLabels.workTrigger',
+  'work.work_order_id': 'fieldLabels.workOrderId', 'work.order_id': 'fieldLabels.workOrderId',
+  'work.fault_code': 'fieldLabels.workFaultCode', 'work.description': 'fieldLabels.workDescription',
+  'diagnosis.root_cause': 'fieldLabels.diagnosisRootCause', 'parts.part_number': 'fieldLabels.partsPartNumber',
+  'parts.replaced': 'fieldLabels.partsReplaced', 'test.result': 'fieldLabels.testResult',
+  'completion.state': 'fieldLabels.completionState', 'access.approval': 'fieldLabels.accessApproval',
+  estimated_completion_time: 'fieldLabels.estimatedCompletionTime', part_price: 'fieldLabels.partPrice',
+  contract_reference: 'fieldLabels.contractReference', penalty_or_claim: 'fieldLabels.penaltyOrClaim',
+});
+
+const FIELD_PREFIX_KEYS = Object.freeze({
+  'measurement.': 'fieldLabels.measurement', 'safety.': 'fieldLabels.safety',
+  'provenance.': 'fieldLabels.provenance', 'reliability.': 'fieldLabels.reliability',
+});
+
+function localizedFieldKey(value) {
+  const field = String(value || '');
+  if (FIELD_KEYS[field]) return FIELD_KEYS[field];
+  return Object.entries(FIELD_PREFIX_KEYS).find(([prefix]) => field.startsWith(prefix))?.[1] || null;
+}
+
+function localizedField(value) {
+  const key = localizedFieldKey(value);
+  return key ? t(key) : String(value || '—');
+}
+
+function localizedFieldNode(tag, className, value) {
+  const key = localizedFieldKey(value);
+  return key ? localizedNode(tag, className, key) : node(tag, className, String(value || '—'));
+}
 
 const ids = [
   'auth-gate', 'auth-token', 'auth-submit', 'auth-status', 'network-mode', 'network-warning', 'fill-demo',
@@ -22,6 +126,7 @@ let previewUrl;
 let currentTranscript;
 let currentNormalization;
 let currentCorrectionReceipt;
+let currentInputValidation;
 let currentFacts = [];
 let currentFactsReceiptId;
 let currentDraft;
@@ -39,17 +144,17 @@ function setSessionToken(value) {
   else sessionStorage.removeItem(sessionTokenKey);
 }
 
-function requireLogin(message = 'Enter the temporary demo passcode set when the server started.') {
+function requireLogin(messageKey = 'auth.prompt', variables = {}) {
   setSessionToken('');
   el['auth-gate'].hidden = false;
-  el['auth-status'].textContent = message;
+  setLocalizedText(el['auth-status'], messageKey, variables);
   el['auth-token'].value = '';
   el['auth-token'].focus();
 }
 
 async function api(path, body, options = {}) {
   const { allowToolFailure = false, ...fetchOptions } = options;
-  if (!sessionToken) throw new Error('No demo session established yet.');
+  if (!sessionToken) throw new Error(t('auth.noSession'));
   const headers = new Headers(fetchOptions.headers || {});
   headers.set('authorization', `Bearer ${sessionToken}`);
   const requestOptions = { ...fetchOptions, headers };
@@ -65,7 +170,7 @@ async function api(path, body, options = {}) {
   } catch {
     result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
   }
-  if (response.status === 401) requireLogin('Invalid passcode or expired session. Please re-enter.');
+  if (response.status === 401) requireLogin('auth.invalid');
   if (!response.ok || (!allowToolFailure && (result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR'))) {
     const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
     error.result = result;
@@ -83,48 +188,51 @@ function node(tag, className, text) {
 
 function healthBadge(label, ready, detail) {
   const item = node('div', `health-item ${ready ? 'ready' : 'not-ready'}`);
-  item.append(node('strong', '', `${ready ? '●' : '○'} ${label}`), node('span', '', detail));
+  const detailNode = detail && typeof detail === 'object' && detail.$i18n
+    ? localizedNode('span', '', detail.$i18n, detail.variables || {})
+    : node('span', '', detail);
+  item.append(node('strong', '', `${ready ? '●' : '○'} ${label}`), detailNode);
   return item;
 }
 
 async function refreshHealth() {
-  el['health-summary'].textContent = 'Checking local components…';
+  setLocalizedText(el['health-summary'], 'runtime.checking');
   try {
     const result = await api('/api/health', undefined, { allowToolFailure: true });
     const { whisper, ollama } = result.data;
     ollamaReady = ollama.ready;
-    el['health-summary'].textContent = whisper.ready ? 'Voice entry available; manual text can also be used.' : 'Whisper is not prepared; use manual text on the right to complete the flow.';
+    setLocalizedText(el['health-summary'], whisper.ready ? 'runtime.voiceAvailable' : 'runtime.whisperUnavailable');
     el['health-details'].replaceChildren(
-      healthBadge('Whisper', whisper.ready, whisper.ready ? `${whisper.model} available` : whisper.error_code),
-      healthBadge('Ollama', ollama.ready, ollama.ready ? `${ollama.models.length} models` : 'will use the deterministic flow'),
+      healthBadge('Whisper', whisper.ready, whisper.ready ? translatedVariable('common.available', { name: whisper.model }) : whisper.error_code),
+      healthBadge('Ollama', ollama.ready, ollama.ready ? translatedVariable('common.models', { count: ollama.models.length }) : translatedVariable('runtime.deterministicFlow')),
     );
   } catch (error) {
-    el['health-summary'].textContent = `Health check failed: ${error.message}; the manual entry can still be tried.`;
+    setLocalizedText(el['health-summary'], 'runtime.healthFailed', { message: error.message });
     throw error;
   }
 }
 
 async function unlockWithToken(token) {
   setSessionToken(token);
-  el['auth-status'].textContent = 'Verifying passcode…';
+  setLocalizedText(el['auth-status'], 'auth.verifying');
   try {
     await refreshHealth();
     el['auth-gate'].hidden = true;
+    delete el['auth-status'].dataset.i18nRuntimeKey;
+    delete el['auth-status'].dataset.i18nRuntimeVariables;
     el['auth-status'].textContent = '';
   } catch (error) {
-    if (sessionToken) requireLogin(`Cannot establish session: ${error.message}`);
+    if (sessionToken) requireLogin('auth.cannotEstablish', { message: error.message });
   }
 }
 
 async function initializeSession() {
   const lanLike = !['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-  el['network-mode'].textContent = lanLike ? 'LAN demo mode' : 'Local demo mode';
-  el['network-warning'].textContent = !window.isSecureContext && lanLike
-    ? 'This is a LAN HTTP page: browsers on phones or other computers usually disable the microphone. Record in the host browser and watch from another device, or use manual text on another device.'
-    : 'The temporary passcode is kept only in the current tab session. Demo only on trusted Wi-Fi; do not expose it to the public internet.';
+  setLocalizedText(el['network-mode'], lanLike ? 'network.lanMode' : 'network.localMode');
+  setLocalizedText(el['network-warning'], !window.isSecureContext && lanLike ? 'network.insecureMicrophone' : 'network.trustedNote');
   if (!window.isSecureContext) {
     el['start-recording'].disabled = true;
-    el['recording-status'].textContent = 'This page is not a secure context, so the browser microphone is disabled; upload a WAV or use manual text.';
+    setLocalizedText(el['recording-status'], 'network.microphoneDisabled');
   }
 
   const remembered = sessionStorage.getItem(sessionTokenKey);
@@ -145,38 +253,39 @@ async function initializeSession() {
   requireLogin();
 }
 
-function invalidateConfirmation(message = 'Report content has changed; re-validation and confirmation are required.') {
+function invalidateConfirmation(messageKey = 'confirmation.changed', variables = {}) {
   confirmationToken = null;
   el['save-report'].disabled = true;
   el['export-report'].disabled = true;
   el['copy-export'].disabled = true;
   el['export-output'].hidden = true;
-  el['confirmation-status'].textContent = message;
+  setLocalizedText(el['confirmation-status'], messageKey, variables);
 }
 
-function acceptTranscript(artifact, message) {
+function acceptTranscript(artifact, messageKey) {
   currentTranscript = artifact;
   currentDraft = null;
   currentValidation = null;
   currentFactsReceiptId = null;
   currentNormalization = null;
   currentCorrectionReceipt = null;
+  currentInputValidation = null;
   Object.keys(manualFields).forEach((key) => delete manualFields[key]);
-  invalidateConfirmation('Transcript exists; report not yet generated or confirmed.');
+  invalidateConfirmation('capture.transcriptExists');
   el['transcript-output'].textContent = artifact.raw_text;
   el['transcript-output'].classList.remove('empty');
   el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
-  el['transcription-status'].textContent = `${message} Source: ${artifact.provider}. The original text is saved as an immutable Artifact.`;
+  setLocalizedText(el['transcription-status'], 'capture.sourceSaved', { message: translatedVariable(messageKey), provider: artifact.provider });
   el['build-report'].disabled = false;
   ['correction-section', 'questions-section', 'evidence-section', 'report-section', 'confirm-section'].forEach((id) => { el[id].hidden = true; });
 }
 
-function selectAudio(blob, message) {
+function selectAudio(blob, messageKey, variables = {}) {
   currentBlob = blob;
   currentAudioId = null;
   el.transcribe.disabled = false;
   el.retry.disabled = true;
-  el['recording-status'].textContent = message;
+  setLocalizedText(el['recording-status'], messageKey, variables);
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = URL.createObjectURL(blob);
   el['audio-preview'].src = previewUrl;
@@ -189,10 +298,10 @@ el['start-recording'].addEventListener('click', async () => {
     recorder = new PcmWavRecorder();
     const { sampleRate } = await recorder.start();
     el['stop-recording'].disabled = false;
-    el['recording-status'].textContent = `Recording (input ${sampleRate} Hz, saved as 16 kHz mono PCM WAV)…`;
+    setLocalizedText(el['recording-status'], 'capture.recording', { sampleRate });
     recordingTimer = setTimeout(() => el['stop-recording'].click(), 90_000);
   } catch (error) {
-    el['recording-status'].textContent = `Cannot start recording: ${error.message}`;
+    setLocalizedText(el['recording-status'], 'capture.cannotStart', { message: error.message });
     el['start-recording'].disabled = false;
   }
 });
@@ -202,9 +311,9 @@ el['stop-recording'].addEventListener('click', async () => {
   el['stop-recording'].disabled = true;
   try {
     const wav = await recorder.stop();
-    selectAudio(wav, `Recording ready: ${Math.round(wav.size / 1024)} KB.`);
+    selectAudio(wav, 'capture.recordingReady', { size: Math.round(wav.size / 1024) });
   } catch (error) {
-    el['recording-status'].textContent = `Failed to stop recording: ${error.message}`;
+    setLocalizedText(el['recording-status'], 'capture.cannotStop', { message: error.message });
   } finally {
     recorder = null;
     el['start-recording'].disabled = false;
@@ -213,7 +322,7 @@ el['stop-recording'].addEventListener('click', async () => {
 
 el['audio-file'].addEventListener('change', () => {
   const file = el['audio-file'].files?.[0];
-  if (file) selectAudio(file, `Selected ${file.name}; the server will validate the WAV.`);
+  if (file) selectAudio(file, 'capture.selectedWav', { filename: file.name });
 });
 
 async function uploadIfNeeded() {
@@ -226,16 +335,16 @@ async function uploadIfNeeded() {
 async function transcribe(attempt) {
   el.transcribe.disabled = true;
   el.retry.disabled = true;
-  el['transcription-status'].textContent = 'Transcribing locally…';
+  setLocalizedText(el['transcription-status'], 'capture.transcribing');
   try {
     const audioId = await uploadIfNeeded();
     const result = await api('/api/transcriptions', {
       audio_id: audioId, model: el.model.value, language: el.language.value, attempt,
       idempotency_key: `${audioId}:${el.model.value}:${el.language.value}:attempt-${attempt}`,
     });
-    acceptTranscript(result.data.transcript, result.data.reused ? 'Reused the same transcription request' : 'Speech transcription complete');
+    acceptTranscript(result.data.transcript, result.data.reused ? 'capture.reusedTranscription' : 'capture.transcriptionComplete');
   } catch (error) {
-    el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}. Manual text can be used instead.`;
+    setLocalizedText(el['transcription-status'], 'capture.transcriptionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
     el.retry.disabled = attempt >= 2;
   } finally {
     el.transcribe.disabled = false;
@@ -248,9 +357,9 @@ el['use-manual'].addEventListener('click', async () => {
   el['use-manual'].disabled = true;
   try {
     const result = await api('/api/transcripts/manual', { raw_text: el['manual-transcript'].value, language: 'zh' });
-    acceptTranscript(result.data.transcript, 'Manual text saved (not speech recognition)');
+    acceptTranscript(result.data.transcript, 'capture.manualSaved');
   } catch (error) {
-    el['transcription-status'].textContent = `Failed to save manual text: ${error.message}`;
+    setLocalizedText(el['transcription-status'], 'capture.manualSaveFailed', { message: error.message });
   } finally {
     el['use-manual'].disabled = false;
   }
@@ -262,17 +371,19 @@ function renderQuestions(inputValidation) {
   el['questions-list'].replaceChildren(...questions.map(({ field, question }) => {
     const wrapper = node('div', 'question');
     const label = node('label');
-    label.append(node('strong', '', question));
+    const knownQuestionFields = new Set(['customer_complaint', 'inspection_findings', 'work_performed', 'test_results', 'completion_status']);
+    label.append(knownQuestionFields.has(field) ? localizedNode('strong', '', `questions.fields.${field}`) : node('strong', '', question));
     const input = node('textarea');
     input.rows = 2;
     input.dataset.field = field;
     input.value = manualFields[field] || '';
-    input.placeholder = 'Enter what the technician actually observed or recorded';
+    input.dataset.i18nPlaceholder = 'capture.enterObservation';
+    input.placeholder = t('capture.enterObservation');
     const missing = node('label', 'missing-check');
     const checkbox = node('input');
     checkbox.type = 'checkbox';
     checkbox.dataset.missingField = field;
-    missing.append(checkbox, document.createTextNode(' Not provided this time / fill in later'));
+    missing.append(checkbox, localizedNode('span', '', 'capture.notProvidedThisTime'));
     label.append(input);
     wrapper.append(label, missing);
     return wrapper;
@@ -282,15 +393,23 @@ function renderQuestions(inputValidation) {
 function renderEvidence(normalization, inputValidation) {
   const factNodes = currentFacts.length ? currentFacts.map((fact) => {
     const card = node('div', 'fact-card');
-    card.append(node('strong', '', fact.field), node('span', '', typeof fact.value === 'string' ? fact.value : JSON.stringify(fact.value)), node('small', '', `${fact.support_status} · ${fact.source_refs.join(', ')}`));
+    card.append(
+      localizedFieldNode('strong', '', fact.field),
+      node('span', '', typeof fact.value === 'string' ? fact.value : JSON.stringify(fact.value)),
+      localizedNode('small', '', 'evidence.factSupport', { status: localizedStatusVariable(fact.support_status), sources: fact.source_refs.join(', ') }),
+    );
     return card;
-  }) : [node('p', 'empty-note', 'No facts with sources were extracted.')];
+  }) : [localizedNode('p', 'empty-note', 'evidence.noFacts')];
   el['facts-output'].replaceChildren(...factNodes);
   const corrections = normalization.data.correction_candidates || [];
   const missing = inputValidation.data.missing_required_fields || [];
   const issueNodes = [
-    node('div', 'fact-card', corrections.length ? `Terminology fix candidates: ${corrections.length}` : 'No terminology fixes applied; the original text is unchanged.'),
-    node('div', `fact-card ${missing.length ? 'needs-attention' : ''}`, missing.length ? `Still missing: ${missing.join(', ')}` : 'Minimum fact set is covered.'),
+    corrections.length
+      ? localizedNode('div', 'fact-card', 'evidence.candidateCount', { count: corrections.length })
+      : localizedNode('div', 'fact-card', 'evidence.originalUnchanged'),
+    missing.length
+      ? localizedNode('div', 'fact-card needs-attention', 'evidence.stillMissing', { fields: missing.map(localizedField).join(', ') })
+      : localizedNode('div', 'fact-card', 'evidence.minimumCovered'),
   ];
   el['issues-output'].replaceChildren(...issueNodes);
   el['evidence-section'].hidden = false;
@@ -321,7 +440,7 @@ function renderCorrectionReview(normalization) {
       radio.name = `decision-${candidate.candidate_id}`;
       radio.value = value;
       radio.dataset.candidateId = candidate.candidate_id;
-      label.append(radio, document.createTextNode(labelText));
+      label.append(radio, localizedNode('span', '', value === 'ACCEPT' ? 'correction.accept' : 'correction.reject'));
       controls.append(label);
     }
     if (critical) {
@@ -329,15 +448,13 @@ function renderCorrectionReview(normalization) {
       const checkbox = node('input');
       checkbox.type = 'checkbox';
       checkbox.dataset.criticalCandidateId = candidate.candidate_id;
-      label.append(checkbox, document.createTextNode('I have manually verified this critical value/meaning'));
+      label.append(checkbox, localizedNode('span', '', 'correction.criticalConfirm'));
       controls.append(label);
     }
     card.append(change, reason, controls);
     return card;
-  }) : [node('div', 'fact-card', 'No controlled fix candidates found. The technician must still confirm the original text; the system will issue an "original text confirmation" receipt.')]));
-  el['correction-status'].textContent = candidates.length
-    ? `Found ${candidates.length} controlled candidates. Decide each one; the AI suggestions have not changed the original text.`
-    : 'No fix candidates; confirm technician identity to issue the original-text confirmation receipt.';
+  }) : [localizedNode('div', 'fact-card', 'correction.noCandidates')]));
+  setLocalizedText(el['correction-status'], candidates.length ? 'correction.candidatesFound' : 'correction.confirmOriginal', { count: candidates.length });
   el['correction-section'].hidden = false;
 }
 
@@ -348,16 +465,17 @@ function renderDraft(validation) {
     for (const item of section.items) {
       const line = node('p', item.type === 'template_text' ? 'placeholder' : '');
       line.textContent = item.text;
-      if (item.fact_ids?.length) line.append(node('small', 'source-tag', `Source: ${item.fact_ids.join(', ')}`));
+      if (item.fact_ids?.length) line.append(localizedNode('small', 'source-tag', 'report.sourceFacts', { factIds: item.fact_ids.join(', ') }));
       block.append(line);
     }
     return block;
   }));
   const reviewable = validation.data.can_enter_technician_review;
   el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
-  el['validator-banner'].textContent = reviewable
-    ? `Validator: ${validation.status}. Source coverage ${Math.round(validation.data.provenance_coverage * 100)}%; ready for technician review.`
-    : `Validator: ${validation.status}. The report cannot be confirmed; fix the validation issues first.`;
+  setLocalizedText(el['validator-banner'], reviewable ? 'report.validatorReady' : 'report.validatorBlocked', {
+    status: localizedStatusVariable(validation.status),
+    coverage: Math.round(validation.data.provenance_coverage * 100),
+  });
   el['validator-output'].textContent = JSON.stringify(validation, null, 2);
   el['report-section'].hidden = false;
   el['confirm-section'].hidden = !reviewable;
@@ -369,13 +487,13 @@ async function prepareCorrectionReview() {
   invalidateConfirmation();
   el['build-report'].disabled = true;
   currentCorrectionReceipt = null;
-  el['transcription-status'].textContent = 'Searching versioned HVAC terminology candidates on the server…';
+  setLocalizedText(el['transcription-status'], 'capture.terminologySearching');
   try {
     currentNormalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
     renderCorrectionReview(currentNormalization);
-    el['transcription-status'].textContent = 'Fix suggestions shown; the original TranscriptArtifact remains unchanged.';
+    setLocalizedText(el['transcription-status'], 'capture.suggestionsShown');
   } catch (error) {
-    el['transcription-status'].textContent = `Fix candidate check failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
+    setLocalizedText(el['transcription-status'], 'capture.suggestionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   } finally {
     el['build-report'].disabled = false;
   }
@@ -384,12 +502,13 @@ async function prepareCorrectionReview() {
 async function generateReportFromReceipt() {
   if (!currentCorrectionReceipt) return;
   invalidateConfirmation();
-  el['transcription-status'].textContent = 'Running the fixed flow: confirm text → fact extraction → missing check → section planning → draft → Validator…';
+  setLocalizedText(el['transcription-status'], 'capture.generating');
   try {
     const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: manualFields, use_llm: ollamaReady });
     currentFacts = extracted.data.facts;
     currentFactsReceiptId = extracted.data.facts_receipt_id;
     const inputValidation = await api('/api/reports/validate-input', { facts_receipt_id: currentFactsReceiptId });
+    currentInputValidation = inputValidation;
     const plan = await api('/api/reports/plan', { facts_receipt_id: currentFactsReceiptId, service_type: 'general_hvac' });
     const template = await api('/api/reports/template', { template_id: 'hvac_service_report', version: '1.0.0' });
     const generated = await api('/api/reports/generate', { facts_receipt_id: currentFactsReceiptId, plan: plan.data, template: template.data.template, use_llm: ollamaReady });
@@ -398,9 +517,9 @@ async function generateReportFromReceipt() {
     renderQuestions(inputValidation);
     renderEvidence(currentNormalization, inputValidation);
     renderDraft(currentValidation);
-    el['transcription-status'].textContent = 'Report draft and independent validation are ready. Answer follow-up questions and complete the technician review.';
+    setLocalizedText(el['transcription-status'], 'capture.generationReady');
   } catch (error) {
-    el['transcription-status'].textContent = `Generation failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
+    setLocalizedText(el['transcription-status'], 'capture.generationFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   }
 }
 
@@ -411,7 +530,7 @@ el['confirm-corrections'].addEventListener('click', async () => {
   try {
     const decisions = (currentNormalization.data.correction_candidates || []).map((candidate) => {
       const selected = el['correction-list'].querySelector(`input[name="decision-${candidate.candidate_id}"]:checked`);
-      if (!selected) throw new Error(`Choose accept or reject: ${candidate.source_span.text} → ${candidate.candidate}`);
+      if (!selected) throw new Error(t('correction.chooseDecision', { source: candidate.source_span.text, candidate: candidate.candidate }));
       const critical = el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`);
       return { candidate_id: candidate.candidate_id, decision: selected.value, critical_value_confirmed: critical ? critical.checked : false };
     });
@@ -425,10 +544,10 @@ el['confirm-corrections'].addEventListener('click', async () => {
     currentCorrectionReceipt = result.data.correction_receipt;
     el['technician-id'].value = el['correction-technician-id'].value;
     el['technician-name'].value = el['correction-technician-name'].value;
-    el['correction-status'].textContent = `Immutable text receipt ${currentCorrectionReceipt.correction_receipt_id} issued; confirmed at ${currentCorrectionReceipt.confirmed_at}.`;
+    setLocalizedText(el['correction-status'], 'correction.receiptIssued', { receiptId: currentCorrectionReceipt.correction_receipt_id, time: currentCorrectionReceipt.confirmed_at });
     await generateReportFromReceipt();
   } catch (error) {
-    el['correction-status'].textContent = `Text confirmation failed (${error.result?.error_code || 'INPUT'}): ${error.message}`;
+    setLocalizedText(el['correction-status'], 'correction.confirmationFailed', { code: error.result?.error_code || 'INPUT', message: error.message });
   } finally {
     el['confirm-corrections'].disabled = false;
   }
@@ -446,7 +565,7 @@ el['confirm-check'].addEventListener('change', () => {
   el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review;
 });
 el['confirm-report'].addEventListener('click', async () => {
-  invalidateConfirmation('Binding the current report and validation results…');
+  invalidateConfirmation('confirmation.binding');
   try {
     const result = await api('/api/reports/confirm', {
       draft: currentDraft,
@@ -457,18 +576,18 @@ el['confirm-report'].addEventListener('click', async () => {
     confirmationToken = result.data.confirmation.confirmation_token;
     el['save-report'].disabled = false;
     el['export-report'].disabled = false;
-    el['confirmation-status'].textContent = `Confirmed version ${result.data.confirmation.report_version}; confirmed at ${result.data.confirmation.confirmed_at}.`;
+    setLocalizedText(el['confirmation-status'], 'confirmation.confirmed', { version: result.data.confirmation.report_version, time: result.data.confirmation.confirmed_at });
   } catch (error) {
-    el['confirmation-status'].textContent = `Confirmation failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
+    setLocalizedText(el['confirmation-status'], 'confirmation.failed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   }
 });
 
 el['save-report'].addEventListener('click', async () => {
   try {
     const result = await api('/api/reports/save', { draft: currentDraft, confirmation_token: confirmationToken });
-    el['confirmation-status'].textContent = `${result.data.reused ? 'Reused' : 'Saved'} official JSON: ${result.data.file}`;
+    setLocalizedText(el['confirmation-status'], 'confirmation.saveResult', { action: translatedVariable(result.data.reused ? 'common.reused' : 'common.saved'), file: result.data.file });
   } catch (error) {
-    el['confirmation-status'].textContent = `Save rejected (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
+    setLocalizedText(el['confirmation-status'], 'confirmation.saveRejected', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   }
 });
 el['export-report'].addEventListener('click', async () => {
@@ -477,18 +596,18 @@ el['export-report'].addEventListener('click', async () => {
     el['export-output'].value = result.data.copyable_text;
     el['export-output'].hidden = false;
     el['copy-export'].disabled = false;
-    el['confirmation-status'].textContent = `${result.data.reused ? 'Reused' : 'Exported'} text: ${result.data.file}`;
+    setLocalizedText(el['confirmation-status'], 'confirmation.exportResult', { action: translatedVariable(result.data.reused ? 'common.reused' : 'common.exported'), file: result.data.file });
   } catch (error) {
-    el['confirmation-status'].textContent = `Export rejected (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
+    setLocalizedText(el['confirmation-status'], 'confirmation.exportRejected', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   }
 });
 el['copy-export'].addEventListener('click', async () => {
   await navigator.clipboard.writeText(el['export-output'].value);
-  el['confirmation-status'].textContent = 'Report text copied to clipboard.';
+  setLocalizedText(el['confirmation-status'], 'confirmation.copied');
 });
 el['fill-demo'].addEventListener('click', () => {
   el['manual-transcript'].value = demoNarration;
-  el['transcription-status'].textContent = 'Synthetic demo text filled in; not yet saved, submitted, or confirmed.';
+  setLocalizedText(el['transcription-status'], 'capture.demoFilled');
 });
 el['auth-submit'].addEventListener('click', () => unlockWithToken(el['auth-token'].value));
 el['auth-token'].addEventListener('keydown', (event) => {
@@ -527,14 +646,21 @@ const v2 = {
   scopesLoaded: false,
   facts: [],
   knowledgeHits: [],
+  reportResult: null,
   uploadTimer: null,
   reportBlocked: false,
 };
 
 const V2_UPLOAD_STEPS = ['UPLOADED', 'PROCESSING', 'PARSED', 'CHUNKED', 'INDEXED'];
 
-function v2SetStatus(id, text) {
-  v2El[id].textContent = text;
+function v2SetStatus(id, key, variables = {}) {
+  if (!key) {
+    delete v2El[id].dataset.i18nRuntimeKey;
+    delete v2El[id].dataset.i18nRuntimeVariables;
+    v2El[id].textContent = '';
+    return;
+  }
+  setLocalizedText(v2El[id], key, variables);
 }
 
 function v2UpdateScopeSelector() {
@@ -548,15 +674,24 @@ function v2UpdateScopeSelector() {
     }
   }
   const info = V2_SCOPE_DEFAULTS[v2.scopeId];
-  v2El['scope-selector-status'].textContent = info.v2
-    ? `Current scope: ${info.display} (V2 panel)`
-    : `Current scope: ${info.display} (V1 panel)`;
+  setLocalizedText(v2El['scope-selector-status'], 'scope.currentPanel', {
+    scope: info.display,
+    panel: translatedVariable(info.v2 ? 'scope.v2Panel' : 'scope.v1Panel'),
+  });
 }
 
 function v2SetScopeHints() {
-  v2El['v2-upload-scope-hint'].textContent = `Uploaded documents enter scope ${v2.display} and are visible only to retrieval in that scope.`;
-  const others = v2.scopeId === 'SBS_BUS' ? 'HVAC or Rail' : 'HVAC or Bus';
-  v2El['v2-retrieve-scope-hint'].textContent = `Search scope: ${v2.display}; ${others} content will never be returned.`;
+  setLocalizedText(v2El['v2-upload-scope-hint'], 'scope.uploadHint', { scope: v2.display });
+  setLocalizedText(v2El['v2-retrieve-scope-hint'], 'scope.retrievalHint', {
+    scope: v2.display,
+    otherScopes: translatedVariable(v2.scopeId === 'SBS_BUS' ? 'scope.otherBus' : 'scope.otherRail'),
+  });
+}
+
+function v2UpdateStatementPlaceholder() {
+  const key = v2.scopeId === 'SBS_RAIL' ? 'v2.facts.railPlaceholder' : 'v2.facts.busPlaceholder';
+  v2El['v2-facts-text'].dataset.i18nPlaceholder = key;
+  v2El['v2-facts-text'].placeholder = t(key);
 }
 
 function v2SetScope(scopeId) {
@@ -567,6 +702,7 @@ function v2SetScope(scopeId) {
   v2.display = info.display;
   v2.facts = [];
   v2.knowledgeHits = [];
+  v2.reportResult = null;
   v2.reportBlocked = false;
   v2StopDemo();
   v2StopUploadAnimation();
@@ -588,9 +724,10 @@ function v2SetScope(scopeId) {
   v2El['v2-retrieve-results'].replaceChildren();
   v2El['v2-retrieve-warnings'].replaceChildren();
   v2SetScopeHints();
+  v2UpdateStatementPlaceholder();
   v2El['v2-upload-status'].className = 'live-status';
   v2El['v2-facts-status'].className = 'live-status';
-  v2SetStatus('v2-upload-status', 'No document selected yet.');
+  v2SetStatus('v2-upload-status', 'v2.upload.noneSelectedYet');
   v2SetStatus('v2-retrieve-status', '');
   v2SetStatus('v2-facts-status', '');
   v2RefreshScopes();
@@ -605,46 +742,52 @@ async function v2RefreshScopes() {
     v2.scopesLoaded = true;
     v2UpdateScopeSelector();
   } catch (error) {
-    v2SetStatus('v2-upload-status', `Scope info temporarily unavailable (${error.message}); continuing with the default scope.`);
+    v2SetStatus('v2-upload-status', 'v2.upload.unavailable', { message: error.message });
   }
 }
 
 function v2StatusBadge(status) {
   const ready = status === 'READY';
   const failed = status === 'FAILED';
-  return node('span', `status-badge ${ready ? 'ready' : failed ? 'failed' : ''}`, status || 'UNKNOWN');
+  const item = node('span', `status-badge ${ready ? 'ready' : failed ? 'failed' : ''}`);
+  const key = STATUS_KEYS[String(status || '').toUpperCase()];
+  if (key) setLocalizedText(item, key);
+  else item.textContent = status || t('common.unknown');
+  return item;
 }
 
 function v2UploadRow(upload) {
   const row = node('div', 'upload-row');
   const name = node('span', 'name', upload.filename || upload.upload_id || '—');
   const at = String(upload.provenance?.uploaded_at || '').slice(0, 19).replace('T', ' ');
-  const meta = node('span', 'meta', `${upload.scope_id || '—'} · ${upload.chunk_count ?? 0} chunks · ${at || '—'}`);
+  const meta = localizedNode('span', 'meta', 'v2.upload.rowMeta', {
+    scope: upload.scope_id || '—', chunks: translatedVariable('common.chunks', { count: upload.chunk_count ?? 0 }), time: at || '—',
+  });
   row.append(name, v2StatusBadge(upload.status), meta);
   return row;
 }
 
 async function v2RefreshUploads() {
   if (!sessionToken) {
-    v2El['v2-upload-list'].replaceChildren(node('p', 'empty-note', 'Upload records for this scope load after login.'));
+    v2El['v2-upload-list'].replaceChildren(localizedNode('p', 'empty-note', 'v2.upload.loginRequired'));
     return;
   }
-  v2SetStatus('v2-upload-status', 'Loading upload records…');
+  v2SetStatus('v2-upload-status', 'v2.upload.loading');
   try {
     const listPath = `/api/v2/uploads?scope_id=${encodeURIComponent(v2.scopeId)}`;
     const result = await api(listPath);
     const uploads = Array.isArray(result.data?.uploads) ? result.data.uploads : [];
     v2El['v2-upload-list'].replaceChildren(
-      uploads.length ? uploads.map(v2UploadRow) : [node('p', 'empty-note', 'No upload records in this scope yet.')],
+      ...(uploads.length ? uploads.map(v2UploadRow) : [localizedNode('p', 'empty-note', 'v2.upload.empty')]),
     );
-    if (v2El['v2-upload-status'].textContent === 'Loading upload records…') v2SetStatus('v2-upload-status', '');
+    if (v2El['v2-upload-status'].dataset.i18nRuntimeKey === 'v2.upload.loading') v2SetStatus('v2-upload-status', '');
   } catch (error) {
-    v2SetStatus('v2-upload-status', `Failed to load upload records: ${error.message}`);
+    v2SetStatus('v2-upload-status', 'v2.upload.loadFailed', { message: error.message });
   }
 }
 
 async function v2UploadFile(file) {
-  if (!sessionToken) throw new Error('No demo session established yet.');
+  if (!sessionToken) throw new Error(t('auth.noSession'));
   const uploadPath = '/api/v2/uploads';
   const headers = {
     authorization: `Bearer ${sessionToken}`,
@@ -662,7 +805,7 @@ async function v2UploadFile(file) {
   } catch {
     result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
   }
-  if (response.status === 401) requireLogin('Invalid passcode or expired session. Please re-enter.');
+  if (response.status === 401) requireLogin('auth.invalid');
   if (!response.ok || result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR') {
     const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
     error.result = result;
@@ -675,7 +818,8 @@ function v2UploadStepChip(status, extra = '') {
   const ready = status === 'READY';
   const failed = status === 'FAILED';
   const chip = node('span', `v2-step-chip ${ready ? 'ready' : failed ? 'failed' : ''}`);
-  chip.append(document.createTextNode(status), node('time', '', extra));
+  const key = STATUS_KEYS[String(status || '').toUpperCase()];
+  chip.append(key ? localizedNode('span', '', key) : document.createTextNode(status), node('time', '', extra));
   return chip;
 }
 
@@ -726,10 +870,10 @@ v2El['v2-upload-file'].addEventListener('change', () => {
   v2El['v2-upload-submit'].disabled = !file;
   v2El['v2-upload-status'].className = 'live-status';
   if (!file) {
-    v2SetStatus('v2-upload-status', 'No document selected yet.');
+    v2SetStatus('v2-upload-status', 'v2.upload.noneSelectedYet');
     return;
   }
-  v2SetStatus('v2-upload-status', `Selected ${file.name} (${(file.size / 1024).toFixed(1)} KB).`);
+  v2SetStatus('v2-upload-status', 'v2.upload.selected', { filename: file.name, size: (file.size / 1024).toFixed(1) });
   if (!v2El['v2-uploader'].value.trim() && el['technician-name']?.value) {
     v2El['v2-uploader'].value = el['technician-name'].value;
   }
@@ -738,32 +882,32 @@ v2El['v2-upload-file'].addEventListener('change', () => {
 v2El['v2-upload-submit'].addEventListener('click', async () => {
   const file = v2El['v2-upload-file'].files?.[0];
   if (!file) {
-    v2SetStatus('v2-upload-status', 'Select a document to upload first.');
+    v2SetStatus('v2-upload-status', 'v2.upload.selectFirst');
     return;
   }
   v2El['v2-upload-submit'].disabled = true;
   v2El['v2-upload-file'].disabled = true;
   v2El['v2-upload-record'].hidden = true;
-  v2SetStatus('v2-upload-status', 'Uploading and indexing (server runs the Upload → Parse → Chunk → Index → Ready state machine)…');
+  v2SetStatus('v2-upload-status', 'v2.upload.processing');
   v2StartUploadAnimation();
   try {
     const result = await v2UploadFile(file);
     const upload = result.data?.upload;
-    if (!upload) throw new Error('The server did not return an upload record.');
+    if (!upload) throw new Error(t('v2.upload.missingRecord'));
     if (upload.status === 'FAILED') {
       v2El['v2-upload-progress'].append(v2UploadStepChip('FAILED', new Date().toLocaleTimeString()));
-      const reason = upload.errors?.[0]?.message || 'Document processing failed.';
-      v2SetStatus('v2-upload-status', `Upload failed: ${reason}`);
+      const reason = upload.errors?.[0]?.message || t('v2.upload.processingFailed');
+      v2SetStatus('v2-upload-status', 'v2.upload.failed', { message: reason });
       v2El['v2-upload-status'].className = 'live-status v2-error-text';
     } else {
       v2El['v2-upload-progress'].append(v2UploadStepChip('READY', new Date().toLocaleTimeString()));
       v2RenderUploadRecord(upload);
-      v2SetStatus('v2-upload-status', `Upload complete: ${upload.filename} is ready.`);
+      v2SetStatus('v2-upload-status', 'v2.upload.complete', { filename: upload.filename });
       v2El['v2-upload-status'].className = 'live-status';
     }
     v2RefreshUploads();
   } catch (error) {
-    v2SetStatus('v2-upload-status', `Upload failed: ${error.message}`);
+    v2SetStatus('v2-upload-status', 'v2.upload.failed', { message: error.message });
     v2El['v2-upload-status'].className = 'live-status v2-error-text';
   } finally {
     v2StopUploadAnimation();
@@ -779,28 +923,31 @@ function v2RenderRetrieveWarnings(warnings) {
     return;
   }
   const blocked = warnings.includes('CROSS_DOMAIN_BLOCKED');
-  const note = blocked ? node('p', 'warning-line', 'Cross-domain content blocked: this search cannot return content from other scopes (HVAC / the other SBS domain).') : null;
-  const detail = node('p', 'hint', `Server warnings: ${warnings.join(', ')}`);
+  const note = blocked ? localizedNode('p', 'warning-line', 'v2.retrieval.crossDomainBlocked') : null;
+  const detail = localizedNode('p', 'hint', 'v2.retrieval.warnings', { warnings: warnings.join(', ') });
   box.replaceChildren(...(note ? [note, detail] : [detail]));
 }
 
 function v2RenderRetrieveResults(results) {
   const box = v2El['v2-retrieve-results'];
   if (!results.length) {
-    box.replaceChildren(node('p', 'empty-note', 'No results found.'));
+    box.replaceChildren(localizedNode('p', 'empty-note', 'v2.retrieval.noResults'));
     return;
   }
   box.replaceChildren(...results.map((item) => {
     const card = node('div', 'result-card');
     const head = node('div', 'head');
     head.append(
-      node('span', 'status-badge', item.source === 'upload' ? 'Upload' : 'Knowledge base'),
+      localizedNode('span', 'status-badge', item.source === 'upload' ? 'common.upload' : 'common.knowledgeBase'),
       node('span', '', item.scope_id || '—'),
-      node('span', 'score', `score ${Number(item.score || 0).toFixed(2)}`),
+      localizedNode('span', 'score', 'common.score', { score: Number(item.score || 0).toFixed(2) }),
     );
     const full = String(item.text || '');
     const text = node('p', 'text', full.slice(0, 120) + (full.length > 120 ? '…' : ''));
-    const prov = node('p', 'prov', `Source: ${item.provenance?.file || item.doc_id || '—'}${item.provenance?.uploader ? ` · Uploader: ${item.provenance.uploader}` : ''}`);
+    const prov = localizedNode('p', 'prov', 'v2.retrieval.provenance', {
+      source: item.provenance?.file || item.doc_id || '—',
+      uploader: item.provenance?.uploader ? translatedVariable('v2.retrieval.provenanceUploader', { uploader: item.provenance.uploader }) : '',
+    });
     card.append(head, text, prov);
     return card;
   }));
@@ -812,7 +959,7 @@ v2El['v2-retrieve-submit'].addEventListener('click', async () => {
   v2El['v2-retrieve-submit'].disabled = true;
   v2El['v2-retrieve-results'].replaceChildren();
   v2El['v2-retrieve-warnings'].replaceChildren();
-  v2SetStatus('v2-retrieve-status', 'Searching…');
+  v2SetStatus('v2-retrieve-status', 'v2.retrieval.searching');
   try {
     const result = await api('/api/v2/retrieve', {
       context_id: v2.contextId,
@@ -823,10 +970,10 @@ v2El['v2-retrieve-submit'].addEventListener('click', async () => {
     v2.knowledgeHits = (result.data?.results || []).map((item) => item.text);
     v2RenderRetrieveWarnings(result.warnings || []);
     v2RenderRetrieveResults(result.data?.results || []);
-    v2SetStatus('v2-retrieve-status', `Search complete: ${(result.data?.results || []).length} results.`);
+    v2SetStatus('v2-retrieve-status', 'v2.retrieval.complete', { count: (result.data?.results || []).length });
   } catch (error) {
     v2.knowledgeHits = [];
-    v2SetStatus('v2-retrieve-status', `Search failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2SetStatus('v2-retrieve-status', 'v2.retrieval.failed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   } finally {
     v2El['v2-retrieve-submit'].disabled = false;
   }
@@ -835,19 +982,22 @@ v2El['v2-retrieve-submit'].addEventListener('click', async () => {
 function v2RenderFacts(facts) {
   const table = v2El['v2-facts-table'];
   if (!facts.length) {
-    table.replaceChildren(node('p', 'empty-note', 'No facts extracted.'));
+    table.replaceChildren(localizedNode('p', 'empty-note', 'v2.facts.noFacts'));
     return;
   }
   const head = node('div', 'fact-table head');
-  head.append(node('span', '', 'Field'), node('span', '', 'Value'), node('span', '', 'Unit'), node('span', '', 'Support status'), node('span', '', ''));
+  head.append(
+    localizedNode('span', '', 'common.field'), localizedNode('span', '', 'common.value'),
+    localizedNode('span', '', 'common.unit'), localizedNode('span', '', 'common.supportStatus'), node('span', '', ''),
+  );
   const rows = facts.map((fact) => {
     const row = node('div', 'fact-table');
     row.append(
-      node('span', '', fact.field || '—'),
+      localizedFieldNode('span', '', fact.field),
       node('span', '', typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value ?? '—')),
       node('span', '', fact.unit || '—'),
-      node('span', '', fact.support_status || '—'),
-      fact.critical ? node('span', 'badge-critical', 'critical') : node('span', '', ''),
+      fact.support_status ? localizedNode('span', '', STATUS_KEYS[fact.support_status] || 'common.unknown') : node('span', '', '—'),
+      fact.critical ? localizedNode('span', 'badge-critical', 'common.critical') : node('span', '', ''),
     );
     return row;
   });
@@ -857,13 +1007,13 @@ function v2RenderFacts(facts) {
 v2El['v2-facts-extract'].addEventListener('click', async () => {
   const raw = v2El['v2-facts-text'].value.trim();
   if (!raw) {
-    v2SetStatus('v2-facts-status', 'Enter dictation or manual content first.');
+    v2SetStatus('v2-facts-status', 'v2.facts.enterFirst');
     return;
   }
   v2El['v2-facts-extract'].disabled = true;
   v2El['v2-facts-status'].className = 'live-status';
   v2El['v2-report-output'].hidden = true;
-  v2SetStatus('v2-facts-status', 'Extracting facts…');
+  v2SetStatus('v2-facts-status', 'v2.facts.extracting');
   try {
     const result = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: raw });
     v2.facts = Array.isArray(result.data?.facts) ? result.data.facts : [];
@@ -871,17 +1021,18 @@ v2El['v2-facts-extract'].addEventListener('click', async () => {
     v2RenderFacts(v2.facts);
     v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
     v2El['v2-report-build'].disabled = v2.facts.length === 0;
-    v2SetStatus('v2-facts-status', `Extracted ${v2.facts.length} facts.`);
+    v2SetStatus('v2-facts-status', 'v2.facts.extracted', { count: v2.facts.length });
   } catch (error) {
     v2.facts = [];
     v2El['v2-report-build'].disabled = true;
-    v2SetStatus('v2-facts-status', `Fact extraction failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2SetStatus('v2-facts-status', 'v2.facts.extractionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   } finally {
     v2El['v2-facts-extract'].disabled = false;
   }
 });
 
 function v2RenderReport(result) {
+  v2.reportResult = result;
   const report = result.data?.report || {};
   const gates = result.data?.gates || {};
   const violations = Array.isArray(gates.violations) ? gates.violations : [];
@@ -890,13 +1041,13 @@ function v2RenderReport(result) {
 
   const banner = v2El['v2-report-banner'];
   banner.className = `validator-banner ${needsConfirm ? 'fail' : 'pass'}`;
-  banner.textContent = needsConfirm ? 'Report has hard-gate violations and is not confirmed.' : 'Report passed hard-gate checks.';
+  setLocalizedText(banner, needsConfirm ? 'v2.facts.hardGateBlocked' : 'v2.facts.hardGatePassed');
 
   const missing = Array.isArray(report.missing_required_fields) ? report.missing_required_fields : [];
   const missingBox = v2El['v2-report-missing'];
-  missingBox.textContent = missing.length
-    ? `Missing required fields: ${missing.join(', ')} (add them before confirming).`
-    : 'All required fields are covered.';
+  setLocalizedText(missingBox, missing.length ? 'v2.facts.missingRequired' : 'v2.facts.allRequired', {
+    fields: missing.map(localizedField).join(', '),
+  });
   missingBox.hidden = missing.length === 0;
 
   v2El['v2-report-gates'].replaceChildren(...(violations.length ? violations.map((violation) => {
@@ -912,9 +1063,12 @@ function v2RenderReport(result) {
   const sections = Array.isArray(report.sections) ? report.sections : [];
   v2El['v2-report-sections'].replaceChildren(...sections.map((section) => {
     const block = node('div', 'report-section-block');
-    const content = Array.isArray(section.content) && section.content.length ? section.content : ['Not provided / pending confirmation'];
+    const content = Array.isArray(section.content) && section.content.length ? section.content : [t('common.notProvided')];
     const isMissing = section.required === true && content.every((line) => line === 'Not provided / pending confirmation');
-    block.append(node('h3', isMissing ? 'v2-section-missing' : '', `${section.title}${section.required ? ' (required)' : ''}`));
+    const heading = node('h3', isMissing ? 'v2-section-missing' : '');
+    heading.append(document.createTextNode(section.title));
+    if (section.required) heading.append(document.createTextNode(' ('), localizedNode('span', '', 'common.required'), document.createTextNode(')'));
+    block.append(heading);
     for (const line of content) block.append(node('p', '', line));
     return block;
   }));
@@ -923,7 +1077,7 @@ function v2RenderReport(result) {
 v2El['v2-report-build'].addEventListener('click', async () => {
   if (!v2.facts.length) return;
   v2El['v2-report-build'].disabled = true;
-  v2SetStatus('v2-facts-status', 'Building report…');
+  v2SetStatus('v2-facts-status', 'v2.facts.building');
   try {
     const result = await api('/api/v2/reports/build', {
       context_id: v2.contextId,
@@ -933,13 +1087,13 @@ v2El['v2-report-build'].addEventListener('click', async () => {
     v2RenderReport(result);
     if (result.status === 'NEEDS_CONFIRMATION') {
       v2.reportBlocked = true;
-      v2SetStatus('v2-facts-status', 'Report has hard-gate violations and is not confirmed.');
+      v2SetStatus('v2-facts-status', 'v2.facts.hardGateBlocked');
       v2El['v2-report-build'].disabled = true;
     } else {
-      v2SetStatus('v2-facts-status', `Report generated (${result.data?.report?.reportVersion || 'v2'}) with no hard-gate violations.`);
+      v2SetStatus('v2-facts-status', 'v2.facts.generated', { version: result.data?.report?.reportVersion || 'v2' });
     }
   } catch (error) {
-    v2SetStatus('v2-facts-status', `Report build failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2SetStatus('v2-facts-status', 'v2.facts.buildFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
   } finally {
     if (!v2.reportBlocked) v2El['v2-report-build'].disabled = false;
   }
@@ -1026,20 +1180,18 @@ const v2Demo = {
 
 function v2DemoIdleStatus() {
   const info = V2_SCOPE_DEFAULTS[v2.scopeId];
-  return info && info.v2
-    ? 'Ready. Click "Play demo" to run the guided SBS scenario automatically.'
-    : 'Demo is available for SBS Bus and SBS Rail only.';
+  return info && info.v2 ? 'v2.demo.ready' : 'v2.demo.sbsOnly';
 }
 
 /** Reflects scope availability on the play and walkthrough buttons (disabled for HVAC). */
 function v2UpdateDemoAvailability() {
   const demoOnly = V2_DEMO_SCOPE_IDS.includes(v2.scopeId);
   v2DemoEl.play.disabled = !demoOnly;
-  v2DemoEl.play.title = demoOnly ? '' : 'Demo is available for SBS Bus and SBS Rail only.';
+  v2DemoEl.play.title = demoOnly ? '' : t('v2.demo.sbsOnly');
   const wt = document.getElementById('v2-walkthrough-start');
   if (wt) {
     wt.disabled = !demoOnly;
-    wt.title = demoOnly ? '' : 'Guided walkthrough is available for SBS Bus and SBS Rail only.';
+    wt.title = demoOnly ? '' : t('v2.demo.walkthroughOnly');
   }
 }
 
@@ -1171,7 +1323,7 @@ function v2SpeakSentence(sentence, index) {
       appendWord();
       if (index === 0) {
         v2DemoEl.status.classList.remove('v2-recording');
-        v2SetStatus('v2-demo-status', '● Transcribing…');
+        v2SetStatus('v2-demo-status', 'v2.demo.transcribing');
       }
       timer = setInterval(() => {
         if (v2Demo.stopped) { clearInterval(timer); timer = null; return; }
@@ -1196,7 +1348,7 @@ function v2SpeakSentence(sentence, index) {
       utterance.onerror = (event) => {
         if (event.error === 'canceled' || event.error === 'interrupted') { settle(); return; }
         v2Demo.captionsOnly = true;
-        v2SetStatus('v2-demo-status', 'Voice unavailable; captions only.');
+        v2SetStatus('v2-demo-status', 'v2.demo.voiceUnavailable');
         try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
         settle();
       };
@@ -1206,7 +1358,7 @@ function v2SpeakSentence(sentence, index) {
       timeout = setTimeout(settle, estimatedMs + 5000);
     } catch {
       v2Demo.captionsOnly = true;
-      v2SetStatus('v2-demo-status', 'Voice unavailable; captions only.');
+      v2SetStatus('v2-demo-status', 'v2.demo.voiceUnavailable');
       timeout = setTimeout(settle, estimatedMs);
     }
   });
@@ -1228,7 +1380,7 @@ async function v2PlayDemo() {
   if (!V2_DEMO_SCOPE_IDS.includes(v2.scopeId)) return;
   if (v2Wt.active) v2WtStop(); // the demo player and walkthrough are exclusive
   if (!sessionToken) {
-    requireLogin('Enter the temporary demo passcode set when the server started to run the guided demo.');
+    requireLogin('v2.demo.loginPrompt');
     return;
   }
   const demo = V2_DEMO_SCOPES[v2.scopeId];
@@ -1244,19 +1396,19 @@ async function v2PlayDemo() {
   v2Demo.captionsOnly = !(await v2ResolveSpeechAvailability());
   if (v2Demo.stopped) return;
   if (v2Demo.captionsOnly) {
-    v2SetStatus('v2-demo-status', 'Voice unavailable; captions only.');
-    v2DemoEl.captions.append(node('p', 'v2-demo-note', 'Voice unavailable; captions only.'));
+    v2SetStatus('v2-demo-status', 'v2.demo.voiceUnavailable');
+    v2DemoEl.captions.append(localizedNode('p', 'v2-demo-note', 'v2.demo.voiceUnavailable'));
   }
 
   v2DemoEl.status.classList.add('v2-recording');
-  v2SetStatus('v2-demo-status', 'Recording… (simulated)');
+  v2SetStatus('v2-demo-status', 'v2.demo.recording');
 
   const sentences = v2SplitSentences(demo.dictation);
   await v2SpeakCaptions(sentences);
   if (v2Demo.stopped) return;
 
   v2DemoEl.status.classList.remove('v2-recording');
-  v2SetStatus('v2-demo-status', 'Transcription complete.');
+  v2SetStatus('v2-demo-status', 'v2.demo.transcriptionComplete');
 
   // Keep the dictated (mis-heard) text visible for the technician.
   v2El['v2-facts-text'].value = demo.dictation;
@@ -1272,19 +1424,19 @@ async function v2PlayDemo() {
     return row;
   }));
   v2DemoEl.fixes.hidden = false;
-  v2SetStatus('v2-demo-status', `ASR terminology fixes applied: ${demo.fixes.length}.`);
+  v2SetStatus('v2-demo-status', 'v2.demo.fixesApplied', { count: demo.fixes.length });
   await v2DemoSleep(V2_DEMO_FIX_PAUSE_MS);
   if (v2Demo.stopped) return;
 
   // Extract facts from the corrected text (deterministic V2 extractor).
-  v2SetStatus('v2-demo-status', 'Extracting facts from corrected text…');
+  v2SetStatus('v2-demo-status', 'v2.demo.extracting');
   let extracted;
   try {
     extracted = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: demo.correctedText });
   } catch (error) {
     if (v2Demo.stopped) return;
     v2.facts = [];
-    v2SetStatus('v2-demo-status', `Fact extraction failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2SetStatus('v2-demo-status', 'v2.demo.extractionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
     v2DemoFinish();
     return;
   }
@@ -1294,11 +1446,11 @@ async function v2PlayDemo() {
   v2RenderFacts(v2.facts);
   v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
   v2El['v2-report-build'].disabled = v2.facts.length === 0;
-  v2SetStatus('v2-demo-status', `Extracted ${v2.facts.length} facts from corrected text.`);
+  v2SetStatus('v2-demo-status', 'v2.demo.factsExtracted', { count: v2.facts.length });
   v2El['v2-facts-table-wrap'].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   // Build the report from the corrected facts.
-  v2SetStatus('v2-demo-status', 'Building report…');
+  v2SetStatus('v2-demo-status', 'v2.demo.building');
   let report;
   try {
     report = await api('/api/v2/reports/build', {
@@ -1308,7 +1460,7 @@ async function v2PlayDemo() {
     });
   } catch (error) {
     if (v2Demo.stopped) return;
-    v2SetStatus('v2-demo-status', `Report build failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`);
+    v2SetStatus('v2-demo-status', 'v2.demo.buildFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
     v2DemoFinish();
     return;
   }
@@ -1318,15 +1470,15 @@ async function v2PlayDemo() {
     const classes = (report.data?.gates?.violations || []).map((violation) => violation.class).join(', ') || 'UNKNOWN';
     v2.reportBlocked = true;
     v2El['v2-report-build'].disabled = true;
-    v2SetStatus('v2-demo-status', `Demo ended: hard-gate violations (${classes}); report not confirmed.`);
+    v2SetStatus('v2-demo-status', 'v2.demo.blocked', { classes });
     v2DemoFinish();
     return;
   }
   v2El['v2-report-output'].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  v2SetStatus('v2-demo-status', `Report generated (${report.data?.report?.reportVersion || 'v2'}) with no hard-gate violations.`);
+  v2SetStatus('v2-demo-status', 'v2.demo.generated', { version: report.data?.report?.reportVersion || 'v2' });
   await v2DemoSleep(600);
   if (v2Demo.stopped) return;
-  v2SetStatus('v2-demo-status', 'Demo complete: transcript → fixes → facts → report.');
+  v2SetStatus('v2-demo-status', 'v2.demo.complete');
   v2DemoFinish();
 }
 
@@ -1424,7 +1576,7 @@ function v2WtRender() {
     dot.textContent = String(i + 1);
     return dot;
   }));
-  v2WtEl.step.textContent = `Step ${v2Wt.index + 1} of ${steps.length}`;
+  setLocalizedText(v2WtEl.step, 'common.stepOf', { current: v2Wt.index + 1, total: steps.length });
   v2WtEl.title.textContent = step.title;
   v2WtEl.desc.textContent = step.desc;
   v2WtEl.next.disabled = Boolean(step.waitForUser);
@@ -1433,23 +1585,23 @@ function v2WtRender() {
   v2Wt.enteredAt = Date.now();
 }
 
-/** The ordered walkthrough steps. Text is English and scope-aware. */
+/** The ordered walkthrough steps. Text is localized and scope-aware. */
 function v2WtSteps() {
   const rail = v2.scopeId === 'SBS_RAIL';
   const domain = rail ? 'SBS / Rail' : 'SBS / Bus';
   return [
     {
       id: 'scope',
-      title: 'Choose your scope',
-      desc: `This agent is scope-isolated: HVAC, SBS / Bus and SBS / Rail each keep their own documents, knowledge and reports. Select ${domain} to continue.`,
+      title: t('walkthrough.scope.title'),
+      desc: t('walkthrough.scope.description', { domain }),
       waitForUser: true,
       enter() { v2WtHighlight('scope-selector-buttons'); },
       done() { return v2.scopeId === 'SBS_BUS' || v2.scopeId === 'SBS_RAIL'; },
     },
     {
       id: 'upload',
-      title: 'Upload a service document',
-      desc: 'Service documents (manuals, bulletins) are ingested into the selected scope. A sample document has been prepared — click "Upload document" to run the Upload → Parse → Chunk → Index → Ready pipeline.',
+      title: t('walkthrough.upload.title'),
+      desc: t('walkthrough.upload.description'),
       waitForUser: true,
       enter() {
         v2WtFeedSampleFile();
@@ -1462,8 +1614,8 @@ function v2WtSteps() {
     },
     {
       id: 'retrieve',
-      title: 'Retrieve knowledge',
-      desc: 'Search is gated to the current scope — content from other scopes can never leak into results. A sample query is ready; press "Search" to see what the agent finds.',
+      title: t('walkthrough.retrieval.title'),
+      desc: t('walkthrough.retrieval.description'),
       waitForUser: true,
       enter() {
         v2El['v2-retrieve-query'].value = v2WtQuery();
@@ -1476,8 +1628,8 @@ function v2WtSteps() {
     },
     {
       id: 'statement',
-      title: 'Enter the on-site statement',
-      desc: 'The technician\'s dictation (or typed statement) is the input for fact extraction. The sample statement for this scope is pre-filled — press "Extract facts".',
+      title: t('walkthrough.statement.title'),
+      desc: t('walkthrough.statement.description'),
       waitForUser: true,
       enter() {
         v2El['v2-facts-text'].value = v2WtStatement();
@@ -1489,8 +1641,8 @@ function v2WtSteps() {
     },
     {
       id: 'facts',
-      title: 'Review the extracted facts',
-      desc: `The extractor produced ${v2.facts.length} structured facts (asset, work type, parts, completion). These become the evidence the report is built from. Press "Next" to build the report.`,
+      title: t('walkthrough.facts.title'),
+      desc: t('walkthrough.facts.description', { count: v2.facts.length }),
       waitForUser: false,
       enter() {
         v2WtClearHighlight();
@@ -1500,16 +1652,16 @@ function v2WtSteps() {
     },
     {
       id: 'report',
-      title: 'Build the report',
-      desc: 'The report is assembled from the extracted facts plus scope knowledge, then checked against hard-gate rules (compliance, safety, provenance). Press "Build report".',
+      title: t('walkthrough.report.title'),
+      desc: t('walkthrough.report.description'),
       waitForUser: true,
       enter() { v2WtHighlight('v2-report-build'); },
       done() { return !v2El['v2-report-output'].hidden; },
     },
     {
       id: 'done',
-      title: 'Report ready',
-      desc: 'The report preview is complete: structured sections, required fields and gate results in one place. That is the full flow — scope → document → retrieval → facts → report.',
+      title: t('walkthrough.done.title'),
+      desc: t('walkthrough.done.description'),
       waitForUser: false,
       enter() {
         v2WtClearHighlight();
@@ -1535,7 +1687,7 @@ function v2WtNext() {
 /** Starts (or restarts) the guided walkthrough. */
 function v2WtStart() {
   if (!v2WtAllowed()) {
-    v2SetStatus('v2-demo-status', 'The guided walkthrough is available for SBS Bus and SBS Rail only.');
+    v2SetStatus('v2-demo-status', 'v2.demo.walkthroughOnly');
     return;
   }
   v2StopDemo();
@@ -1588,3 +1740,23 @@ document.getElementById('v2-walkthrough-start').addEventListener('click', () => 
 
 v2WtEl.next.addEventListener('click', () => v2WtNext());
 v2WtEl.skip.addEventListener('click', () => v2WtStop());
+
+function refreshLocalizedUi() {
+  uiLanguage.value = i18n.getLocale();
+  i18n.translateDom(document);
+  translateRuntimeDom(document);
+  if (currentNormalization && currentInputValidation) renderEvidence(currentNormalization, currentInputValidation);
+  if (v2.facts.length) v2RenderFacts(v2.facts);
+  if (v2.reportResult) v2RenderReport(v2.reportResult);
+  v2UpdateScopeSelector();
+  if (V2_SCOPE_DEFAULTS[v2.scopeId]?.v2) {
+    v2SetScopeHints();
+    v2UpdateStatementPlaceholder();
+  }
+  v2UpdateDemoAvailability();
+  v2DemoResetStatusIfIdle();
+  if (v2Wt.active) v2WtRender();
+}
+
+i18n.subscribe(refreshLocalizedUi);
+uiLanguage.addEventListener('change', () => i18n.setLocale(uiLanguage.value));

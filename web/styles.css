@@ -16,6 +16,9 @@ body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 80% 0
 main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0 40px; }
 .demo-ribbon { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 24px; padding: 10px 14px; border: 1px solid #e2a18a; border-radius: 999px; color: #7e3124; background: #fff1eb; font-size: .82rem; }
 .demo-ribbon span { color: var(--muted); }
+.app-toolbar { display: flex; justify-content: flex-end; margin: -10px 0 22px; }
+.language-control { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); font-size: .86rem; font-weight: 700; }
+.language-control select { min-width: 132px; }
 header { max-width: 780px; margin-bottom: 36px; }
 .eyebrow, .step { color: var(--accent); font-size: .76rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
 h1 { margin: 10px 0 14px; max-width: 760px; font-family: Georgia, "Noto Serif SC", serif; font-size: clamp(2.2rem, 6vw, 4.8rem); line-height: .98; letter-spacing: -.045em; }
@@ -39,10 +42,14 @@ section { margin: 18px 0; padding: 24px; border: 1px solid var(--line); border-r
 .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 18px 0; }
 .controls.compact label { display: grid; gap: 5px; font-size: .78rem; color: var(--muted); }
 button, .file-button, select, textarea, input { border-radius: 9px; font: inherit; }
-button, .file-button { padding: 11px 16px; cursor: pointer; background: var(--deep); color: white; font-weight: 700; }
+button, .file-button { min-height: 44px; padding: 11px 16px; cursor: pointer; background: var(--deep); color: white; font-weight: 700; white-space: normal; }
 button.secondary { color: var(--deep); background: #dfeae5; }
 button.danger { background: var(--accent); }
 button:disabled { opacity: .42; cursor: not-allowed; }
+button:focus-visible, .file-button:focus-within, select:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus-visible {
+  outline: 3px solid #e67e22;
+  outline-offset: 3px;
+}
 .file-button input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
 select { min-width: 120px; padding: 10px 12px; border: 1px solid var(--line); color: var(--ink); background: white; }
 textarea, input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); color: var(--ink); background: white; }
@@ -76,6 +83,7 @@ footer { padding: 28px 4px; color: var(--muted); font-size: .86rem; }
 .missing-check, .confirm-check { display: flex; gap: 8px; align-items: center; color: var(--muted); }
 .missing-check input, .confirm-check input { width: auto; }
 .warning { margin: 16px 0; padding: 12px 14px; border-left: 4px solid var(--accent); background: #fff3ed; }
+.report-language-note { margin: 10px 0 16px; color: var(--muted); font-size: .88rem; }
 .validator-banner { margin: 14px 0; padding: 12px 14px; border-radius: 10px; font-weight: 700; }
 .validator-banner.pass { color: #155c48; background: #e3f4ec; }
 .validator-banner.fail { color: #8d3527; background: #fff0ea; }
@@ -94,6 +102,8 @@ footer { padding: 28px 4px; color: var(--muted); font-size: .86rem; }
 @media (max-width: 640px) {
   main { padding-top: 36px; }
   .demo-ribbon { align-items: flex-start; flex-direction: column; border-radius: 14px; }
+  .app-toolbar { justify-content: stretch; }
+  .language-control { width: 100%; justify-content: space-between; }
   .auth-controls { grid-template-columns: 1fr; }
   .auth-controls label { grid-column: 1; }
   .status-card { grid-template-columns: 1fr; }

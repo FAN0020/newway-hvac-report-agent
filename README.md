@@ -29,6 +29,12 @@ TMPDIR="$PWD/.tmp" npm_config_cache="$PWD/.cache/npm" npm start
 
 Open <http://127.0.0.1:4310>. Do not change the bind address by editing source code; use the audited `npm run demo` entry point below when another device needs access.
 
+### Interface language
+
+The toolbar language selector switches the complete application interface between English (the default) and Simplified Chinese. The selection is stored in this browser's `localStorage` under `newway_ui_locale`, persists across reloads, and updates the document language for assistive technology. Changing the interface language does not reset entered form data or the current workflow state.
+
+Interface localization is deliberately separate from business content. Technician statements, retrieved source text, template/report content, company and product names, hashes, receipt IDs, and other technical identifiers are never translated implicitly. In this MVP, report output stays in the language supplied by its template or source; the report preview makes that boundary explicit.
+
 `npm start` is the safe local default. It binds only to `127.0.0.1`; the page obtains an in-memory token through a bootstrap endpoint that accepts only a true loopback connection. Every `/api/*` request still carries `Authorization: Bearer ...`.
 
 For the lowest-risk rehearsal, use this local-only command and keep every browser on the demo Mac:
@@ -101,7 +107,7 @@ Scope isolation is a hard gate: `SBS/BUS` and `SBS/RAIL` queries can never retur
 - `POST /api/v2/reports/build` — builds a Bus/Rail report from facts only; runs `assertNoServiceFactInvention` and `checkHardGates`. A gate violation returns `NEEDS_CONFIRMATION` and the browser blocks the next step (e.g. a manual's "replace ZX-47" recommendation is never rendered as an occurred action).
 - `data/v2-uploads/` — upload store (runtime data, gitignored).
 
-The V2 panel includes two presenter tools for SBS audiences (all-English):
+The V2 panel includes two presenter tools for SBS audiences in both supported interface languages:
 
 - **▶ Play demo** — one-click simulated recording: the browser speaks the technician's statement (TTS) with word-by-word captions, shows the terminology fixes for mis-heard words (`A ninety five`→`A95`, `door control modular`→`door control module`), then runs the real fact extraction and report build end to end. Bus and Rail each have their own scripted scenario.
 - **Guided walkthrough** — a step-by-step, user-driven tour of the product flow: choose scope → upload a sample service document → scope-gated search → enter the on-site statement → extract facts → build the report. Each step highlights the control to operate and auto-advances once the step's effect is detected; switching scope restarts it, and it is exclusive with the demo player.
