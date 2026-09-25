@@ -57,6 +57,8 @@ const ids = [
 const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const runtime = createSessionRuntime();
 const sessions = new Map();
+const sidebar = document.querySelector('.sidebar');
+const mobileSidebarQuery = window.matchMedia('(max-width: 900px)');
 const sessionTokenKey = 'hvac_demo_session_token';
 const demoNarration = '客户反映不制冷。检查发现运行电容损坏。更换了一个35微法电容。试机运行正常。问题已解决。建议下次保养清洗滤网。';
 const examples = {
@@ -106,6 +108,24 @@ function node(tag, className, text) {
   if (text !== undefined) item.textContent = text;
   return item;
 }
+
+function syncSidebarAccessibility() {
+  const mobile = mobileSidebarQuery.matches;
+  const open = sidebar.classList.contains('open');
+  sidebar.inert = mobile && !open;
+  if (mobile && !open) sidebar.setAttribute('aria-hidden', 'true');
+  else sidebar.removeAttribute('aria-hidden');
+  el['mobile-menu'].setAttribute('aria-expanded', String(mobile && open));
+}
+
+function setSidebarOpen(open, { focus = false } = {}) {
+  sidebar.classList.toggle('open', open && mobileSidebarQuery.matches);
+  syncSidebarAccessibility();
+  if (open && mobileSidebarQuery.matches && focus) sidebar.querySelector('a, button')?.focus();
+}
+
+mobileSidebarQuery.addEventListener('change', syncSidebarAccessibility);
+syncSidebarAccessibility();
 
 function renderEmptyState(container, { icon = '▤', title, message, actionLabel, action } = {}) {
   const body = node('div');
@@ -287,8 +307,7 @@ function navigate(view) {
     el['settings-language'].value = audioDefaults.language;
     el['settings-model'].value = audioDefaults.model;
   }
-  document.querySelector('.sidebar').classList.remove('open');
-  el['mobile-menu'].setAttribute('aria-expanded', 'false');
+  setSidebarOpen(false);
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -1103,8 +1122,7 @@ for (const id of ['settings-language', 'settings-model']) el[id].addEventListene
   audioDefaults = audioPreferenceState({ language: el['settings-language'].value, model: el['settings-model'].value });
 });
 el['mobile-menu'].addEventListener('click', () => {
-  const open = document.querySelector('.sidebar').classList.toggle('open');
-  el['mobile-menu'].setAttribute('aria-expanded', String(open));
+  setSidebarOpen(!sidebar.classList.contains('open'), { focus: true });
 });
 document.addEventListener('click', (event) => {
   const nav = event.target.closest('[data-nav]');
@@ -1115,17 +1133,14 @@ document.addEventListener('click', (event) => {
     if (nav.dataset.nav === 'reports') renderReports();
     navigate(nav.dataset.nav);
   }
-  const sidebar = document.querySelector('.sidebar');
   if (sidebar.classList.contains('open') && !sidebar.contains(event.target) && !el['mobile-menu'].contains(event.target)) {
-    sidebar.classList.remove('open');
-    el['mobile-menu'].setAttribute('aria-expanded', 'false');
+    setSidebarOpen(false);
   }
 });
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !el['evidence-drawer'].hidden) { event.preventDefault(); hideEvidence(); return; }
-  if (event.key === 'Escape' && document.querySelector('.sidebar').classList.contains('open')) {
-    document.querySelector('.sidebar').classList.remove('open');
-    el['mobile-menu'].setAttribute('aria-expanded', 'false');
+  if (event.key === 'Escape' && sidebar.classList.contains('open')) {
+    setSidebarOpen(false);
     el['mobile-menu'].focus();
     return;
   }

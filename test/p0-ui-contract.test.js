@@ -112,3 +112,11 @@ test('Knowledge, Demo, and Settings expose bounded P0 trust controls', async () 
   assert.match(client, /setAttribute\('aria-pressed'/);
   assert.match(client, /generation === knowledgeRequestGeneration/);
 });
+
+test('the closed mobile navigation is removed from the keyboard and accessibility trees', async () => {
+  const client = await fs.readFile('web/app.js', 'utf8');
+  assert.match(client, /function setSidebarOpen/);
+  assert.match(client, /sidebar\.inert = mobile && !open/);
+  assert.match(client, /sidebar\.setAttribute\('aria-hidden', 'true'\)/);
+  assert.match(client, /mobileSidebarQuery\.addEventListener\('change', syncSidebarAccessibility\)/);
+});
