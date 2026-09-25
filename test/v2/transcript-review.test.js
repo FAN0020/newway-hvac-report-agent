@@ -7,8 +7,8 @@ const realBaseline = "Today's aerial corrective maintenance on train set Z751A c
 test('Rail review proposes bounded domain corrections without silently changing the transcript', () => {
   const review = reviewV2Transcript({ scopeId: 'SBS_RAIL', rawText: realBaseline });
   assert.deepEqual(review.correction_suggestions.map((item) => item.correction_id), [
-    'rail_asset_c751a_z751a',
-    'rail_door_module_model_40',
+    'rail_asset_c751a_z751a_0',
+    'rail_door_module_model_40_0',
   ]);
   assert.ok(review.correction_suggestions.every((item) => item.requires_confirmation));
   assert.equal(realBaseline.includes('Z751A'), true);
@@ -19,7 +19,7 @@ test('only explicitly accepted corrections are applied', () => {
   const assetOnly = applyConfirmedTranscriptCorrections(
     realBaseline,
     review.correction_suggestions,
-    ['rail_asset_c751a_z751a'],
+    ['rail_asset_c751a_z751a_0'],
   );
   assert.match(assetOnly, /C751A/u);
   assert.match(assetOnly, /door control model 40/u);
@@ -42,8 +42,16 @@ test('future or planned work raises a critical clarification and is never auto-c
   assert.equal(applyConfirmedTranscriptCorrections(text, review.correction_suggestions, []), text);
 });
 
+test('round-one retest catches repeated terminology errors and ASR future-action variation', () => {
+  const text = 'Today at around corrective maintenance on train set Z751A Car 3 the passenger door would not close.\ninspection from the door control model 40\nI will place the door control model after replacement, the door opening and closing test passed.';
+  const review = reviewV2Transcript({ scopeId: 'SBS_RAIL', rawText: text });
+  assert.equal(review.correction_suggestions.length, 3);
+  assert.equal(review.correction_suggestions.filter((item) => item.category === 'DOMAIN_TERMINOLOGY').length, 2);
+  assert.equal(review.confirmation_questions.length, 1);
+  assert.match(review.confirmation_questions[0].source_text, /I will place/iu);
+});
+
 test('Bus scope does not apply Rail correction rules', () => {
   const review = reviewV2Transcript({ scopeId: 'SBS_BUS', rawText: realBaseline });
   assert.deepEqual(review.correction_suggestions, []);
 });
-

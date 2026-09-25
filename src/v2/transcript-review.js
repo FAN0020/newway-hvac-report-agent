@@ -33,30 +33,33 @@ const RAIL_RULES = Object.freeze([
   }),
 ]);
 
-const FUTURE_ACTION_RE = /\b(?:I|we|the\s+technician)\s+(?:will|plan(?:ned)?\s+to|intend(?:ed)?\s+to)\s+(replace|install|repair|renew|change)\b/giu;
+const FUTURE_ACTION_RE = /\b(?:I|we|the\s+technician)\s+(?:will|plan(?:ned)?\s+to|intend(?:ed)?\s+to)\s+(replace|place|install|repair|renew|change)\b/giu;
 
 function correctionMatches(text, rules) {
   const suggestions = [];
   const occupied = [];
   for (const rule of rules) {
-    const match = rule.pattern.exec(text);
-    rule.pattern.lastIndex = 0;
-    if (!match) continue;
-    const start = match.index;
-    const end = start + match[0].length;
-    if (occupied.some((range) => start < range.end && end > range.start)) continue;
-    occupied.push({ start, end });
-    suggestions.push(Object.freeze({
-      correction_id: rule.id,
-      start,
-      end,
-      source_text: match[0],
-      suggested_text: rule.replacement,
-      reason: rule.reason,
-      confidence: rule.confidence,
-      category: rule.category,
-      requires_confirmation: true,
-    }));
+    const flags = rule.pattern.flags.includes('g') ? rule.pattern.flags : `${rule.pattern.flags}g`;
+    const matcher = new RegExp(rule.pattern.source, flags);
+    let ordinal = 0;
+    for (const match of text.matchAll(matcher)) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (occupied.some((range) => start < range.end && end > range.start)) continue;
+      occupied.push({ start, end });
+      suggestions.push(Object.freeze({
+        correction_id: `${rule.id}_${ordinal}`,
+        start,
+        end,
+        source_text: match[0],
+        suggested_text: rule.replacement,
+        reason: rule.reason,
+        confidence: rule.confidence,
+        category: rule.category,
+        requires_confirmation: true,
+      }));
+      ordinal += 1;
+    }
   }
   return suggestions.sort((a, b) => a.start - b.start);
 }
@@ -105,4 +108,3 @@ export function applyConfirmedTranscriptCorrections(rawText, suggestions = [], a
   }
   return output;
 }
-
