@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BUS_FACT_FIELDS,
+  INDUSTRIAL_FACT_FIELDS,
   MANUAL_ONLY_FIELDS_V2,
   RAIL_FACT_FIELDS,
   SUPPORTED_V2_SCOPES,
@@ -12,13 +13,13 @@ import {
 const TAGS = new Set(['CONFIRMED_BY_EVIDENCE', 'PROVISIONAL', 'REQUIRES_SBS_CONFIRMATION']);
 const EVIDENCE_LEVELS = new Set(['A', 'B', 'C', 'D']);
 
-test('SUPPORTED_V2_SCOPES lists exactly the two SBS scopes, frozen', () => {
-  assert.deepEqual(SUPPORTED_V2_SCOPES, ['SBS_BUS', 'SBS_RAIL']);
+test('SUPPORTED_V2_SCOPES lists transport and industrial scopes, frozen', () => {
+  assert.deepEqual(SUPPORTED_V2_SCOPES, ['SBS_BUS', 'SBS_RAIL', 'OILFIELD', 'POWER_GRID']);
   assert.ok(Object.isFrozen(SUPPORTED_V2_SCOPES));
 });
 
-test('BUS/RAIL field arrays are non-empty and every entry carries the full contract shape', () => {
-  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS]) {
+test('all field arrays are non-empty and every entry carries the full contract shape', () => {
+  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS, INDUSTRIAL_FACT_FIELDS]) {
     assert.ok(fields.length > 0, 'field array must not be empty');
     for (const entry of fields) {
       assert.equal(typeof entry.field, 'string');
@@ -33,7 +34,7 @@ test('BUS/RAIL field arrays are non-empty and every entry carries the full contr
 });
 
 test('every tag is one of CONFIRMED_BY_EVIDENCE / PROVISIONAL / REQUIRES_SBS_CONFIRMATION', () => {
-  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS]) {
+  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS, INDUSTRIAL_FACT_FIELDS]) {
     for (const entry of fields) {
       assert.ok(TAGS.has(entry.tag), `unexpected tag "${entry.tag}" on ${entry.field}`);
     }
@@ -41,7 +42,7 @@ test('every tag is one of CONFIRMED_BY_EVIDENCE / PROVISIONAL / REQUIRES_SBS_CON
 });
 
 test('every evidence_level is A/B/C/D', () => {
-  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS]) {
+  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS, INDUSTRIAL_FACT_FIELDS]) {
     for (const entry of fields) {
       assert.ok(EVIDENCE_LEVELS.has(entry.evidence_level), `unexpected evidence_level "${entry.evidence_level}" on ${entry.field}`);
     }
@@ -49,7 +50,7 @@ test('every evidence_level is A/B/C/D', () => {
 });
 
 test('field names are unique within each scope', () => {
-  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS]) {
+  for (const fields of [BUS_FACT_FIELDS, RAIL_FACT_FIELDS, INDUSTRIAL_FACT_FIELDS]) {
     const seen = new Set();
     for (const entry of fields) {
       assert.ok(!seen.has(entry.field), `duplicate field "${entry.field}"`);

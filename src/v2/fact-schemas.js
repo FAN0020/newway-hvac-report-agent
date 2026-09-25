@@ -28,7 +28,7 @@
  */
 
 /** @type {ReadonlyArray<string>} */
-export const SUPPORTED_V2_SCOPES = Object.freeze(['SBS_BUS', 'SBS_RAIL']);
+export const SUPPORTED_V2_SCOPES = Object.freeze(['SBS_BUS', 'SBS_RAIL', 'OILFIELD', 'POWER_GRID']);
 
 /**
  * Bus fact-field catalog (03 §2, asset naming per 05 §3.3). Each entry:
@@ -341,10 +341,32 @@ export const RAIL_FACT_FIELDS = Object.freeze([
   }),
 ]);
 
+/** Shared evidence-grounded fields for oilfield and power-grid inspections. */
+export const INDUSTRIAL_FACT_FIELDS = Object.freeze([
+  Object.freeze({ field: 'asset.equipment', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Equipment, pipeline section, transformer, charger, or sample identity.' }),
+  Object.freeze({ field: 'asset.location', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Installation, station, pipeline section, or field location.' }),
+  Object.freeze({ field: 'asset.voltage_level', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Electrical voltage level when applicable.' }),
+  Object.freeze({ field: 'work.type', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: false, notes: 'Inspection or maintenance type.' }),
+  Object.freeze({ field: 'work.description', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: false, notes: 'Technician description of the work.' }),
+  Object.freeze({ field: 'standard.reference', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: false, notes: 'Inspection standard and clause explicitly stated in the record.' }),
+  Object.freeze({ field: 'inspection.item', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: false, notes: 'Inspection or test item explicitly stated by the technician.' }),
+  Object.freeze({ field: 'inspection.observation', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: false, notes: 'Observed field condition.' }),
+  Object.freeze({ field: 'inspection.result', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Compliant, non-compliant, pass, fail, normal, or abnormal result.' }),
+  Object.freeze({ field: 'defect.description', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Observed defect or abnormal condition.' }),
+  Object.freeze({ field: 'work_performed', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Action actually performed; must come from transcript or technician.' }),
+  Object.freeze({ field: 'measurement.*', type: 'number', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Measured value and unit, including kV, %, °C, Ω·m, m, or mm.' }),
+  Object.freeze({ field: 'test.result', type: 'string', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'Observed test or retest result.' }),
+  Object.freeze({ field: 'completion.state', type: 'string', tag: 'REQUIRES_SBS_CONFIRMATION', evidence_level: 'A', critical: true, notes: 'Completion or return-to-service state.' }),
+  Object.freeze({ field: 'safety.*', type: 'structured', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: true, notes: 'HSE, isolation, hazard-control, and safety assertions.' }),
+  Object.freeze({ field: 'provenance.*', type: 'structured', tag: 'CONFIRMED_BY_EVIDENCE', evidence_level: 'A', critical: false, notes: 'Source traceability.' }),
+]);
+
 /** @type {Readonly<Record<string, ReadonlyArray<object>>>} */
 const FACT_FIELDS_BY_SCOPE = Object.freeze({
   SBS_BUS: BUS_FACT_FIELDS,
   SBS_RAIL: RAIL_FACT_FIELDS,
+  OILFIELD: INDUSTRIAL_FACT_FIELDS,
+  POWER_GRID: INDUSTRIAL_FACT_FIELDS,
 });
 
 /**

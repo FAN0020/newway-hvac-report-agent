@@ -1,6 +1,6 @@
 {
   "schema_version": "scope-registry.v1",
-  "knowledge_version": "2026-09-24",
+  "knowledge_version": "2026-09-25",
   "scopes": {
     "GLOBAL": {
       "kind": "global",
@@ -13,7 +13,8 @@
       "kind": "organization",
       "children": [
         "SBS",
-        "HVAC"
+        "HVAC",
+        "INDUSTRIAL"
       ],
       "display": "Organization"
     },
@@ -42,6 +43,26 @@
       "parent": "ORGANIZATION",
       "display": "HVAC",
       "upload_allowed": false
+    },
+    "INDUSTRIAL": {
+      "kind": "organization",
+      "children": [
+        "OILFIELD",
+        "POWER_GRID"
+      ],
+      "display": "Industrial maintenance"
+    },
+    "OILFIELD": {
+      "kind": "domain",
+      "parent": "INDUSTRIAL",
+      "display": "Oilfield / Pipeline",
+      "upload_allowed": true
+    },
+    "POWER_GRID": {
+      "kind": "domain",
+      "parent": "INDUSTRIAL",
+      "display": "Power Grid / Electrical Inspection",
+      "upload_allowed": true
     }
   },
   "isolation": {
@@ -57,7 +78,11 @@
         "HVAC",
         "SBS_RAIL",
         "USER_UPLOADED:SBS_RAIL",
-        "USER_UPLOADED:HVAC"
+        "USER_UPLOADED:HVAC",
+        "OILFIELD",
+        "POWER_GRID",
+        "USER_UPLOADED:OILFIELD",
+        "USER_UPLOADED:POWER_GRID"
       ]
     },
     "SBS_RAIL": {
@@ -72,7 +97,11 @@
         "HVAC",
         "SBS_BUS",
         "USER_UPLOADED:SBS_BUS",
-        "USER_UPLOADED:HVAC"
+        "USER_UPLOADED:HVAC",
+        "OILFIELD",
+        "POWER_GRID",
+        "USER_UPLOADED:OILFIELD",
+        "USER_UPLOADED:POWER_GRID"
       ]
     },
     "HVAC": {
@@ -85,7 +114,49 @@
         "SBS_BUS",
         "SBS_RAIL",
         "USER_UPLOADED:SBS_BUS",
-        "USER_UPLOADED:SBS_RAIL"
+        "USER_UPLOADED:SBS_RAIL",
+        "OILFIELD",
+        "POWER_GRID",
+        "USER_UPLOADED:OILFIELD",
+        "USER_UPLOADED:POWER_GRID"
+      ]
+    },
+    "OILFIELD": {
+      "allowed": [
+        "GLOBAL",
+        "ORGANIZATION",
+        "INDUSTRIAL",
+        "OILFIELD",
+        "USER_UPLOADED:OILFIELD"
+      ],
+      "forbidden": [
+        "SBS_BUS",
+        "SBS_RAIL",
+        "HVAC",
+        "POWER_GRID",
+        "USER_UPLOADED:SBS_BUS",
+        "USER_UPLOADED:SBS_RAIL",
+        "USER_UPLOADED:HVAC",
+        "USER_UPLOADED:POWER_GRID"
+      ]
+    },
+    "POWER_GRID": {
+      "allowed": [
+        "GLOBAL",
+        "ORGANIZATION",
+        "INDUSTRIAL",
+        "POWER_GRID",
+        "USER_UPLOADED:POWER_GRID"
+      ],
+      "forbidden": [
+        "SBS_BUS",
+        "SBS_RAIL",
+        "HVAC",
+        "OILFIELD",
+        "USER_UPLOADED:SBS_BUS",
+        "USER_UPLOADED:SBS_RAIL",
+        "USER_UPLOADED:HVAC",
+        "USER_UPLOADED:OILFIELD"
       ]
     }
   },
@@ -111,11 +182,24 @@
       "hvac-terms.v1.json",
       "hvac-parts.v1.json",
       "report-modules.v1.json"
+    ],
+    "INDUSTRIAL": [],
+    "OILFIELD": [
+      "v2/oilfield-terms.v1.json",
+      "v2/oilfield-report-modules.v1.json",
+      "v2/oilfield-source-documents.v1.json"
+    ],
+    "POWER_GRID": [
+      "v2/power-grid-terms.v1.json",
+      "v2/power-grid-report-modules.v1.json",
+      "v2/power-grid-source-documents.v1.json"
     ]
   },
   "context_ids": {
     "SBS/BUS": "SBS_BUS",
     "SBS/RAIL": "SBS_RAIL",
-    "HVAC": "HVAC"
+    "HVAC": "HVAC",
+    "OILFIELD": "OILFIELD",
+    "POWER/GRID": "POWER_GRID"
   }
 }

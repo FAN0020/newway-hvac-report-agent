@@ -238,3 +238,39 @@ test('registry may be omitted (loaded internally)', async () => {
   assert.equal(valueOf(facts, 'parts.part_number'), '轮胎');
   assert.equal(valueOf(facts, 'parts.replaced'), 'true');
 });
+
+test('OILFIELD text extracts source-grounded pipeline inspection facts', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'OILFIELD',
+    rawText: '对原油输油管道东段开展安全检查。依据 GB50253-2014第4.2.3条，现场测得管顶覆土厚度0.7m，不符合要求，发现覆土不足隐患。已完成整改。复测通过。安全隔离已确认，检查完成。',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.equipment'), '原油输油管道');
+  assert.match(valueOf(facts, 'standard.reference'), /GB50253-2014/);
+  assert.ok(hasField(facts, 'inspection.item'));
+  assert.ok(hasField(facts, 'inspection.result'));
+  assert.ok(hasField(facts, 'defect.description'));
+  assert.ok(hasField(facts, 'work_performed'));
+  assert.ok(hasField(facts, 'test.result'));
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.ok(hasField(facts, 'safety.assertion'));
+});
+
+test('POWER_GRID text extracts insulating-oil test identity, values, and safety', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'POWER/GRID',
+    rawText: '对2号主变绝缘油进行检测，电压等级220kV。依据 GB 50150-2016。击穿电压平均值62.97kV，测试通过。环境温度21℃，湿度54%。检测完成，安全措施已确认。',
+    registry,
+  });
+  assert.ok(facts.some((fact) => fact.field === 'asset.equipment' && fact.value === '绝缘油'));
+  assert.equal(valueOf(facts, 'asset.voltage_level'), '220kV');
+  assert.match(valueOf(facts, 'standard.reference'), /GB 50150-2016/);
+  assert.ok(facts.some((fact) => fact.field.startsWith('measurement.') && fact.unit.toLowerCase() === 'kv'));
+  assert.equal(valueOf(facts, 'measurement.breakdown_voltage'), '62.97');
+  assert.equal(valueOf(facts, 'measurement.temperature'), '21');
+  assert.equal(valueOf(facts, 'measurement.humidity'), '54');
+  assert.equal(facts.filter((fact) => fact.field === 'asset.voltage_level').length, 1);
+  assert.ok(hasField(facts, 'test.result'));
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.ok(hasField(facts, 'safety.assertion'));
+});

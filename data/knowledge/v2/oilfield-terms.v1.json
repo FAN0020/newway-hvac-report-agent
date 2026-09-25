@@ -1,0 +1,16 @@
+{
+  "schema_version": "industrial-terms.v1",
+  "knowledge_version": "2026-09-25",
+  "scope": "OILFIELD",
+  "records": [
+    {"id":"term_asset_crude_oil_pipeline","kind":"asset","canonical":"原油输油管道","aliases":["输油管道","原油管道","oil pipeline","crude oil pipeline"],"description":"原油输送管道及其线路、站场和附属设施。"},
+    {"id":"term_asset_pipeline_section","kind":"asset","canonical":"管段","aliases":["管线区段","pipeline section","line section"],"description":"需要在报告中明确的管段、桩号或站场位置。"},
+    {"id":"term_process_closed_transport","kind":"inspection","canonical":"密闭输送工艺","aliases":["密闭输送","closed transport process"],"description":"GB 50253 检查项：输油管道宜采用密闭输送工艺。"},
+    {"id":"term_inspection_route_selection","kind":"inspection","canonical":"线路选择","aliases":["线路走向","route selection"],"description":"结合环境敏感区、地形地质、水文气象等进行线路检查。"},
+    {"id":"term_inspection_pipeline_laying","kind":"inspection","canonical":"管道敷设","aliases":["埋地管道","pipeline laying","buried pipeline"],"description":"包括埋深、回填、防腐和与其他设施间距等检查。"},
+    {"id":"term_hse_management","kind":"inspection","canonical":"HSE管理","aliases":["HSE management","健康安全环境管理"],"description":"检查体系文件、内审、管理评审和不符合项整改。"},
+    {"id":"term_contractor_management","kind":"inspection","canonical":"承包商管理","aliases":["contractor management"],"description":"检查资质、安全协议和施工过程监督。"},
+    {"id":"term_result_compliant","kind":"result","canonical":"符合","aliases":["合格","compliant","pass","passed"],"description":"检查项满足依据要求。"},
+    {"id":"term_result_noncompliant","kind":"result","canonical":"不符合","aliases":["不合格","non-compliant","fail","failed"],"description":"检查项未满足依据要求，必须记录事实、缺陷和处置。"}
+  ]
+}

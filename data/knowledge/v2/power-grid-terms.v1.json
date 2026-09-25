@@ -1,0 +1,17 @@
+{
+  "schema_version": "industrial-terms.v1",
+  "knowledge_version": "2026-09-25",
+  "scope": "POWER_GRID",
+  "records": [
+    {"id":"term_asset_insulating_oil","kind":"asset","canonical":"绝缘油","aliases":["变压器油","insulating oil","transformer oil"],"description":"绝缘油检测报告中的设备与样品类型。"},
+    {"id":"term_asset_main_transformer","kind":"asset","canonical":"主变压器","aliases":["主变","main transformer","power transformer"],"description":"需要记录设备名称、安装位置和电压等级。"},
+    {"id":"term_asset_charging_station","kind":"asset","canonical":"充电站","aliases":["charging station","EV charging station"],"description":"周期性检测对象。"},
+    {"id":"term_asset_offboard_charger","kind":"asset","canonical":"非车载充电机","aliases":["直流充电机","off-board charger","DC charger"],"description":"将交流或直流电源转换为直流电能的充电设备。"},
+    {"id":"term_asset_ac_charging_pile","kind":"asset","canonical":"交流充电桩","aliases":["AC充电桩","AC charging pile","AC charger"],"description":"为具有车载充电装置的电动汽车提供交流电源。"},
+    {"id":"term_test_breakdown_voltage","kind":"test","canonical":"击穿电压","aliases":["耐压值","breakdown voltage","dielectric strength"],"description":"绝缘油介电强度测试，报告多次耐压值及平均值，单位 kV。"},
+    {"id":"term_test_dielectric_loss","kind":"test","canonical":"介质损耗因数","aliases":["介损","tgδ","dielectric loss factor"],"description":"绝缘油介质损耗因数测试，通常以百分数记录。"},
+    {"id":"term_test_volume_resistivity","kind":"test","canonical":"体积电阻率","aliases":["电阻率","volume resistivity"],"description":"绝缘油体积电阻率，记录温度条件与 Ω·m 数值。"},
+    {"id":"term_environment","kind":"measurement","canonical":"检测环境","aliases":["环境温度","湿度","test environment","ambient temperature","humidity"],"description":"检测时的环境温度和湿度。"},
+    {"id":"term_safety_preparation","kind":"safety","canonical":"危险点分析及预防控制措施","aliases":["危险点分析","安全技术交底","hazard analysis","safety briefing"],"description":"充电站周期检测前的安全控制与交底记录。"}
+  ]
+}

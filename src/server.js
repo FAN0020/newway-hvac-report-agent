@@ -35,6 +35,7 @@ import { buildFollowUpQuestions } from './v2/guided-reporting.js';
 import {
   assertNoServiceFactInvention,
   buildBusReportSections,
+  buildIndustrialReportSections,
   buildRailReportSections,
   checkHardGates,
   planV2Report,
@@ -414,7 +415,7 @@ async function handleApi(request, response, url, traceId, config) {
     if (resolved.scopeId === 'HVAC') {
       writeJson(response, 200, toolEnvelope('v2_facts_extract', traceId, 'FAIL', {}, {
         error_code: 'UNSUPPORTED_SCOPE',
-        warnings: [`Context "${contextId}" resolves to HVAC; deterministic V2 fact extraction is only available for SBS/BUS and SBS/RAIL (HVAC stays on the V1 flow).`],
+        warnings: [`Context "${contextId}" resolves to HVAC; deterministic V2 fact extraction is available for SBS/BUS, SBS/RAIL, OILFIELD, and POWER/GRID (HVAC stays on the V1 flow).`],
       }));
       return;
     }
@@ -437,15 +438,18 @@ async function handleApi(request, response, url, traceId, config) {
     if (resolved.scopeId === 'HVAC') {
       writeJson(response, 200, toolEnvelope('v2_report_build', traceId, 'FAIL', {}, {
         error_code: 'UNSUPPORTED_SCOPE',
-        warnings: [`Context "${contextId}" resolves to HVAC; V2 report building is only available for SBS/BUS and SBS/RAIL.`],
+        warnings: [`Context "${contextId}" resolves to HVAC; V2 report building is available for SBS/BUS, SBS/RAIL, OILFIELD, and POWER/GRID.`],
       }));
       return;
     }
     const facts = Array.isArray(input.facts) ? input.facts : [];
     const factsReceiptId = input.facts_receipt_id ? String(input.facts_receipt_id) : undefined;
     const knowledgeHits = Array.isArray(input.knowledge_hits) ? input.knowledge_hits : [];
-    const build = resolved.scopeId === 'SBS_BUS' ? buildBusReportSections : buildRailReportSections;
-    const report = build({ facts, factsReceiptId });
+    const report = resolved.scopeId === 'SBS_BUS'
+      ? buildBusReportSections({ facts, factsReceiptId })
+      : resolved.scopeId === 'SBS_RAIL'
+        ? buildRailReportSections({ facts, factsReceiptId })
+        : buildIndustrialReportSections({ scopeId: resolved.scopeId, facts, factsReceiptId });
     const plan = planV2Report({ scopeId: resolved.scopeId, facts, factsReceiptId });
     const violations = [
       ...assertNoServiceFactInvention({ facts, knowledgeHits }),

@@ -30,9 +30,22 @@ const RAIL_QUESTIONS = Object.freeze({
   reliability_compliance: Object.freeze({ field: 'reliability.maintenance_note', question: 'Is there a reliability, compliance, or work-order reference that applies to this job?' }),
 });
 
+const INDUSTRIAL_QUESTIONS = Object.freeze({
+  asset_identification: Object.freeze({ field: 'asset.equipment', question: 'Which equipment, pipeline section, transformer, charger, station, and location were inspected?' }),
+  inspection_basis: Object.freeze({ field: 'standard.reference', question: 'Which standard, procedure, report template, or clause applies to this inspection?' }),
+  inspection_scope: Object.freeze({ field: 'inspection.item', question: 'Which inspection or test item did you perform?' }),
+  observations_measurements: Object.freeze({ field: 'inspection.observation', question: 'What did you observe, and what measured values and units were recorded?' }),
+  findings_result: Object.freeze({ field: 'inspection.result', question: 'Was the item compliant, non-compliant, normal, abnormal, passed, or failed? Describe any defect.' }),
+  work_performed: Object.freeze({ field: 'work_performed', question: 'What corrective action was actually completed? Do not include planned work as completed.' }),
+  verification: Object.freeze({ field: 'test.result', question: 'Was a retest or verification performed, and what was the observed result?' }),
+  completion_safety: Object.freeze({ field: 'completion.state', question: 'What is the confirmed completion state, and were isolation, HSE, or other safety controls verified?' }),
+});
+
 const QUESTIONS_BY_SCOPE = Object.freeze({
   SBS_BUS: BUS_QUESTIONS,
   SBS_RAIL: RAIL_QUESTIONS,
+  OILFIELD: INDUSTRIAL_QUESTIONS,
+  POWER_GRID: INDUSTRIAL_QUESTIONS,
 });
 
 /**
@@ -55,4 +68,3 @@ export function buildFollowUpQuestions({ scopeId, missingSections = [] } = {}) {
     })
     .filter(Boolean));
 }
-

@@ -1,0 +1,13 @@
+{
+  "schema_version":"industrial-report-modules.v1",
+  "knowledge_version":"2026-09-25",
+  "scope":"POWER_GRID",
+  "records":[
+    {"id":"module_asset","name":"设备与样品身份","category":"report_module","description":"设备名称、安装位置、电压等级、报告编号、取样日期和取样人员。"},
+    {"id":"module_basis","name":"检测依据","category":"report_module","description":"GB 50150 或充电设施相关 GB、NB/T、Q/GDW 标准。"},
+    {"id":"module_environment","name":"检测环境与仪器","category":"report_module","description":"环境温度、湿度、检测设备及编号。"},
+    {"id":"module_measurement","name":"检测项目与测量结果","category":"report_module","description":"击穿电压、平均值、介质损耗因数、体积电阻率或充电设备检测项目。"},
+    {"id":"module_result","name":"判定与异常","category":"report_module","description":"合格性、异常、缺失项目及依据。"},
+    {"id":"module_action","name":"处置与确认","category":"report_module","description":"实际处理、复测、完成状态和安全确认。"}
+  ]
+}

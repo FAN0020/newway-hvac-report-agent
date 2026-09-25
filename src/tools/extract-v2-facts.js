@@ -28,13 +28,16 @@ import { loadScopeRegistry, resolveContext } from '../v2/scope.js';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const KNOWLEDGE_V2_DIR = path.join(projectRoot, 'data', 'knowledge', 'v2');
 
-/** V2 deterministic extraction is defined only for the two SBS domains. */
-const SBS_SCOPES = Object.freeze(new Set(['SBS_BUS', 'SBS_RAIL']));
+/** Domains with deterministic, evidence-grounded extraction. */
+const EXTRACT_SCOPES = Object.freeze(new Set(['SBS_BUS', 'SBS_RAIL', 'OILFIELD', 'POWER_GRID']));
+const INDUSTRIAL_SCOPES = Object.freeze(new Set(['OILFIELD', 'POWER_GRID']));
 
 /** Vocab files per scope (canonical/aliases record shape). */
 const VOCAB_FILES_BY_SCOPE = Object.freeze({
   SBS_BUS: Object.freeze(['sbs-bus-terms.v1.json', 'sbs-bus-parts.v1.json']),
   SBS_RAIL: Object.freeze(['sbs-rail-terms.v1.json', 'sbs-rail-parts.v1.json']),
+  OILFIELD: Object.freeze(['oilfield-terms.v1.json']),
+  POWER_GRID: Object.freeze(['power-grid-terms.v1.json']),
 });
 
 /** Upper bound on processed text (mirrors V1 extractor discipline). */
@@ -229,10 +232,17 @@ const REPLACED_RE = /更换|替换|换了|换上|换下|换掉|换装|replaced|i
  * {km, train-km, car-km, mm, V, %, °C, min}). Capacitance specs (µF/uF/微法)
  * are part specifications, not measurements, and are intentionally excluded.
  */
-const MEASUREMENT_RE = /(\d+(?:[.,]\d+)?)\s*(mm|km|cm|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh)/iu;
+const MEASUREMENT_RE = /(\d+(?:[.,]\d+)?)\s*(kv|mm|km|cm|m|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh|ω[·.]?m|ohm[·-]?m)/giu;
+
+/** Explicit standard references used by the supplied inspection templates. */
+const STANDARD_REFERENCE_RE = /\b(?:GB(?:\/T)?|NB\/T|Q\/GDW)\s*\d+(?:\.\d+)?(?:-\d{4})?(?:\s*第\s*[\d.]+\s*条)?/giu;
+const INSPECTION_ITEM_RE = /检查|检测|试验|测试|巡检|inspection|test|击穿电压|介质损耗|体积电阻率|管道敷设|线路选择|输油工艺/iu;
+const INDUSTRIAL_RESULT_RE = /符合|不符合|合格|不合格|正常|异常|通过|不通过|pass(?:ed)?|fail(?:ed)?|compliant|non[- ]?compliant/iu;
+const OBSERVATION_RE = /实际情况|现场|发现|观察|测得|显示|observed|found|measured|inspection/iu;
+const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔离)|完成(?:更换|修复|紧固|清理|整改|处理)|replaced|repaired|secured|cleaned|rectified|isolated/iu;
 
 /** Test-indicator + result words (drives test.result). */
-const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|test|验证|check|检测/iu;
+const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|复测|test|retest|验证|check|检测/iu;
 const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|pass|fail|运转|ready/iu;
 
 /** Explicit "not completed" statements have no defined completion value. */
@@ -249,7 +259,7 @@ const COMPLETION_OFFROAD_RE = /off-?road|下线|停运/iu;
 const COMPLETION_RESTRICTED_RE = /限速|restricted\s*speed|speed\s+restriction/iu;
 
 /** Safety-critical assertion markers (drives safety.*). */
-const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|重新上路|restored|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|no\s+(?:additional\s+)?safety\s+(?:issue|concern|hazard)s?|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
+const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|重新上路|安全措施|安全确认|安全隔离|HSE|restored|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|no\s+(?:additional\s+)?safety\s+(?:issue|concern|hazard)s?|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
 
 /** Singapore bus vehicle registration as dictated by the technician. */
 const BUS_REGISTRATION_RE = /\b(?:SBS|SG)\d{1,4}[A-Z]\b/giu;
@@ -261,11 +271,17 @@ const BUS_REGISTRATION_RE = /\b(?:SBS|SG)\d{1,4}[A-Z]\b/giu;
  * @param {string} sentence
  * @returns {string}
  */
-function measurementField(sentence) {
+function measurementField(sentence, unit = '') {
+  const normalizedUnit = String(unit).toLowerCase().replace(/℃/g, '°c');
+  if (/ω[·.]?m|ohm[·-]?m/iu.test(normalizedUnit) || /体积电阻率|resistivity/iu.test(sentence)) return 'measurement.resistivity';
+  if (/击穿电压|耐压值|breakdown\s+voltage|dielectric\s+strength/iu.test(sentence) && normalizedUnit === 'kv') return 'measurement.breakdown_voltage';
+  if (/湿度|humidity/iu.test(sentence) && normalizedUnit === '%') return 'measurement.humidity';
+  if (/介质损耗|tgδ|dielectric\s+loss/iu.test(sentence) && normalizedUnit === '%') return 'measurement.dielectric_loss';
   if (/间隙|gap|间距/iu.test(sentence)) return 'measurement.gap';
   if (/磨损|磨耗|wear|thickness|深度|深度|depth|胎纹/iu.test(sentence)) return 'measurement.wear';
-  if (/温度|temp|°c|℃/iu.test(sentence)) return 'measurement.temperature';
+  if (normalizedUnit === '°c' || /温度|temp/iu.test(sentence)) return 'measurement.temperature';
   if (/压力|pressure|bar|kpa|psi/iu.test(sentence)) return 'measurement.pressure';
+  if (normalizedUnit === 'kv' || normalizedUnit === 'v') return 'measurement.voltage';
   return 'measurement.value';
 }
 
@@ -278,7 +294,7 @@ function measurementField(sentence) {
  * in one sentence, using the scoped vocabularies and rule patterns.
  *
  * @param {string} sentence
- * @param {'SBS_BUS'|'SBS_RAIL'} scopeId
+ * @param {'SBS_BUS'|'SBS_RAIL'|'OILFIELD'|'POWER_GRID'} scopeId
  * @param {{ terms: object[], parts: object[] }} vocab
  * @returns {Array<{ field: string, value: unknown, unit?: string }>}
  */
@@ -291,11 +307,34 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const models = buildIndex(vocab.terms.filter((record) => /^term_model_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, models)) push('asset.bus_model', hit.canonical);
     for (const match of sentence.matchAll(BUS_REGISTRATION_RE)) push('asset.registration_no', match[0].toUpperCase());
-  } else {
+  } else if (scopeId === 'SBS_RAIL') {
     const lines = buildIndex(vocab.terms.filter((record) => /^term_line_/u.test(String(record?.id ?? ''))));
     const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, lines)) push('asset.line', hit.canonical);
     for (const hit of findMatches(sentence, stocks)) push('asset.stock_class', hit.canonical);
+  } else if (INDUSTRIAL_SCOPES.has(scopeId)) {
+    const assets = buildIndex(vocab.terms.filter((record) => /^term_asset_/u.test(String(record?.id ?? ''))));
+    for (const hit of findMatches(sentence, assets)) push('asset.equipment', hit.canonical);
+    const voltage = /电压等级|额定电压|voltage\s+level|rated\s+voltage/iu.test(sentence)
+      ? sentence.match(/\b\d+(?:\.\d+)?\s*kV\b/iu)
+      : null;
+    if (scopeId === 'POWER_GRID' && voltage) push('asset.voltage_level', voltage[0].replace(/\s+/g, ''));
+  }
+
+  if (INDUSTRIAL_SCOPES.has(scopeId)) {
+    for (const match of sentence.matchAll(STANDARD_REFERENCE_RE)) push('standard.reference', match[0].replace(/\s+/g, ' ').trim());
+    if (INSPECTION_ITEM_RE.test(sentence)) {
+      push('work.type', 'inspection');
+      push('inspection.item', sentence);
+    }
+    if (OBSERVATION_RE.test(sentence)) push('inspection.observation', sentence);
+    if (INDUSTRIAL_RESULT_RE.test(sentence)) push('inspection.result', sentence);
+    if (FAULT_RE.test(sentence) || /缺陷|隐患|泄漏|腐蚀|破损|超标|defect|leak|corrosion|damage/iu.test(sentence)) {
+      push('defect.description', sentence);
+    }
+    if (PERFORMED_WORK_RE.test(sentence) && !RECOMMENDATION_RE.test(sentence) && !NOT_REPLACED_RE.test(sentence)) {
+      push('work_performed', sentence);
+    }
   }
 
   // --- work.type ------------------------------------------------------
@@ -329,9 +368,8 @@ function factsFromSentence(sentence, scopeId, vocab) {
   }
 
   // --- measurement.* --------------------------------------------------
-  const measure = MEASUREMENT_RE.exec(sentence);
-  if (measure) {
-    out.push({ field: measurementField(sentence), value: measure[1], unit: measure[2] });
+  for (const measure of sentence.matchAll(MEASUREMENT_RE)) {
+    out.push({ field: measurementField(sentence, measure[2]), value: measure[1], unit: measure[2] });
   }
 
   // --- test.result ----------------------------------------------------
@@ -371,10 +409,10 @@ function factsFromSentence(sentence, scopeId, vocab) {
 export async function extractV2Facts({ contextId, rawText, registry } = {}) {
   const reg = registry || await loadScopeRegistry();
   const { scopeId } = resolveContext(contextId, reg);
-  if (!SBS_SCOPES.has(scopeId)) {
+  if (!EXTRACT_SCOPES.has(scopeId)) {
     throw new Error(
-      `V2 fact extraction supports only the SBS domain (SBS/BUS, SBS/RAIL). ` +
-      `Context "${String(contextId ?? '')}" resolved to scope "${scopeId}", which does not support deterministic V2 fact extraction (non-SBS scopes such as HVAC use the V1 flow).`,
+      `V2 fact extraction supports SBS/BUS, SBS/RAIL, OILFIELD, and POWER/GRID. ` +
+      `Context "${String(contextId ?? '')}" resolved to scope "${scopeId}", which does not support deterministic V2 fact extraction (HVAC uses the V1 flow).`,
     );
   }
   const text = String(rawText ?? '').slice(0, MAX_TEXT_LENGTH);
