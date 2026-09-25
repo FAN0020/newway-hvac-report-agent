@@ -38,6 +38,13 @@ import {
   checkHardGates,
   planV2Report,
 } from './v2/report-builder.js';
+import {
+  createReportSession,
+  evaluateCompleteness,
+  factsFromStructuredState,
+  mapFactsToStructuredState,
+  structuredStateSnapshot,
+} from '../web/report-runtime.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -283,6 +290,7 @@ async function handleApi(request, response, url, traceId, config) {
       provider: input.use_llm === false || !model ? undefined : ollama,
       model,
       traceId,
+      reportSessionId: input.report_session_id,
     });
     writeJson(response, 200, result);
     return;
@@ -441,26 +449,42 @@ async function handleApi(request, response, url, traceId, config) {
     const facts = Array.isArray(input.facts) ? input.facts : [];
     const factsReceiptId = input.facts_receipt_id ? String(input.facts_receipt_id) : undefined;
     const knowledgeHits = Array.isArray(input.knowledge_hits) ? input.knowledge_hits : [];
+    const requestedSessionId = String(input.report_session_id || '').trim().slice(0, 160);
+    const reportSessionId = requestedSessionId || `server_${traceId}`;
+    const reportType = resolved.scopeId === 'SBS_BUS' ? 'sbs_bus_maintenance' : 'sbs_rail_maintenance';
+    const mappedSession = mapFactsToStructuredState(createReportSession({ id: reportSessionId, reportType }), facts);
+    const completeness = evaluateCompleteness(mappedSession);
+    const authoritativeFacts = factsFromStructuredState(mappedSession);
     const build = resolved.scopeId === 'SBS_BUS' ? buildBusReportSections : buildRailReportSections;
-    const report = build({ facts, factsReceiptId });
-    const plan = planV2Report({ scopeId: resolved.scopeId, facts, factsReceiptId });
+    const report = build({ facts: authoritativeFacts, factsReceiptId });
+    const plan = planV2Report({ scopeId: resolved.scopeId, facts: authoritativeFacts, factsReceiptId });
+    const schemaViolations = [
+      ...completeness.conflicts.map((field) => ({ class: 'SCHEMA_FIELD_CONFLICT', field, message: `Conflicting values for ${field} require technician resolution.` })),
+      ...completeness.needsConfirmation.map((field) => ({ class: 'SCHEMA_FIELD_NEEDS_CONFIRMATION', field, message: `${field} requires technician confirmation.` })),
+      ...completeness.invalidValues.map((item) => ({ class: 'SCHEMA_INVALID_VALUE', field: item.fieldId, message: `${item.fieldId} failed the schema ${item.reason} constraint.` })),
+    ];
     const violations = [
-      ...assertNoServiceFactInvention({ facts, knowledgeHits }),
-      ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
+      ...schemaViolations,
+      ...assertNoServiceFactInvention({ facts: authoritativeFacts, knowledgeHits }),
+      ...checkHardGates({ scopeId: resolved.scopeId, facts: authoritativeFacts }).violations,
     ];
     const schema = resolved.scopeId === 'SBS_BUS'
       ? { id: 'sbs_bus_maintenance', version: '0' }
       : { id: 'sbs_rail_maintenance', version: '0' };
-    const draftFingerprint = hashValue({ contextId, facts, sections: report.sections });
+    const stateSnapshot = structuredStateSnapshot(mappedSession);
+    const structuredStateHash = hashValue(stateSnapshot);
+    const draftFingerprint = hashValue({ contextId, reportSessionId, structuredStateHash, sections: report.sections });
     const draft = {
       report_id: `report_${draftFingerprint.slice(7, 19)}`,
       report_version: 1,
+      report_session_id: reportSessionId,
       schema_id: schema.id,
       schema_version: schema.version,
       scope_id: resolved.scopeId,
       context_id: contextId,
       template_version: report.reportVersion,
-      facts_hash: hashValue(facts),
+      facts_hash: hashValue(authoritativeFacts),
+      structured_state_hash: structuredStateHash,
       sections: report.sections,
       missing_required_fields: plan.missing_required_fields,
       disclaimer: {
@@ -473,8 +497,9 @@ async function handleApi(request, response, url, traceId, config) {
       status,
       data: { can_enter_technician_review: violations.length === 0, gates: { violations } },
     };
-    const validationReceipt = await reports.recordStructuredValidation({ draft, validation, facts });
+    const validationReceipt = await reports.recordStructuredValidation({ draft, validation, facts: authoritativeFacts });
     writeJson(response, 200, toolEnvelope('v2_report_build', traceId, status, {
+      structured_job_state: stateSnapshot,
       report: {
         scope_id: resolved.scopeId,
         context_id: contextId,

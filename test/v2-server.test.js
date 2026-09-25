@@ -248,6 +248,84 @@ test('POST /api/v2/reports/build builds a Rail report for SBS/RAIL', async () =>
   assert.deepEqual(body.data.gates.violations, []);
 });
 
+test('POST /api/v2/reports/build consumes authoritative StructuredJobState and renders technician follow-up evidence', async () => {
+  const facts = [
+    { fact_id: 'fact_model', field: 'asset.bus_model', value: 'MAN A95', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:1'] },
+    {
+      fact_id: 'followup_work',
+      field: 'work_performed',
+      value: 'Replaced the door actuator',
+      support_status: 'CONFIRMED_BY_TECHNICIAN',
+      source: 'technician_follow_up',
+      source_refs: ['resolve:missing_work_performed_0'],
+      provenance: { technician_id: 'TECH-1', resolve_item_id: 'missing_work_performed_0' },
+    },
+    { fact_id: 'fact_uncertain', field: 'work.description', value: 'Unconfirmed action', support_status: 'UNCERTAIN', source_refs: ['transcript:2'] },
+    { fact_id: 'fact_unsupported', field: 'invented.secret', value: 'Must never render', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:3'] },
+  ];
+  const { status, body } = await json(api('/api/v2/reports/build', {
+    method: 'POST',
+    body: { context_id: 'SBS/BUS', report_session_id: 'session_bus_state', facts },
+  }));
+
+  assert.equal(status, 200);
+  assert.equal(body.data.structured_job_state.session_id, 'session_bus_state');
+  assert.equal(body.data.structured_job_state.fields.work_performed, 'Replaced the door actuator');
+  assert.deepEqual(body.data.structured_job_state.unsupported_fields, ['invented.secret']);
+  const rendered = JSON.stringify(body.data.report.sections);
+  assert.match(rendered, /Replaced the door actuator/);
+  assert.doesNotMatch(rendered, /Unconfirmed action/);
+  assert.doesNotMatch(rendered, /Must never render/);
+  assert.equal(body.data.draft.report_session_id, 'session_bus_state');
+  assert.match(body.data.draft.structured_state_hash, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('Rail technician follow-up evidence updates state and the Rail report', async () => {
+  const facts = [{
+    fact_id: 'followup_access',
+    field: 'access.approval',
+    value: 'TAMS access approved by controller',
+    support_status: 'CONFIRMED_BY_TECHNICIAN',
+    source: 'technician_follow_up',
+    source_refs: ['resolve:missing_track_access_0'],
+    provenance: { technician_id: 'RAIL-1', resolve_item_id: 'missing_track_access_0' },
+  }];
+  const { body } = await json(api('/api/v2/reports/build', {
+    method: 'POST',
+    body: { context_id: 'SBS/RAIL', report_session_id: 'session_rail_state', facts },
+  }));
+
+  assert.equal(body.data.structured_job_state.fields['access.approval'], 'TAMS access approved by controller');
+  const access = body.data.report.sections.find((section) => section.id === 'track_access_record');
+  assert.match(JSON.stringify(access), /TAMS access approved by controller/);
+});
+
+test('schema conflicts independently gate V2 confirmation', async () => {
+  const facts = [
+    { fact_id: 'completion_1', field: 'completion.state', value: 'completed', support_status: 'CONFIRMED_BY_TECHNICIAN', source_refs: ['resolve:first'] },
+    { fact_id: 'completion_2', field: 'completion.state', value: 'deferred', support_status: 'CONFIRMED_BY_TECHNICIAN', source_refs: ['resolve:second'] },
+  ];
+  const built = await json(api('/api/v2/reports/build', {
+    method: 'POST',
+    body: { context_id: 'SBS/BUS', report_session_id: 'session_conflict', facts },
+  }));
+  assert.equal(built.body.status, 'NEEDS_CONFIRMATION');
+  assert.equal(built.body.data.validation_receipt.can_enter_technician_review, false);
+  assert.ok(built.body.data.gates.violations.some((item) => item.class === 'SCHEMA_FIELD_CONFLICT'));
+
+  const confirmed = await json(api('/api/v2/reports/confirm', {
+    method: 'POST',
+    body: {
+      draft: built.body.data.draft,
+      validator_run_id: built.body.trace_id,
+      technician_id: 'TECH-1',
+      technician_name: 'Alex',
+    },
+  }));
+  assert.equal(confirmed.body.status, 'FAIL');
+  assert.equal(confirmed.body.error_code, 'VALIDATION_NOT_REVIEWABLE');
+});
+
 test('POST /api/v2/reports/build returns NEEDS_CONFIRMATION when a test.result is knowledge-sourced', async () => {
   const facts = [
     { field: 'test.result', value: '刹车效率测试通过', support_status: 'DIRECT_TRANSCRIPT', source: 'knowledge', critical: true },

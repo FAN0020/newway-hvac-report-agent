@@ -1,5 +1,12 @@
 import { FIELD_TO_SECTION, renderFact } from './hvac-schema.js';
 import { boundedString, stableId, toolEnvelope } from './tool-envelope.js';
+import { hashValue } from './report-integrity.js';
+import {
+  createReportSession,
+  factsFromStructuredState,
+  mapFactsToStructuredState,
+  structuredStateSnapshot,
+} from '../../web/report-runtime.js';
 
 function validFacts(facts) {
   return facts.filter((fact) => fact?.fact_id && FIELD_TO_SECTION[fact.field] && fact.support_status !== 'UNCERTAIN').slice(0, 100);
@@ -31,11 +38,13 @@ function buildClaim(section, claimFacts) {
   };
 }
 
-export async function generateReportDraft({ facts = [], plan, template, provider, model, traceId } = {}) {
+export async function generateReportDraft({ facts = [], plan, template, provider, model, traceId, reportSessionId } = {}) {
   if (!Array.isArray(plan?.sections) || !template?.template_id) {
     return toolEnvelope('generate_report_draft', traceId, 'FAIL', {}, { error_code: 'INVALID_REPORT_PLAN_OR_TEMPLATE' });
   }
-  const reportFacts = validFacts(facts);
+  const effectiveSessionId = String(reportSessionId || stableId('session', template.template_id, facts));
+  const state = mapFactsToStructuredState(createReportSession({ id: effectiveSessionId, reportType: 'hvac_service' }), facts);
+  const reportFacts = validFacts(factsFromStructuredState(state));
   const byId = new Map(reportFacts.map((fact) => [fact.fact_id, fact]));
   const selectedSectionIds = new Set(plan.sections.map((section) => section.id));
   const allowedFactIds = new Set(byId.keys());
@@ -82,10 +91,16 @@ export async function generateReportDraft({ facts = [], plan, template, provider
       items: claims.length ? claims : [{ type: 'template_text', text: template.placeholder }],
     };
   });
+  const stateSnapshot = structuredStateSnapshot(state);
   const draft = {
-    report_id: stableId('report', template.template_id, facts, plan.sections.map((item) => item.id)),
+    report_id: stableId('report', template.template_id, reportFacts, plan.sections.map((item) => item.id)),
     report_version: 1,
+    report_session_id: effectiveSessionId,
+    schema_id: 'hvac_service',
+    report_schema_version: '1',
     schema_version: 'hvac-report-draft.v1',
+    structured_state_hash: hashValue(stateSnapshot),
+    facts_hash: hashValue(reportFacts),
     template_id: template.template_id,
     template_version: template.template_version,
     disclaimer: { type: 'template_text', text: template.disclaimer },
@@ -93,5 +108,5 @@ export async function generateReportDraft({ facts = [], plan, template, provider
     generation: { deterministic_claim_text: true, provider: providerMetadata },
     confirmation: { status: 'NOT_CONFIRMED' },
   };
-  return toolEnvelope('generate_report_draft', traceId, 'PASS', { draft }, { warnings });
+  return toolEnvelope('generate_report_draft', traceId, 'PASS', { draft, structured_job_state: stateSnapshot }, { warnings });
 }

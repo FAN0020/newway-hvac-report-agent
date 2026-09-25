@@ -2,9 +2,12 @@ import { PcmWavRecorder } from './audio-recorder.js';
 import { t } from './i18n.js';
 import {
   REPORT_SCHEMAS,
+  applyResolveAnswer,
+  correctionDecisionPayload,
   createReportSession,
   createResolveQueue,
   createSessionRuntime,
+  factsFromStructuredState,
   mapFactsToStructuredState,
   schemaFor,
 } from './report-runtime.js';
@@ -36,7 +39,6 @@ const ids = [
 const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 const runtime = createSessionRuntime();
 const sessions = new Map();
-const manualFields = {};
 const sessionTokenKey = 'hvac_demo_session_token';
 const demoNarration = '客户反映不制冷。检查发现运行电容损坏。更换了一个35微法电容。试机运行正常。问题已解决。建议下次保养清洗滤网。';
 const examples = {
@@ -58,9 +60,7 @@ let sessionToken = '';
 let activeSession = null;
 let recorder;
 let recordingTimer;
-let currentBlob;
-let currentAudioId;
-let previewUrl;
+let recordingSessionId;
 let currentTranscript;
 let currentNormalization;
 let currentCorrectionReceipt;
@@ -210,6 +210,8 @@ function updateJourney(step) {
 
 function saveTransientFromDom() {
   if (!activeSession) return;
+  activeSession.capture.language = el.language.value;
+  activeSession.capture.model = el.model.value;
   runtime.setTransient(activeSession.id, {
     statement: el['manual-transcript'].value,
     technicianName: el['technician-name'].value || el['correction-technician-name'].value,
@@ -222,6 +224,38 @@ function restoreTransientToDom() {
   el['manual-transcript'].value = transient.statement || '';
   for (const id of ['technician-name', 'correction-technician-name']) el[id].value = transient.technicianName || '';
   for (const id of ['technician-id', 'correction-technician-id']) el[id].value = transient.technicianId || '';
+  if (activeSession) {
+    el.language.value = activeSession.capture.language;
+    el.model.value = activeSession.capture.model;
+  }
+}
+
+function restoreSessionUi() {
+  const capture = activeSession?.capture;
+  el['audio-preview'].hidden = !capture?.previewUrl;
+  el['audio-preview'].src = capture?.previewUrl || '';
+  el.transcribe.disabled = !capture?.audioBlob;
+  el.retry.disabled = true;
+  el['recording-status'].textContent = activeSession?.processing.error || (capture?.audioBlob ? 'Audio ready for this report.' : 'No audio selected for this report.');
+  el['transcript-output'].textContent = activeSession?.transcriptArtifact?.raw_text || 'No transcript captured for this report.';
+  el['transcript-output'].classList.toggle('empty', !activeSession?.transcriptArtifact);
+  el['artifact-output'].textContent = activeSession?.transcriptArtifact ? JSON.stringify(activeSession.transcriptArtifact, null, 2) : '';
+  el['transcription-status'].textContent = activeSession?.processing.status === 'processing' ? 'Processing this report…' : '';
+  el['complete-summary'].textContent = activeSession?.complete.summary || '';
+  renderCompleteMeta(activeSession?.complete.meta || '');
+  el['export-output'].value = activeSession?.complete.copyableText || '';
+  el['export-output'].hidden = !activeSession?.complete.copyableText;
+  el['copy-export'].disabled = !activeSession?.complete.copyableText;
+  el['save-report'].disabled = !activeSession?.confirmation;
+  el['export-report'].disabled = !activeSession?.confirmation;
+  el['use-manual'].disabled = false;
+  el['use-manual'].textContent = 'Continue';
+  el['confirm-corrections'].disabled = false;
+  el['v2-upload-status'].textContent = '';
+}
+
+function renderCompleteMeta(meta) {
+  el['complete-meta'].replaceChildren(...String(meta || '').split('\n').filter(Boolean).map((line) => node('span', '', line)));
 }
 
 function activateSession(session) {
@@ -230,6 +264,7 @@ function activateSession(session) {
   runtime.activate(session);
   resetCurrentReferences();
   restoreTransientToDom();
+  restoreSessionUi();
   updateCaptureContext();
 }
 
@@ -357,41 +392,54 @@ function acceptTranscript(artifact, message) {
   addAudit('Original transcript captured', artifact.provider || 'manual');
 }
 
-function selectAudio(blob, message) {
-  currentBlob = blob;
-  currentAudioId = null;
+function selectAudio(blob, message, session = activeSession) {
+  if (!session) return;
+  const capture = session.capture;
+  capture.audioBlob = blob;
+  capture.audioId = null;
+  if (capture.previewUrl) URL.revokeObjectURL(capture.previewUrl);
+  capture.previewUrl = URL.createObjectURL(blob);
+  if (activeSession?.id !== session.id) return;
   el.transcribe.disabled = false;
   el.retry.disabled = true;
   el['recording-status'].textContent = message;
-  if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = URL.createObjectURL(blob);
-  el['audio-preview'].src = previewUrl;
+  el['audio-preview'].src = capture.previewUrl;
   el['audio-preview'].hidden = false;
 }
 
-async function uploadIfNeeded() {
-  if (currentAudioId) return currentAudioId;
-  const result = await apiRaw('/api/audio', currentBlob, { 'content-type': 'audio/wav' });
-  currentAudioId = result.data.audio_id;
-  return currentAudioId;
+async function uploadIfNeeded(session, requestToken) {
+  if (session.capture.audioId) return session.capture.audioId;
+  const result = await apiRaw('/api/audio', session.capture.audioBlob, { 'content-type': 'audio/wav' });
+  if (!runtime.accepts(requestToken)) return null;
+  session.capture.audioId = result.data.audio_id;
+  return session.capture.audioId;
 }
 
 async function transcribe(attempt) {
   if (!activeSession) return;
-  const requestToken = runtime.beginRequest(activeSession.id, 'transcribe');
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'transcribe');
+  session.capture.language = el.language.value;
+  session.capture.model = el.model.value;
+  session.processing = { status: 'processing', error: null };
   el.transcribe.disabled = true;
   el.retry.disabled = true;
   el['transcription-status'].textContent = 'Transcribing locally…';
   try {
-    const audioId = await uploadIfNeeded();
-    const result = await api('/api/transcriptions', { audio_id: audioId, model: el.model.value, language: el.language.value, attempt, idempotency_key: `${audioId}:${el.model.value}:${el.language.value}:attempt-${attempt}` });
+    const audioId = await uploadIfNeeded(session, requestToken);
+    if (!audioId) return;
+    const result = await api('/api/transcriptions', { audio_id: audioId, model: session.capture.model, language: session.capture.language, attempt, idempotency_key: `${audioId}:${session.capture.model}:${session.capture.language}:attempt-${attempt}` });
     if (!runtime.accepts(requestToken)) return;
     acceptTranscript(result.data.transcript, result.data.reused ? 'Reused the same transcription request.' : 'Speech transcription complete.');
     el['manual-transcript'].value = result.data.transcript.raw_text;
+    session.processing = { status: 'idle', error: null };
   } catch (error) {
-    if (runtime.accepts(requestToken)) el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}. Manual entry is still available.`;
-    el.retry.disabled = attempt >= 2;
-  } finally { el.transcribe.disabled = false; }
+    if (runtime.accepts(requestToken)) {
+      session.processing = { status: 'error', error: `Transcription failed: ${error.message}` };
+      el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${error.message}. Manual entry is still available.`;
+      el.retry.disabled = attempt >= 2;
+    }
+  } finally { if (runtime.accepts(requestToken)) el.transcribe.disabled = false; }
 }
 
 function renderCorrectionReview(normalization) {
@@ -440,12 +488,23 @@ function renderGenericResolve(queue) {
       const choice = node('label'); const radio = node('input'); radio.type = 'radio'; radio.name = item.id; radio.value = value; radio.dataset.resolveId = item.id;
       choice.append(radio, document.createTextNode(label)); controls.append(choice);
     }
-    if (item.type === 'MISSING_FIELD') {
+    if (item.type === 'MISSING_FIELD' || item.type === 'CRITICAL_VALUE') {
       const input = node('textarea');
       input.rows = 2;
       input.dataset.resolveValue = item.id;
+      input.value = item.type === 'CRITICAL_VALUE' ? String(activeSession.fieldStates?.[item.targetField || item.fieldId]?.value ?? '') : '';
       input.placeholder = 'Enter what the technician actually observed, or choose “not provided” below.';
       card.append(head, input, controls);
+    } else if (item.type === 'CONFLICT') {
+      const select = node('select');
+      select.dataset.resolveValue = item.id;
+      select.append(node('option', '', 'Choose the supported value'));
+      for (const candidate of item.candidates || []) {
+        const option = node('option', '', String(candidate.value ?? candidate));
+        option.value = String(candidate.value ?? candidate);
+        select.append(option);
+      }
+      card.append(head, select, controls);
     } else card.append(head, controls);
     return card;
   }));
@@ -454,39 +513,57 @@ function renderGenericResolve(queue) {
 }
 
 function collectGenericResolveDecisions() {
-  for (const item of activeSession.unresolvedItems) {
+  const session = activeSession;
+  const items = [...session.unresolvedItems];
+  for (const item of items) {
     const selected = el['correction-list'].querySelector(`input[name="${CSS.escape(item.id)}"]:checked`);
     if (!selected) throw new Error('Resolve each item before continuing.');
-    const value = el['correction-list'].querySelector(`[data-resolve-value="${CSS.escape(item.id)}"]`)?.value.trim() || '';
-    if (selected.value === 'CONFIRM' && item.type === 'MISSING_FIELD' && !value) throw new Error('Enter the observed value, or mark the item not provided.');
+    const control = el['correction-list'].querySelector(`[data-resolve-value="${CSS.escape(item.id)}"]`);
+    const value = control?.value.trim() || String(session.fieldStates?.[item.targetField || item.fieldId]?.value ?? '').trim();
+    if (selected.value === 'CONFIRM' && !value) throw new Error('Enter or choose the observed value, or mark the item not provided.');
     item.answer = { decision: selected.value, value: selected.value === 'CONFIRM' ? value : null };
+    if (selected.value === 'CONFIRM') {
+      const transient = runtime.getTransient(session.id);
+      Object.assign(session, applyResolveAnswer(session, item, value, {
+        technicianId: transient.technicianId,
+        technicianName: transient.technicianName,
+      }));
+    } else {
+      const unresolved = session.unresolvedItems.find((candidate) => candidate.id === item.id);
+      if (unresolved) unresolved.answer = item.answer;
+    }
   }
+  currentFacts = factsFromStructuredState(session);
 }
 
 async function prepareHvacResolve() {
-  currentNormalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
-  activeSession.normalization = currentNormalization;
-  activeSession.correctionCandidates = currentNormalization.data.correction_candidates || [];
-  activeSession.unresolvedItems = createResolveQueue({ correctionCandidates: activeSession.correctionCandidates, missingFields: [], conflicts: [] });
+  if (!activeSession || !currentTranscript) return;
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'prepare-hvac-resolve');
+  const normalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
+  if (!runtime.accepts(requestToken)) return;
+  currentNormalization = normalization;
+  session.normalization = normalization;
+  session.correctionCandidates = normalization.data.correction_candidates || [];
+  session.unresolvedItems = createResolveQueue({ correctionCandidates: session.correctionCandidates, missingFields: [], conflicts: [] });
   renderCorrectionReview(currentNormalization);
-  addAudit('Terminology candidates prepared', `${activeSession.correctionCandidates.length} candidates`);
+  addAudit('Terminology candidates prepared', `${session.correctionCandidates.length} candidates`);
   navigate('resolve');
 }
 
 async function processSbsStatement(raw, requestToken) {
-  const meta = scopeMeta[activeSession.scope];
-  const artifact = { artifact_id: `manual_${activeSession.id}`, provider: 'manual', raw_text: raw, source_hash: null, language: 'en' };
+  const session = activeSession;
+  const meta = scopeMeta[session.scope];
+  const artifact = { artifact_id: `manual_${session.id}`, provider: 'manual', raw_text: raw, source_hash: null, language: 'en' };
   acceptTranscript(artifact, 'Manual statement captured.');
   const extracted = await api('/api/v2/facts/extract', { context_id: meta.contextId, raw_text: raw });
   if (!runtime.accepts(requestToken)) return;
   currentFacts = extracted.data.facts || [];
-  const mapped = mapFactsToStructuredState(activeSession, currentFacts);
-  Object.assign(activeSession, mapped);
-  const conflicts = Object.values(activeSession.fieldStates).filter((field) => field.status === 'CONFLICT').map((field) => ({ field: field.fieldId, values: field.candidates.map((candidate) => candidate.value) }));
-  activeSession.unresolvedItems = createResolveQueue({ correctionCandidates: [], missingFields: [], conflicts });
+  Object.assign(session, mapFactsToStructuredState(session, currentFacts));
+  session.unresolvedItems = createResolveQueue(session);
   addAudit('Facts extracted', `${currentFacts.length} grounded facts`);
-  if (activeSession.unresolvedItems.length) {
-    renderGenericResolve(activeSession.unresolvedItems);
+  if (session.unresolvedItems.length) {
+    renderGenericResolve(session.unresolvedItems);
     navigate('resolve');
   } else {
     await buildSbsReport(requestToken, true);
@@ -494,49 +571,58 @@ async function processSbsStatement(raw, requestToken) {
 }
 
 async function buildSbsReport(existingToken, resolveMissing = false) {
-  const requestToken = existingToken || runtime.beginRequest(activeSession.id, 'build-sbs-report');
-  const result = await api('/api/v2/reports/build', { context_id: scopeMeta[activeSession.scope].contextId, facts: currentFacts, knowledge_hits: activeSession.knowledgeHits || [] }, { allowToolFailure: true });
+  const session = activeSession;
+  const requestToken = existingToken || runtime.beginRequest(session.id, 'build-sbs-report');
+  const authoritativeFacts = factsFromStructuredState(session);
+  const result = await api('/api/v2/reports/build', { context_id: scopeMeta[session.scope].contextId, report_session_id: session.id, facts: authoritativeFacts, knowledge_hits: session.knowledgeHits || [] }, { allowToolFailure: true });
   if (!runtime.accepts(requestToken)) return;
   if (!['PASS', 'NEEDS_CONFIRMATION'].includes(result.status)) throw new Error(result.error_code || 'Report could not be built.');
   currentDraft = result.data.draft;
   currentValidation = { trace_id: result.trace_id, status: result.status, data: { can_enter_technician_review: result.status === 'PASS', gates: result.data.gates, validation_receipt: result.data.validation_receipt } };
-  activeSession.reportDraft = currentDraft;
-  activeSession.reportDocument = currentDraft;
-  activeSession.validation = currentValidation;
+  session.reportDraft = currentDraft;
+  session.reportDocument = currentDraft;
+  session.validation = currentValidation;
+  session.completeness = result.data.structured_job_state?.completeness || session.completeness;
   const missingSections = result.data.report?.missing_required_fields || [];
   if (resolveMissing && missingSections.length) {
-    activeSession.unresolvedItems = missingSections.map((fieldId, index) => ({
+    session.unresolvedItems = missingSections.map((fieldId, index) => ({
       id: `missing_field_${fieldId}_${index}`,
       type: 'MISSING_FIELD',
       fieldId,
+      targetField: schemaFor(session.schemaId).requiredGroups.find((group) => group.id === fieldId)?.targetField || fieldId,
       severity: 'high',
       question: `No grounded information was found for ${fieldId.replaceAll('_', ' ')}.`,
       evidence: [],
       answer: null,
     }));
-    renderGenericResolve(activeSession.unresolvedItems);
+    renderGenericResolve(session.unresolvedItems);
     addAudit('Missing information queued for explicit review', `${missingSections.length} report sections`);
     navigate('resolve');
     return;
   }
-  activeSession.status = 'REVIEW';
+  session.status = 'REVIEW';
   addAudit('Report built and validated', result.status);
   renderReview();
   navigate('review');
 }
 
 async function generateHvacReport() {
-  const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: manualFields, use_llm: ollamaReady });
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'generate-hvac-report');
+  session.processing = { status: 'processing', error: null };
+  const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: session.manualFields, use_llm: ollamaReady });
+  if (!runtime.accepts(requestToken)) return;
   currentFacts = extracted.data.facts;
   currentFactsReceiptId = extracted.data.facts_receipt_id;
   const inputValidation = await api('/api/reports/validate-input', { facts_receipt_id: currentFactsReceiptId });
-  activeSession.facts = currentFacts;
-  activeSession.factsReceiptId = currentFactsReceiptId;
-  activeSession.inputValidation = inputValidation;
+  if (!runtime.accepts(requestToken)) return;
+  Object.assign(session, mapFactsToStructuredState(session, currentFacts));
+  session.factsReceiptId = currentFactsReceiptId;
+  session.inputValidation = inputValidation;
   const followUps = inputValidation.data.follow_up_questions || [];
-  if (!activeSession.hvacMissingResolved && followUps.length) {
-    activeSession.hvacMissingPhase = true;
-    activeSession.unresolvedItems = followUps.map(({ field, question }, index) => ({
+  if (!session.hvacMissingResolved && followUps.length) {
+    session.hvacMissingPhase = true;
+    session.unresolvedItems = followUps.map(({ field, question }, index) => ({
       id: `missing_field_${field}_${index}`,
       type: 'MISSING_FIELD',
       fieldId: field,
@@ -545,21 +631,26 @@ async function generateHvacReport() {
       evidence: [],
       answer: null,
     }));
-    renderGenericResolve(activeSession.unresolvedItems);
+    renderGenericResolve(session.unresolvedItems);
     addAudit('Missing information queued for explicit review', `${followUps.length} follow-up questions`);
     navigate('resolve');
     return;
   }
   const plan = await api('/api/reports/plan', { facts_receipt_id: currentFactsReceiptId, service_type: 'general_hvac' });
+  if (!runtime.accepts(requestToken)) return;
   const template = await api('/api/reports/template', { template_id: 'hvac_service_report', version: '1.0.0' });
-  const generated = await api('/api/reports/generate', { facts_receipt_id: currentFactsReceiptId, plan: plan.data, template: template.data.template, use_llm: ollamaReady });
+  if (!runtime.accepts(requestToken)) return;
+  const generated = await api('/api/reports/generate', { facts_receipt_id: currentFactsReceiptId, report_session_id: session.id, plan: plan.data, template: template.data.template, use_llm: ollamaReady });
+  if (!runtime.accepts(requestToken)) return;
   currentDraft = generated.data.draft;
   currentValidation = await api('/api/reports/validate-draft', { draft: currentDraft, facts_receipt_id: currentFactsReceiptId });
-  activeSession.reportDraft = currentDraft;
-  activeSession.reportDocument = currentDraft;
-  activeSession.validation = currentValidation;
-  activeSession.inputValidation = inputValidation;
-  activeSession.status = 'REVIEW';
+  if (!runtime.accepts(requestToken)) return;
+  session.reportDraft = currentDraft;
+  session.reportDocument = currentDraft;
+  session.validation = currentValidation;
+  session.inputValidation = inputValidation;
+  session.status = 'REVIEW';
+  session.processing = { status: 'idle', error: null };
   addAudit('Report built and independently validated', currentValidation.status);
   renderReview();
   navigate('review');
@@ -601,54 +692,66 @@ function renderReview() {
 }
 
 async function confirmCurrentReport() {
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'confirm-report');
   const technicianName = el['technician-name'].value.trim();
   const technicianId = el['technician-id'].value.trim();
   if (!technicianName || !technicianId) throw new Error('Technician name and ID are required.');
-  const isHvac = activeSession.scope === 'HVAC';
+  const isHvac = session.scope === 'HVAC';
   const endpoint = isHvac ? FINALIZATION_ROUTES.HVAC.confirm : FINALIZATION_ROUTES.SBS.confirm;
   const result = await api(endpoint, { draft: currentDraft, validator_run_id: currentValidation.trace_id, technician_id: technicianId, technician_name: technicianName });
+  if (!runtime.accepts(requestToken)) return;
   confirmationToken = result.data.confirmation.confirmation_token;
-  activeSession.confirmation = result.data.confirmation;
-  activeSession.jobContext = { technicianId, technicianName };
-  activeSession.status = 'CONFIRMED';
-  activeSession.updatedAt = new Date().toISOString();
+  session.confirmation = result.data.confirmation;
+  session.jobContext = { technicianId, technicianName };
+  session.status = 'CONFIRMED';
+  session.updatedAt = new Date().toISOString();
   addAudit('Report confirmed', `${technicianName} · ${technicianId}`);
   el['save-report'].disabled = false;
   el['export-report'].disabled = false;
-  el['complete-meta'].replaceChildren(node('span', '', `Report: ${currentDraft.report_id} · version ${currentDraft.report_version}`), node('span', '', `Schema: ${activeSession.schemaId} · ${activeSession.schemaVersion}`), node('span', '', `Confirmed: ${result.data.confirmation.confirmed_at}`), node('span', '', `Hash: ${result.data.confirmation.report_hash}`));
+  session.complete.meta = `Report: ${currentDraft.report_id} · version ${currentDraft.report_version}\nSchema: ${session.schemaId} · ${session.schemaVersion}\nConfirmed: ${result.data.confirmation.confirmed_at}\nHash: ${result.data.confirmation.report_hash}`;
+  renderCompleteMeta(session.complete.meta);
   navigate('complete');
   renderReports();
 }
 
 async function saveOrExport(kind) {
-  const isHvac = activeSession.scope === 'HVAC';
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, `finalize-${kind}`);
+  const isHvac = session.scope === 'HVAC';
   const endpoint = isHvac ? FINALIZATION_ROUTES.HVAC[kind] : FINALIZATION_ROUTES.SBS[kind];
   const result = await api(endpoint, { draft: currentDraft, confirmation_token: confirmationToken });
-  activeSession.exportState.files.push(result.data.file);
+  if (!runtime.accepts(requestToken)) return;
+  session.exportState.files.push(result.data.file);
   if (kind === 'save') {
-    activeSession.exportState.saved = true;
-    el['complete-summary'].textContent = `Official JSON saved at ${result.data.file}`;
+    session.exportState.saved = true;
+    session.complete.summary = `Official JSON saved at ${result.data.file}`;
+    el['complete-summary'].textContent = session.complete.summary;
     addAudit('Official JSON saved', result.data.file);
   } else {
     el['export-output'].value = result.data.copyable_text;
     el['export-output'].hidden = false;
     el['copy-export'].disabled = false;
-    el['complete-summary'].textContent = 'Copyable text export is ready. The official confirmation binding remains intact.';
+    session.complete.copyableText = result.data.copyable_text;
+    session.complete.summary = 'Copyable text export is ready. The official confirmation binding remains intact.';
+    el['complete-summary'].textContent = session.complete.summary;
     addAudit('Text export created', result.data.file);
   }
 }
 
 async function uploadSbsDocument(file) {
   if (!activeSession || activeSession.scope === 'HVAC') return;
-  const scopeAtStart = activeSession.scope;
+  const session = activeSession;
+  const scopeAtStart = session.scope;
+  const requestToken = runtime.beginRequest(session.id, 'upload-reference');
   el['v2-upload-status'].textContent = `Uploading ${file.name}…`;
   try {
     const result = await apiRaw('/api/v2/uploads', file, { 'x-file-name': file.name, 'x-scope-id': scopeAtStart, 'x-mime-type': file.type || 'application/octet-stream', 'x-uploader': el['v2-uploader'].value || 'demo-technician', 'x-scenario': 'report-capture', 'content-type': 'application/octet-stream' });
-    if (!activeSession || activeSession.scope !== scopeAtStart) return;
-    activeSession.evidence.push(result.data.upload);
+    if (!runtime.accepts(requestToken)) return;
+    session.evidence.push(result.data.upload);
     el['v2-upload-status'].textContent = result.data.upload.status === 'READY' ? `${file.name} attached and indexed in ${scopeAtStart}.` : `${file.name} could not be processed.`;
     addAudit('Reference document uploaded', `${file.name} · ${result.data.upload.status}`);
-  } catch (error) { el['v2-upload-status'].textContent = `Upload failed: ${error.message}`; }
+  } catch (error) { if (runtime.accepts(requestToken)) el['v2-upload-status'].textContent = `Upload failed: ${error.message}`; }
 }
 
 function renderUploadRow(upload) {
@@ -715,14 +818,16 @@ el['drawer-backdrop'].addEventListener('click', hideEvidence);
 
 el['start-recording'].addEventListener('click', async () => {
   el['start-recording'].disabled = true;
+  recordingSessionId = activeSession?.id;
   try { recorder = new PcmWavRecorder(); const { sampleRate } = await recorder.start(); el['stop-recording'].disabled = false; el['recording-status'].textContent = `Recording ${sampleRate} Hz input…`; recordingTimer = setTimeout(() => el['stop-recording'].click(), 90_000); }
   catch (error) { el['recording-status'].textContent = `Cannot start recording: ${error.message}`; el['start-recording'].disabled = false; }
 });
 el['stop-recording'].addEventListener('click', async () => {
   clearTimeout(recordingTimer); el['stop-recording'].disabled = true;
-  try { const wav = await recorder.stop(); selectAudio(wav, `Recording ready · ${Math.round(wav.size / 1024)} KB`); }
+  const targetSession = sessions.get(recordingSessionId);
+  try { const wav = await recorder.stop(); selectAudio(wav, `Recording ready · ${Math.round(wav.size / 1024)} KB`, targetSession); }
   catch (error) { el['recording-status'].textContent = `Failed to stop recording: ${error.message}`; }
-  finally { recorder = null; el['start-recording'].disabled = false; }
+  finally { recorder = null; recordingSessionId = null; el['start-recording'].disabled = false; }
 });
 el['audio-file'].addEventListener('change', () => { const file = el['audio-file'].files?.[0]; if (file) selectAudio(file, `Selected ${file.name}`); });
 el.transcribe.addEventListener('click', () => transcribe(1));
@@ -735,6 +840,8 @@ el['use-manual'].addEventListener('click', async () => {
   saveTransientFromDom(); invalidateConfirmation();
   activeSession.status = 'PROCESSING';
   const requestToken = runtime.beginRequest(activeSession.id, 'process-statement');
+  const session = activeSession;
+  session.processing = { status: 'processing', error: null };
   el['use-manual'].disabled = true; el['use-manual'].textContent = 'Organising report…'; el['transcription-status'].textContent = 'Preserving the original statement and checking grounded facts…';
   try {
     if (activeSession.scope === 'HVAC') {
@@ -743,53 +850,81 @@ el['use-manual'].addEventListener('click', async () => {
       acceptTranscript(result.data.transcript, 'Manual statement saved as the immutable original.');
       await prepareHvacResolve();
     } else await processSbsStatement(raw, requestToken);
-  } catch (error) { if (runtime.accepts(requestToken)) el['transcription-status'].textContent = `Could not prepare the report (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`; }
-  finally { el['use-manual'].disabled = false; el['use-manual'].textContent = 'Continue'; }
+  } catch (error) { if (runtime.accepts(requestToken)) { session.processing = { status: 'error', error: error.message }; el['transcription-status'].textContent = `Could not prepare the report (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`; } }
+  finally { if (runtime.accepts(requestToken)) { el['use-manual'].disabled = false; el['use-manual'].textContent = 'Continue'; } }
 });
 el['build-report'].addEventListener('click', prepareHvacResolve);
 
 el['confirm-corrections'].addEventListener('click', async () => {
   if (!activeSession) return;
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'resolve-decisions');
   const technicianName = el['correction-technician-name'].value.trim();
   const technicianId = el['correction-technician-id'].value.trim();
   if (!technicianName || !technicianId) { el['correction-status'].textContent = 'Technician name and ID are required.'; return; }
   runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), technicianName, technicianId });
   el['confirm-corrections'].disabled = true;
   try {
-    if (activeSession.scope === 'HVAC' && activeSession.hvacMissingPhase) {
+    if (session.scope === 'HVAC' && session.hvacMissingPhase) {
       collectGenericResolveDecisions();
-      for (const item of activeSession.unresolvedItems) manualFields[item.fieldId] = item.answer.decision === 'CONFIRM' ? item.answer.value : '未提供/待确认';
-      activeSession.hvacMissingPhase = false;
-      activeSession.hvacMissingResolved = true;
-      addAudit('Missing fields resolved', `${activeSession.unresolvedItems.length} explicit decisions`);
+      for (const item of session.unresolvedItems) session.manualFields[item.fieldId] = item.answer.decision === 'CONFIRM' ? item.answer.value : '未提供/待确认';
+      session.hvacMissingPhase = false;
+      session.hvacMissingResolved = true;
+      addAudit('Missing fields resolved', `${session.unresolvedItems.length} explicit decisions`);
       await generateHvacReport();
-    } else if (activeSession.scope === 'HVAC') {
+    } else if (session.scope === 'HVAC') {
       const decisions = (currentNormalization.data.correction_candidates || []).map((candidate) => {
         const selected = el['correction-list'].querySelector(`input[name="decision-${candidate.candidate_id}"]:checked`);
-        const verified = !el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`) || el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`).checked;
+        const criticalControl = el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`);
+        const verified = !criticalControl || criticalControl.checked;
         if (!selected || !verified) throw new Error('Choose a decision and verify each critical candidate.');
-        return { candidate_id: candidate.candidate_id, decision: selected.value, critical_value_verified: verified };
+        return correctionDecisionPayload({ candidateId: candidate.candidate_id, action: selected.value, critical: Boolean(criticalControl) && verified });
       });
       const result = await api('/api/corrections/confirm', { transcript_artifact_id: currentTranscript.artifact_id, candidate_bundle_hash: currentNormalization.data.candidate_bundle_hash, decisions, technician_id: technicianId, technician_name: technicianName });
+      if (!runtime.accepts(requestToken)) return;
       currentCorrectionReceipt = result.data.correction_receipt;
-      activeSession.correctionReceipt = currentCorrectionReceipt;
-      activeSession.corrections = decisions;
+      session.correctionReceipt = currentCorrectionReceipt;
+      session.corrections = decisions;
+      session.unresolvedItems = session.unresolvedItems.map((item) => {
+        const candidateId = item.candidate?.candidate_id;
+        const decision = decisions.find((entry) => entry.candidate_id === candidateId);
+        return decision ? { ...item, answer: { decision: decision.decision, criticalValueConfirmed: decision.critical_value_confirmed === true } } : item;
+      });
       addAudit('Transcript decisions confirmed', `${decisions.length} decisions`);
       await generateHvacReport();
     } else {
       collectGenericResolveDecisions();
-      addAudit('Unresolved items completed', `${activeSession.unresolvedItems.length} decisions`);
+      addAudit('Unresolved items completed', `${session.unresolvedItems.length} decisions`);
       await buildSbsReport();
     }
-  } catch (error) { el['correction-status'].textContent = error.message; }
-  finally { el['confirm-corrections'].disabled = false; }
+  } catch (error) { if (runtime.accepts(requestToken)) el['correction-status'].textContent = error.message; }
+  finally { if (runtime.accepts(requestToken)) el['confirm-corrections'].disabled = false; }
 });
 
 el['confirm-check'].addEventListener('change', () => { el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review; });
-el['confirm-report'].addEventListener('click', async () => { el['confirm-report'].disabled = true; try { await confirmCurrentReport(); } catch (error) { el['confirmation-status'].textContent = `Confirmation failed: ${error.message}`; el['confirm-report'].disabled = false; } });
-el['save-report'].addEventListener('click', () => saveOrExport('save').catch((error) => { el['complete-summary'].textContent = `Save failed: ${error.message}`; }));
-el['export-report'].addEventListener('click', () => saveOrExport('export').catch((error) => { el['complete-summary'].textContent = `Export failed: ${error.message}`; }));
-el['copy-export'].addEventListener('click', async () => { await navigator.clipboard.writeText(el['export-output'].value); el['complete-summary'].textContent = 'Exported text copied.'; });
+el['confirm-report'].addEventListener('click', async () => {
+  const sessionId = activeSession?.id;
+  el['confirm-report'].disabled = true;
+  try { await confirmCurrentReport(); }
+  catch (error) { if (activeSession?.id === sessionId) { el['confirmation-status'].textContent = `Confirmation failed: ${error.message}`; el['confirm-report'].disabled = false; } }
+});
+el['save-report'].addEventListener('click', () => {
+  const session = activeSession;
+  saveOrExport('save').catch((error) => { if (activeSession?.id === session?.id) { session.complete.summary = `Save failed: ${error.message}`; el['complete-summary'].textContent = session.complete.summary; } });
+});
+el['export-report'].addEventListener('click', () => {
+  const session = activeSession;
+  saveOrExport('export').catch((error) => { if (activeSession?.id === session?.id) { session.complete.summary = `Export failed: ${error.message}`; el['complete-summary'].textContent = session.complete.summary; } });
+});
+el['copy-export'].addEventListener('click', async () => {
+  const session = activeSession;
+  const text = el['export-output'].value;
+  await navigator.clipboard.writeText(text);
+  if (activeSession?.id === session?.id) {
+    session.complete.summary = 'Exported text copied.';
+    el['complete-summary'].textContent = session.complete.summary;
+  }
+});
 
 el['scope-selector-buttons'].addEventListener('click', (event) => {
   const button = event.target.closest('[data-scope-id]');
@@ -803,7 +938,7 @@ el['v2-retrieve-submit'].addEventListener('click', async () => {
   try {
     const result = await api('/api/v2/retrieve', { context_id: scopeMeta[scopeAtStart].contextId, query, top_k: Number(el['v2-retrieve-topk'].value) || 5, include_uploads: true });
     if (generation !== knowledgeRequestGeneration || scopeAtStart !== knowledgeScope) return;
-    const warnings = result.warnings || [];
+    const warnings = result.data?.warnings || [];
     el['v2-retrieve-warnings'].replaceChildren(...warnings.map((warning) => node('p', 'warning-line', warning === 'CROSS_DOMAIN_BLOCKED' ? 'Cross-domain content was blocked.' : warning)));
     renderKnowledgeResults(result.data.results || []); el['v2-retrieve-status'].textContent = `${result.data.results?.length || 0} results.`;
   } catch (error) { if (generation === knowledgeRequestGeneration) el['v2-retrieve-status'].textContent = `Search failed: ${error.message}`; }

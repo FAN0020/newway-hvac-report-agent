@@ -87,9 +87,9 @@ All `/api/*` routes, including `/api/health`, require the session bearer token. 
 - `POST /api/corrections/confirm`: accepts the transcript ID, server candidate-bundle hash, per-candidate `ACCEPT`/`REJECT` decisions, critical-review flags, and technician identity. It recomputes the candidate set and writes an immutable `hvac-correction-receipt.v1`. Client-supplied corrected text/candidate objects are rejected.
 - `POST /api/transcripts/manual`: saves an immutable manual `TranscriptArtifact`; it never claims to be ASR output.
 - `POST /api/facts/extract`: accepts only `correction_receipt_id` plus explicit technician-entered follow-up fields and an optional LLM-use flag. It reloads and verifies the transcript, knowledge version, candidate-set hash, decisions, and final-text hash before returning a server-side `facts_receipt_id` bound to that correction receipt.
-- `POST /api/reports/validate-input`, `/api/reports/plan`, and `/api/reports/generate`: load facts by `facts_receipt_id`; client-declared fact arrays are not trusted.
-- `POST /api/reports/validate-draft`: reloads the same server-side facts receipt, validates the exact draft, and records a validation receipt bound to both hashes.
-- `POST /api/reports/confirm`: issues a token bound to the current report hash/version, Validator run, technician, and timestamp.
+- `POST /api/reports/validate-input`, `/api/reports/plan`, and `/api/reports/generate`: load facts by `facts_receipt_id`; client-declared fact arrays are not trusted. Generation projects receipt facts through the built-in `hvac_service` StructuredJobState adapter first.
+- `POST /api/reports/validate-draft`: reloads the same server-side facts receipt, validates the exact draft plus schema/session/state bindings, and records a validation receipt bound to both evidence and report hashes.
+- `POST /api/reports/confirm`: issues a token bound to the current report hash/version, Validator run, facts/correction receipts, schema/session/state identity, technician, and timestamp.
 - `POST /api/reports/save`: writes the confirmed report as JSON; rejects missing or stale tokens.
 - `POST /api/reports/export`: writes and returns copyable text; rejects missing or stale tokens.
 
@@ -106,7 +106,7 @@ Scope isolation is a hard gate: `SBS/BUS` and `SBS/RAIL` queries can never retur
 - `GET /api/v2/uploads?scope_id=` — lists uploads for a scope.
 - `POST /api/v2/retrieve` — scope-gated retrieval over knowledge + uploads.
 - `POST /api/v2/facts/extract` — deterministic SBS fact extraction from technician text (`provider: manual`, critical fields flagged).
-- `POST /api/v2/reports/build` — builds a Bus/Rail report from facts only; runs `assertNoServiceFactInvention` and `checkHardGates`. A gate violation returns `NEEDS_CONFIRMATION` and the browser blocks the next step (e.g. a manual's "replace ZX-47" recommendation is never rendered as an occurred action).
+- `POST /api/v2/reports/build` — maps facts into the selected Bus/Rail StructuredJobState, projects only supported state into the existing builder, then runs schema validation, `assertNoServiceFactInvention`, and `checkHardGates`. A gate violation returns `NEEDS_CONFIRMATION` and the browser blocks confirmation (e.g. a manual's "replace ZX-47" recommendation is never rendered as an occurred action).
 - `data/v2-uploads/` — upload store (runtime data, gitignored).
 
 The V2 panel includes two presenter tools for SBS audiences in both supported interface languages:

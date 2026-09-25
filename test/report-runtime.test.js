@@ -51,12 +51,25 @@ test('facts map to StructuredJobState with explicit field support and status', (
 test('ResolveQueue normalizes terminology, critical, missing and conflict work', () => {
   assert.equal(typeof runtime.createResolveQueue, 'function');
   const queue = runtime.createResolveQueue({
-    correctionCandidates: [{ candidate_id: 'c1', source_span: { text: 'A ninety five' }, candidate: 'A95', status: 'NEEDS_TECHNICIAN_CONFIRMATION' }],
+    correctionCandidates: [
+      { candidate_id: 'c1', source_span: { text: 'control modular' }, candidate: 'control module', status: 'PROPOSED' },
+      { candidate_id: 'c2', source_span: { text: 'A ninety five' }, candidate: 'A95', status: 'NEEDS_TECHNICIAN_CONFIRMATION' },
+    ],
     missingFields: ['work.type'],
     conflicts: [{ field: 'completion.state', values: ['completed', 'deferred'] }],
   });
   assert.deepEqual(new Set(queue.map((item) => item.type)), new Set(['TERMINOLOGY', 'CRITICAL_VALUE', 'MISSING_FIELD', 'CONFLICT']));
   assert.ok(queue.every((item) => item.id && item.question && item.severity && Object.hasOwn(item, 'answer')));
+});
+
+test('a critical terminology candidate creates one Resolve action, not duplicate terminology and critical items', () => {
+  const queue = runtime.createResolveQueue({
+    correctionCandidates: [{ candidate_id: 'critical_1', field: 'parts_used', status: 'NEEDS_TECHNICIAN_CONFIRMATION' }],
+    missingFields: [],
+    conflicts: [],
+  });
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].type, 'CRITICAL_VALUE');
 });
 
 test('session runtime scopes transient input and rejects stale async completions', () => {
@@ -77,4 +90,159 @@ test('session runtime scopes transient input and rejects stale async completions
   controller.activate(bus);
   assert.equal(controller.getTransient('query'), 'A95 door query');
   assert.equal(controller.getTransient('statement'), 'Bus statement');
+});
+
+test('schema registry describes typed fields, repeating families, completeness rules and builder bindings', () => {
+  const hvac = runtime.schemaFor('hvac_service');
+  assert.equal(hvac.fieldDefinitions.work_order.type, 'structured');
+  assert.equal(hvac.fieldDefinitions.measurements.repeating, true);
+  assert.equal(hvac.builderBinding, 'hvac_v1');
+
+  const bus = runtime.schemaFor('sbs_bus_maintenance');
+  assert.equal(bus.fieldDefinitions['asset.registration_no'].type, 'string');
+  assert.equal(bus.fieldDefinitions['measurement.*'].repeating, true);
+  assert.equal(bus.fieldDefinitions['completion.state'].allowedValues.includes('completed'), true);
+  assert.equal(bus.builderBinding, 'sbs_bus_v0');
+  assert.ok(bus.requiredGroups.some((group) => group.id === 'work_performed' && group.targetField === 'work_performed'));
+
+  const rail = runtime.schemaFor('sbs_rail_maintenance');
+  assert.equal(rail.fieldDefinitions['asset.train_set'].type, 'string');
+  assert.equal(rail.builderBinding, 'sbs_rail_v0');
+});
+
+test('mapping preserves explicit false, repeating facts and unsupported input without making it reportable', () => {
+  const session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus' });
+  const mapped = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'f1', field: 'safety.hv_isolated', value: false, source_refs: ['transcript:1'] },
+    { fact_id: 'f2', field: 'measurement.voltage', value: 24, unit: 'V', source_refs: ['meter:1'] },
+    { fact_id: 'f3', field: 'measurement.current', value: 8, unit: 'A', source_refs: ['meter:2'] },
+    { fact_id: 'f4', field: 'invented.secret', value: 'must not render', source_refs: ['transcript:2'] },
+  ]);
+
+  assert.equal(mapped.structuredState['safety.hv_isolated'], false);
+  assert.equal(mapped.fieldStates['safety.hv_isolated'].status, 'SUPPORTED');
+  assert.equal(mapped.fieldStates['measurement.voltage'].value, 24);
+  assert.equal(mapped.fieldStates['measurement.current'].value, 8);
+  assert.equal(mapped.unsupportedFacts[0].field, 'invented.secret');
+  assert.equal(runtime.factsFromStructuredState(mapped).some((fact) => fact.field === 'invented.secret'), false);
+});
+
+test('completeness distinguishes unknown from false and rejects disallowed values and units', () => {
+  let session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus' });
+  session = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'f1', field: 'safety.hv_isolated', value: false, source_refs: ['transcript:1'] },
+    { fact_id: 'f2', field: 'completion.state', value: 'maybe', source_refs: ['transcript:2'] },
+    { fact_id: 'f3', field: 'measurement.odometer_km', value: 123, unit: 'V', source_refs: ['transcript:3'] },
+  ]);
+  const result = runtime.evaluateCompleteness(session);
+
+  assert.equal(result.missingFields.includes('safety.hv_isolated'), false);
+  assert.ok(result.invalidValues.some((item) => item.fieldId === 'completion.state' && item.reason === 'allowed_value'));
+  assert.ok(result.invalidValues.some((item) => item.fieldId === 'measurement.odometer_km' && item.reason === 'unit'));
+  assert.equal(result.complete, false);
+});
+
+test('a Resolve answer updates authoritative state with technician provenance and becomes builder input', () => {
+  let session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus' });
+  session = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'f1', field: 'asset.bus_model', value: 'MAN A95', source_refs: ['transcript:1'] },
+  ]);
+  const item = {
+    id: 'missing_work_performed_0',
+    type: 'MISSING_FIELD',
+    fieldId: 'work_performed',
+    targetField: 'work_performed',
+    question: 'What work was performed?',
+    answer: null,
+  };
+  session.unresolvedItems = [item];
+  const resolved = runtime.applyResolveAnswer(session, item, 'Replaced the door actuator', {
+    technicianId: 'TECH-1',
+    technicianName: 'Alex',
+  });
+
+  assert.equal(resolved.structuredState.work_performed, 'Replaced the door actuator');
+  assert.equal(resolved.fieldStates.work_performed.status, 'SUPPORTED');
+  assert.equal(resolved.fieldStates['asset.bus_model'].value, 'MAN A95');
+  const fact = runtime.factsFromStructuredState(resolved).find((candidate) => candidate.field === 'work_performed');
+  assert.equal(fact.value, 'Replaced the door actuator');
+  assert.equal(fact.support_status, 'CONFIRMED_BY_TECHNICIAN');
+  assert.equal(fact.provenance.technician_id, 'TECH-1');
+  assert.equal(fact.provenance.resolve_item_id, item.id);
+  assert.deepEqual(resolved.unresolvedItems.find((candidate) => candidate.id === item.id)?.answer, {
+    decision: 'CONFIRM',
+    value: 'Replaced the door actuator',
+  });
+});
+
+test('factsFromStructuredState excludes missing, conflicting and unconfirmed values', () => {
+  let session = runtime.createReportSession({ reportType: 'sbs_rail_maintenance', id: 'session_rail' });
+  session = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'f1', field: 'asset.train_set', value: 'TS-1', source_refs: ['transcript:1'] },
+    { fact_id: 'f2', field: 'completion.state', value: 'completed', source_refs: ['transcript:2'] },
+    { fact_id: 'f3', field: 'completion.state', value: 'deferred', source_refs: ['transcript:3'] },
+    { fact_id: 'f4', field: 'work.fault_code', value: 'D01', support_status: 'UNCERTAIN', source_refs: ['transcript:4'] },
+  ]);
+  const fields = runtime.factsFromStructuredState(session).map((fact) => fact.field);
+  assert.ok(fields.includes('asset.train_set'));
+  assert.equal(fields.includes('completion.state'), false);
+  assert.equal(fields.includes('work.fault_code'), false);
+});
+
+test('SBS builder facts include deterministic provenance derived from verified state support', () => {
+  let session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus' });
+  session = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'fact_model', field: 'asset.bus_model', value: 'MAN A95', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:1'] },
+  ]);
+  const provenance = runtime.factsFromStructuredState(session).find((fact) => fact.field === 'provenance.source');
+  assert.deepEqual(provenance.value, { fact_ids: ['fact_model'], source_refs: ['transcript:1'] });
+  assert.equal(provenance.source, 'structured_state_mapper');
+});
+
+test('schema-declared completion confirmation stays unresolved until technician evidence is applied', () => {
+  let session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'session_bus' });
+  session = runtime.mapFactsToStructuredState(session, [
+    { fact_id: 'completion_direct', field: 'completion.state', value: 'completed', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:1'] },
+  ]);
+  assert.equal(session.fieldStates['completion.state'].status, 'NEEDS_CONFIRMATION');
+  const item = runtime.createResolveQueue(session).find((candidate) => candidate.fieldId === 'completion.state');
+  const resolved = runtime.applyResolveAnswer(session, item, 'completed', { technicianId: 'TECH-1' });
+  assert.equal(resolved.fieldStates['completion.state'].status, 'SUPPORTED');
+});
+
+test('critical correction decisions use the backend confirmation contract', () => {
+  assert.deepEqual(runtime.correctionDecisionPayload({
+    candidateId: 'candidate_1',
+    action: 'accept',
+    critical: true,
+  }), {
+    candidate_id: 'candidate_1',
+    decision: 'accept',
+    critical_value_confirmed: true,
+  });
+});
+
+test('ReportSession owns capture, manual, processing and complete-page state', () => {
+  const session = runtime.createReportSession({ reportType: 'HVAC', id: 'session_hvac' });
+  assert.deepEqual(session.manualFields, {});
+  assert.deepEqual(session.capture, {
+    audioBlob: null,
+    audioId: null,
+    previewUrl: null,
+    attachment: null,
+    language: 'auto',
+    model: 'base',
+  });
+  assert.deepEqual(session.processing, { status: 'idle', error: null });
+  assert.deepEqual(session.complete, { summary: '', meta: '', copyableText: '' });
+});
+
+test('session runtime rejects an older request in the same session and scope', () => {
+  const controller = runtime.createSessionRuntime();
+  const session = runtime.createReportSession({ reportType: 'HVAC', id: 'hvac' });
+  controller.activate(session);
+  const older = controller.beginRequest('process');
+  const newer = controller.beginRequest('process');
+  assert.equal(controller.accepts(older), false);
+  assert.equal(controller.accepts(newer), true);
 });
