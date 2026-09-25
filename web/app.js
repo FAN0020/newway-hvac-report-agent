@@ -18,6 +18,7 @@ import {
   knowledgeQueryState,
   mapFactsToStructuredState,
   reportSearchText,
+  reviewStatus,
   resolveAttentionCount,
   resolveProgress,
   schemaFor,
@@ -27,8 +28,9 @@ import {
 const ids = [
   'auth-gate', 'auth-token', 'auth-submit', 'auth-status', 'network-mode', 'network-warning',
   'page-title', 'page-eyebrow', 'topbar-status', 'mobile-menu', 'journey', 'reports-list', 'report-search',
-  'context-icon', 'context-title', 'context-schema', 'sbs-source-row', 'open-evidence', 'review-evidence',
-  'evidence-drawer', 'close-evidence', 'drawer-backdrop', 'audit-timeline', 'fill-demo',
+  'context-icon', 'context-title', 'context-schema', 'sbs-source-row', 'open-evidence', 'review-evidence', 'edit-information',
+  'evidence-drawer', 'close-evidence', 'drawer-backdrop', 'audit-timeline', 'evidence-source',
+  'evidence-corrections', 'evidence-facts', 'evidence-state', 'evidence-resolve', 'evidence-context', 'evidence-validation', 'evidence-finalization', 'fill-demo',
   'refresh-health', 'health-summary', 'health-details', 'start-recording', 'stop-recording', 'audio-file',
   'recording-status', 'audio-preview', 'language', 'model', 'transcribe', 'retry', 'type-instead', 'manual-entry',
   'manual-transcript', 'manual-source-hint', 'statement-ready', 'statement-source', 'view-statement', 'edit-statement', 'statement-preview',
@@ -40,7 +42,7 @@ const ids = [
   'questions-section', 'questions-list', 'apply-answers', 'evidence-section', 'facts-output', 'issues-output',
   'fact-count', 'issue-count', 'validation-label', 'report-section', 'validator-banner', 'report-output',
   'validator-output', 'confirm-section', 'review-identity-summary', 'review-identity-fields', 'change-technician', 'technician-name', 'technician-id', 'confirm-check', 'confirm-report',
-  'save-report', 'export-report', 'copy-export', 'confirmation-status', 'export-output', 'complete-summary',
+  'save-report', 'export-report', 'copy-export', 'confirmation-status', 'export-output', 'complete-summary', 'complete-status', 'start-another-report',
   'complete-meta', 'v2-upload-file', 'v2-upload-submit', 'v2-upload-status', 'v2-uploader', 'v2-upload-list',
   'v2-upload-progress', 'v2-upload-record', 'v2-upload-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk',
   'v2-retrieve-submit', 'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
@@ -91,6 +93,7 @@ let currentView = 'reports';
 let knowledgeScope = 'SBS_BUS';
 let knowledgeRequestGeneration = 0;
 let knowledgeSearchPending = false;
+let previousEvidenceFocus = null;
 const knowledgeTransients = new Map();
 
 function node(tag, className, text) {
@@ -177,16 +180,56 @@ function renderAudit() {
   el['audit-timeline'].replaceChildren(...entries.map((entry) => node('div', 'audit-entry', `${entry.label} · ${entry.at.slice(11, 19)}${entry.detail ? `\n${entry.detail}` : ''}`)));
 }
 
-function showEvidence() {
-  el['evidence-drawer'].hidden = false;
-  el['drawer-backdrop'].hidden = false;
+function evidenceJson(value, empty = 'Not available yet.') {
+  if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) return empty;
+  try { return JSON.stringify(value, null, 2); }
+  catch { return 'This evidence could not be displayed.'; }
+}
+
+function renderEvidence() {
+  const session = activeSession;
   renderTranscriptEvidence();
   renderAudit();
+  el['evidence-corrections'].textContent = evidenceJson(session && {
+    decisions: session.correctionDecisions?.length ? session.correctionDecisions : session.corrections,
+    receipt: session.correctionReceipt,
+  });
+  el['evidence-facts'].textContent = evidenceJson(session && { facts: session.facts, facts_receipt_id: session.factsReceiptId });
+  el['evidence-state'].textContent = evidenceJson(session && {
+    schema_id: session.schemaId, schema_version: session.schemaVersion,
+    structured_job_state: session.structuredState, field_states: session.fieldStates, completeness: session.completeness,
+  });
+  el['evidence-resolve'].textContent = evidenceJson(session && {
+    answers: session.resolveAnswers,
+    technician_follow_ups: (session.facts || []).filter((fact) => fact.source === 'technician_follow_up'),
+  });
+  el['evidence-context'].textContent = evidenceJson(session && {
+    audio_id: session.capture?.audioId || null,
+    attachment: session.capture?.attachment || null,
+    supporting_documents: session.evidence,
+    knowledge_references: session.knowledgeHits || [],
+  });
+  el['evidence-validation'].textContent = evidenceJson(session && { input: session.inputValidation, report: session.validation });
+  el['evidence-finalization'].textContent = evidenceJson(session && { confirmation: session.confirmation, official_artifacts: session.exportState });
+}
+
+function showEvidence() {
+  previousEvidenceFocus = document.activeElement;
+  el['evidence-drawer'].hidden = false;
+  el['drawer-backdrop'].hidden = false;
+  document.querySelector('.app-shell').inert = true;
+  document.body.classList.add('drawer-open');
+  renderEvidence();
+  el['close-evidence'].focus();
 }
 
 function hideEvidence() {
   el['evidence-drawer'].hidden = true;
   el['drawer-backdrop'].hidden = true;
+  document.querySelector('.app-shell').inert = false;
+  document.body.classList.remove('drawer-open');
+  if (previousEvidenceFocus?.isConnected) previousEvidenceFocus.focus();
+  previousEvidenceFocus = null;
 }
 
 function renderTranscriptEvidence() {
@@ -228,6 +271,7 @@ function navigate(view) {
   if (journeyView) updateJourney(view);
   else el['topbar-status'].textContent = globalViewStatus(view, knowledgeScope);
   document.querySelector('.sidebar').classList.remove('open');
+  el['mobile-menu'].setAttribute('aria-expanded', 'false');
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -305,6 +349,7 @@ function restoreSessionUi() {
   el['copy-export'].disabled = !activeSession?.complete.copyableText;
   el['save-report'].disabled = !activeSession?.confirmation;
   el['export-report'].disabled = !activeSession?.confirmation;
+  renderCompleteState(activeSession);
   el['use-manual'].disabled = !(artifact || el['manual-transcript'].value.trim());
   el['use-manual'].textContent = 'Continue';
   el['confirm-corrections'].disabled = false;
@@ -312,6 +357,12 @@ function restoreSessionUi() {
 
 function renderCompleteMeta(meta) {
   el['complete-meta'].replaceChildren(...String(meta || '').split('\n').filter(Boolean).map((line) => node('span', '', line)));
+}
+
+function renderCompleteState(session = activeSession) {
+  const saved = Boolean(session?.exportState?.saved);
+  el['complete-status'].textContent = saved ? 'Saved · official JSON created' : 'Confirmed · not yet saved';
+  el['complete-status'].classList.toggle('saved', saved);
 }
 
 function activateSession(session) {
@@ -858,14 +909,17 @@ function renderReview() {
   renderReportSections();
   const issueCount = resolveAttentionCount(activeSession);
   const reviewable = Boolean(currentValidation?.data?.can_enter_technician_review) && issueCount === 0;
-  el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
-  el['validator-banner'].textContent = reviewable
-    ? `Ready to confirm: validation ${currentValidation.status} and no required information is pending.`
-    : (issueCount ? `${issueCount} item${issueCount === 1 ? ' still needs' : 's still need'} information. The draft remains reviewable but cannot be confirmed.` : `Validation ${currentValidation?.status || 'FAIL'}: resolve validation issues before confirmation.`);
+  const status = reviewStatus(activeSession, { reviewable, issueCount });
+  el['validator-banner'].className = `validator-banner ${status === 'CONFIRMED' ? 'confirmed' : (reviewable ? 'pass' : 'fail')}`;
+  el['validator-banner'].textContent = status === 'CONFIRMED'
+    ? 'Confirmed: this exact reviewed version is bound to the technician confirmation.'
+    : (reviewable
+      ? `Ready to confirm: validation ${currentValidation.status} and no required information is pending.`
+      : (issueCount ? `${issueCount} item${issueCount === 1 ? ' still needs' : 's still need'} information. The draft remains reviewable but cannot be confirmed.` : `Validation ${currentValidation?.status || 'FAIL'}: resolve validation issues before confirmation.`));
   el['validator-output'].textContent = JSON.stringify(currentValidation, null, 2);
   el['fact-count'].textContent = String(currentFacts.length);
   el['issue-count'].textContent = String(issueCount);
-  el['validation-label'].textContent = issueCount ? 'Needs information' : (currentValidation?.status || 'Waiting');
+  el['validation-label'].textContent = status === 'CONFIRMED' ? 'Confirmed' : (issueCount ? 'Needs information' : (reviewable ? 'Ready' : 'Validation failed'));
   const technicianName = activeSession.jobContext?.technicianName || '';
   const technicianId = activeSession.jobContext?.technicianId || '';
   el['technician-name'].value = technicianName;
@@ -920,6 +974,7 @@ async function saveOrExport(kind) {
     session.complete.summary = `Official JSON saved at ${result.data.file}`;
     el['complete-summary'].textContent = session.complete.summary;
     addAudit('Official JSON saved', result.data.file);
+    renderCompleteState(session);
   } else {
     el['export-output'].value = result.data.copyable_text;
     el['export-output'].hidden = false;
@@ -1015,10 +1070,33 @@ el['fill-demo'].addEventListener('click', () => {
 el['auth-submit'].addEventListener('click', (event) => { event.preventDefault(); unlockWithToken(el['auth-token'].value); });
 el['auth-token'].addEventListener('keydown', (event) => { if (event.key === 'Enter') el['auth-submit'].click(); });
 el['refresh-health'].addEventListener('click', () => refreshHealth().catch((error) => { el['health-summary'].textContent = `Health check failed: ${error.message}`; }));
-el['mobile-menu'].addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+el['mobile-menu'].addEventListener('click', () => {
+  const open = document.querySelector('.sidebar').classList.toggle('open');
+  el['mobile-menu'].setAttribute('aria-expanded', String(open));
+});
 document.addEventListener('click', (event) => {
   const nav = event.target.closest('[data-nav]');
   if (nav) { if (currentView === 'capture') saveTransientFromDom(); if (nav.dataset.nav === 'reports') renderReports(); navigate(nav.dataset.nav); }
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar.classList.contains('open') && !sidebar.contains(event.target) && !el['mobile-menu'].contains(event.target)) {
+    sidebar.classList.remove('open');
+    el['mobile-menu'].setAttribute('aria-expanded', 'false');
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !el['evidence-drawer'].hidden) { event.preventDefault(); hideEvidence(); return; }
+  if (event.key === 'Escape' && document.querySelector('.sidebar').classList.contains('open')) {
+    document.querySelector('.sidebar').classList.remove('open');
+    el['mobile-menu'].setAttribute('aria-expanded', 'false');
+    el['mobile-menu'].focus();
+    return;
+  }
+  if (event.key !== 'Tab' || el['evidence-drawer'].hidden) return;
+  const focusable = [...el['evidence-drawer'].querySelectorAll('button, summary, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((item) => !item.disabled && !item.hidden);
+  if (!focusable.length) { event.preventDefault(); el['evidence-drawer'].focus(); return; }
+  const [first] = focusable; const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 });
 document.getElementById('report-type-grid').addEventListener('click', (event) => { const card = event.target.closest('[data-report-type]'); if (card) createNewReport(card.dataset.reportType); });
 el['report-search'].addEventListener('input', renderReports);
@@ -1030,6 +1108,16 @@ for (const filter of document.querySelectorAll('.filter')) filter.addEventListen
 for (const id of ['open-evidence', 'review-evidence']) el[id].addEventListener('click', showEvidence);
 el['close-evidence'].addEventListener('click', hideEvidence);
 el['drawer-backdrop'].addEventListener('click', hideEvidence);
+el['edit-information'].addEventListener('click', () => {
+  if (!activeSession) return;
+  const pending = (activeSession.unresolvedItems || []).map((item) => item.answer?.decision === 'NOT_PROVIDED' ? { ...item, answer: null } : item);
+  if (pending.some((item) => !item.answer)) {
+    for (const item of pending.filter((candidate) => !candidate.answer)) delete activeSession.resolveAnswers[item.id];
+    renderGenericResolve(pending, { reset: true });
+    navigate('resolve');
+  } else navigate('capture');
+});
+el['start-another-report'].addEventListener('click', () => navigate('new-report'));
 
 el['start-recording'].addEventListener('click', async () => {
   if (recorder) return;
@@ -1229,10 +1317,20 @@ el['export-report'].addEventListener('click', () => {
 el['copy-export'].addEventListener('click', async () => {
   const session = activeSession;
   const text = el['export-output'].value;
-  await navigator.clipboard.writeText(text);
-  if (activeSession?.id === session?.id) {
-    session.complete.summary = 'Exported text copied.';
-    el['complete-summary'].textContent = session.complete.summary;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (activeSession?.id === session?.id) {
+      session.complete.summary = 'Exported text copied.';
+      el['complete-summary'].textContent = session.complete.summary;
+    }
+  } catch (error) {
+    if (activeSession?.id === session?.id) {
+      session.complete.summary = `Copy failed: ${error.message}. Select the exported text and copy it manually.`;
+      el['complete-summary'].textContent = session.complete.summary;
+      el['export-output'].hidden = false;
+      el['export-output'].focus();
+      el['export-output'].select();
+    }
   }
 });
 

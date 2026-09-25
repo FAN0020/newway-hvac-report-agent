@@ -248,6 +248,12 @@ export function confirmationViewState(session, { reviewable = false } = {}) {
   };
 }
 
+export function reviewStatus(session, { reviewable = false, issueCount = 0 } = {}) {
+  if (session?.confirmation) return "CONFIRMED";
+  if (Number(issueCount) > 0) return "NEEDS_INFORMATION";
+  return reviewable ? "READY_TO_CONFIRM" : "VALIDATION_FAILED";
+}
+
 function collectSearchValues(value, result) {
   if (value === null || value === undefined) return;
   if (["string", "number", "boolean"].includes(typeof value)) { result.push(String(value)); return; }

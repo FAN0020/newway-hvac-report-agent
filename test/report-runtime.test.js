@@ -372,6 +372,16 @@ test('global surfaces expose their own context instead of the last report scope'
   assert.equal(runtime.globalViewStatus('help'), 'Demo help and walkthroughs');
 });
 
+test('Review status truthfully distinguishes ready, needs information, failed, and confirmed', () => {
+  assert.equal(typeof runtime.reviewStatus, 'function');
+  const session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'review-status' });
+  assert.equal(runtime.reviewStatus(session, { reviewable: true, issueCount: 0 }), 'READY_TO_CONFIRM');
+  assert.equal(runtime.reviewStatus(session, { reviewable: false, issueCount: 2 }), 'NEEDS_INFORMATION');
+  assert.equal(runtime.reviewStatus(session, { reviewable: false, issueCount: 0 }), 'VALIDATION_FAILED');
+  session.confirmation = { confirmation_token: 'confirmed' };
+  assert.equal(runtime.reviewStatus(session, { reviewable: false, issueCount: 4 }), 'CONFIRMED');
+});
+
 test('transcript provenance preserves immutable voice evidence when the statement is edited', () => {
   assert.equal(typeof runtime.applyTranscriptArtifact, 'function');
   assert.equal(typeof runtime.transcriptSourceLabel, 'function');

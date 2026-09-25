@@ -76,3 +76,20 @@ test('Resolve uses one session-bound generic card without repeating technician i
   assert.match(client, /applyResolveDecision/);
   assert.doesNotMatch(client, /Math\.max\(1, candidates\.length\)/);
 });
+
+test('Review, Evidence, and Complete expose the P0 trust and recovery controls', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/app.js', 'utf8'),
+  ]);
+  for (const id of [
+    'edit-information', 'complete-status', 'start-another-report',
+    'evidence-source', 'evidence-corrections', 'evidence-facts', 'evidence-state',
+    'evidence-resolve', 'evidence-context', 'evidence-validation', 'evidence-finalization',
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /id="evidence-drawer"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="evidence-title"/);
+  assert.match(client, /previousEvidenceFocus/);
+  assert.match(client, /event\.key === 'Escape'/);
+  assert.match(client, /navigator\.clipboard\.writeText/);
+  assert.match(client, /Copy failed:/);
+});
