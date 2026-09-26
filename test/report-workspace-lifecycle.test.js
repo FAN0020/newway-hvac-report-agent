@@ -78,18 +78,12 @@ test('server-owned review lifecycle moves complete sessions through REVIEW and R
   assert.equal(ready.session.phase, 'READY');
   await assert.rejects(() => service.completeReview({ session_id: created.session.session_id, expected_revision: review.session.revision }), { code: 'STALE_REVISION' });
 
-  const confirmation = {
-    confirmation_token: `confirm_${'a'.repeat(48)}`,
-    report_session_id: created.session.session_id,
-    report_id: 'report_demo',
-    report_hash: `sha256:${'b'.repeat(64)}`,
-    technician_id: 'TECH-001',
-  };
   const confirmed = await service.confirmSession({
-    session_id: created.session.session_id, expected_revision: ready.session.revision, confirmation,
+    session_id: created.session.session_id, expected_revision: ready.session.revision,
   });
   assert.equal(confirmed.session.phase, 'CONFIRMED');
-  assert.equal(confirmed.session.confirmation_ref, confirmation.confirmation_token);
+  assert.equal(confirmed.session.confirmation_ref, confirmed.confirmation.confirmation_id);
+  assert.equal(confirmed.session.snapshot_ref, confirmed.snapshot.snapshot_id);
 });
 
 test('a resolved session can capture additional evidence without browser-side state reconstruction', async (t) => {

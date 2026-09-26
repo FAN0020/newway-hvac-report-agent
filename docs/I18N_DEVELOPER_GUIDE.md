@@ -1,6 +1,6 @@
 # Interface localization developer guide
 
-The English/Simplified Chinese structure is part of the application, not a branch-only development setting. After this feature branch is merged, the normal server entry point serves the locale modules and `web/app.js` initializes them automatically. Restart the server after merging, then reload the browser.
+The English/Simplified Chinese structure is part of the application, not a branch-only development setting. The normal server entry point serves the locale modules; the active technician shell is initialized by `web/template-app.js`. `web/app.js` is retained as test-only legacy source and is not served. Restart the server after merging, then reload the browser.
 
 ## Change project terminology or existing text
 

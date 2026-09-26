@@ -32,16 +32,14 @@ test('generic EmptyState and scope-aware placeholders replace observed P0 defect
   assert.match(client, /statementPlaceholder/);
 });
 
-test('V2 finalization routes are present and use the shared confirmation tools', async () => {
+test('legacy client-draft finalization routes are disabled in favor of ReportSession finalization', async () => {
   const server = await fs.readFile('src/server.js', 'utf8');
   for (const route of ['/api/v2/reports/confirm', '/api/v2/reports/save', '/api/v2/reports/export']) {
     assert.match(server, new RegExp(route.replaceAll('/', '\\/')));
   }
-  assert.match(server, /schema_id/);
-  assert.match(server, /schema_version/);
-  assert.match(server, /confirmReportDraft/);
-  assert.match(server, /saveConfirmedReport/);
-  assert.match(server, /exportConfirmedReport/);
+  assert.match(server, /LEGACY_AUTHORITY_DISABLED/);
+  assert.ok(server.includes('\\/confirm$/u'));
+  assert.ok(server.includes('\\/export$/u'));
 });
 
 test('Capture keeps voice primary while manual entry, retry, and transcript disclosure are progressive', async () => {

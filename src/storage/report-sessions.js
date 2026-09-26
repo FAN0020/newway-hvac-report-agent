@@ -50,6 +50,7 @@ export class ReportSessionStore {
     this.binaryRoot = path.join(this.root, 'binary-sources');
     this.captureRoot = path.join(this.root, 'capture-index');
     this.answerRoot = path.join(this.root, 'answer-index');
+    this.exportRoot = path.join(this.root, 'official-exports');
     this.locks = new Map();
   }
 
@@ -234,6 +235,15 @@ export class ReportSessionStore {
     const loadMany = (kind, ids) => Promise.all(ids.map((id) => this.readRecord(kind, id)));
     const agentRuns = await loadMany('agent-runs', session.agent_run_ids);
     const currentRun = agentRuns.find((run) => run.run_id === session.current_agent_run_id) || null;
+    const validationReceipt = session.validation_ref
+      ? await this.readRecord('validation-receipts', session.validation_ref)
+      : null;
+    const confirmation = session.confirmation_ref
+      ? await this.readRecord('confirmations', session.confirmation_ref)
+      : null;
+    const reportSnapshot = session.snapshot_ref
+      ? await this.readRecord('report-snapshots', session.snapshot_ref)
+      : null;
     return deepFreeze({
       session,
       audit_events: await this.listAuditEvents(sessionId),
@@ -246,7 +256,43 @@ export class ReportSessionStore {
       guidance_contexts: await loadMany('guidance-contexts', session.guidance_context_ids),
       agent_runs: agentRuns,
       agent_state: currentRun?.agent_state || null,
+      validation_receipt: validationReceipt,
+      confirmation,
+      report_snapshot: reportSnapshot,
     });
+  }
+
+  async attachFinalization({ session_id: sessionId, expected_revision: expectedRevision, validation_ref: validationRef, confirmation_ref: confirmationRef, snapshot_ref: snapshotRef } = {}) {
+    return this.withLock(sessionId, async () => {
+      const current = await this.load(sessionId);
+      if (current.revision !== expectedRevision) {
+        throw storageError('ReportSession changed while finalization records were being attached.', 'STALE_REVISION', 409);
+      }
+      const session = deepFreeze({
+        ...current,
+        validation_ref: validationRef || current.validation_ref || null,
+        confirmation_ref: confirmationRef || current.confirmation_ref || null,
+        snapshot_ref: snapshotRef || current.snapshot_ref || null,
+      });
+      await this.writeSession(session);
+      return session;
+    });
+  }
+
+  async writeOfficialExport(snapshotId, text) {
+    const id = safeId(snapshotId, 'snapshot_id');
+    const filename = path.join(this.exportRoot, `${id}.txt`);
+    await fs.mkdir(this.exportRoot, { recursive: true });
+    let created = true;
+    try {
+      await fs.writeFile(filename, text, { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      created = false;
+      const existing = await fs.readFile(filename, 'utf8');
+      if (existing !== text) throw storageError('Official export path collision.', 'EXPORT_PATH_COLLISION', 409);
+    }
+    return deepFreeze({ file: filename, created });
   }
 
   async attachAgentRun({ session_id: sessionId, expected_revision: expectedRevision, run } = {}) {

@@ -40,9 +40,12 @@ export function reportToText(draft, confirmation) {
       if (typeof item === 'string') lines.push(item);
       else if (item.text) lines.push(item.text);
       else if (item.label) {
-        const rendered = item.value === null || item.value === undefined || item.value === ''
+        const renderedValue = item.value === null || item.value === undefined || item.value === ''
           ? 'Not provided / needs confirmation'
           : typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value);
+        const rendered = item.unit && renderedValue !== 'Not provided / needs confirmation'
+          ? `${renderedValue} ${item.unit}`
+          : renderedValue;
         lines.push(`${item.label}: ${rendered}`);
       } else lines.push('Not provided / needs confirmation');
     }

@@ -4,7 +4,7 @@ This note records the implemented P0 decisions from `Newway_UIUX_P0_P1_P2_Implem
 
 ## Shared model
 
-The browser owns a schema-bound `ReportSession` for each in-progress report. Built-in schemas are stable at:
+The server owns the schema-bound `ReportSession`, revision, evidence chain, field state, validation, resolution queue, review eligibility, confirmation, and immutable snapshot for each in-progress report. The browser is a revision-aware projection/client. Built-in schemas are stable at:
 
 | Scope | Schema id | Version |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ The browser owns a schema-bound `ReportSession` for each in-progress report. Bui
 | SBS Bus | `sbs_bus_maintenance` | `0` |
 | SBS Rail | `sbs_rail_maintenance` | `0` |
 
-`web/report-runtime.js` is the shared browser/server P0 compatibility contract. It maps grounded facts into schema field states (`SUPPORTED`, `NEEDS_CONFIRMATION`, `MISSING`, `CONFLICT`, with out-of-schema facts recorded as `UNSUPPORTED`) and normalizes technician work into the four P0 Resolve types: `TERMINOLOGY`, `CRITICAL_VALUE`, `MISSING_FIELD`, and `CONFLICT`. Each built-in schema carries typed field definitions, required fields/groups, allowed values/units where existing business rules support them, repeating-family metadata, and a builder binding.
+`src/domain/*` and `src/agent/*` are the authoritative P0 contracts. `web/report-runtime.js` remains a non-authoritative compatibility/test projection only. The server models `KNOWN_VALUE`, `EXPLICIT_NONE`, `NOT_APPLICABLE`, `UNKNOWN`, `UNCERTAIN`, `CONFLICT`, `INVALID`, and `INFERRED` separately and owns every transition. Each built-in schema carries typed field definitions, required fields/groups, allowed values/units where existing business rules support them, repeating-family metadata, and a renderer binding.
 
 The implemented authority flow is:
 
@@ -38,15 +38,11 @@ Completeness is separate from integrity validation. It reports resolved/missing 
 
 The default journey is Reports → New report → Capture → Resolve (conditional) → Review → Complete. Capture has one primary Continue action and starts extraction/planning/generation/validation without exposing implementation-stage controls. Original transcript, immutable artifact data, and audit events remain available in the Evidence drawer. Provider health is under Settings; scoped uploads and retrieval are under Knowledge; synthetic walkthrough tools are under Help & demo.
 
-## Finalization parity
+## Finalization parity and cutover
 
-HVAC retains the existing correction/facts receipt chain and V1 finalization endpoints. Its builder now projects verified receipt facts through `hvac_service` StructuredJobState before generation while keeping `hvac-report-draft.v1` as the legacy document-format marker. HVAC drafts additionally carry `schema_id`, `report_schema_version`, `report_session_id`, `facts_hash`, and `structured_state_hash`.
+All supported P0 templates now finalize through one ReportSession path: `POST /api/report-sessions/:id/review`, `POST /review/complete`, `POST /confirm`, and `POST /export`. Review completion creates a server-owned validation receipt bound to the exact session revision, template/version, Agent run, and structured-state hash. Confirmation loads that authoritative state and creates one immutable `ReportSnapshot`; export is downstream and idempotent.
 
-SBS Bus and Rail receive deterministic drafts with exact `schema_id`, `schema_version`, `report_session_id`, `facts_hash`, `structured_state_hash`, and validation receipts from `/api/v2/reports/build`. Their existing 11- and 12-section builders remain unchanged behind a state-derived fact adapter. The V2 confirm/save/export routes call the same `confirmReportDraft`, `saveConfirmedReport`, and `exportConfirmedReport` tools as HVAC.
-
-Confirmation receipts preserve report, validator, facts/receipt, schema, session, and StructuredJobState identities. Material draft/state/schema changes therefore change the report hash and invalidate stale confirmation. Official report filenames include report identity plus a deterministic suffix from the confirmation identity: repeated writes for one confirmation are idempotent, while distinct confirmations of the same draft no longer collide.
-
-This is an additive P0 adapter. The current domain extractors, HVAC receipt chain, V2 fact schema/hard gates, and three proven builders remain in place. A future P1 schema package can implement the same schema/renderer boundary; it should replace built-in definitions deliberately, not add a parallel Capture/Resolve/Review runtime.
+The old HVAC and V2 build endpoints remain diagnostic compatibility adapters only. `/api/reports/{confirm,save,export}`, `/api/v2/reports/{confirm,save,export}`, and `/api/report-sessions/:id/confirmation` return `410 LEGACY_AUTHORITY_DISABLED`. The obsolete `web/app.js` authority bundle is not served by the product shell. Domain extractors and hard gates remain modules inside the unified path, not alternative final authorities.
 
 ## P0 defect closures
 

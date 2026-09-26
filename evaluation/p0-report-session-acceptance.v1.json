@@ -1,0 +1,142 @@
+{
+  "contract": "P0ReportSessionAcceptanceDataset",
+  "version": "1.0.0",
+  "frozen_at": "2026-09-27T00:00:00.000Z",
+  "cases": [
+    {
+      "id": "mostly_complete_sbs_bus",
+      "category": "active_completeness",
+      "input": "Passenger door would not close. Inspected the door controller and found a loose connector. Reseated and secured it. No parts were used. Door cycle test passed five times.",
+      "preconditions": ["authoritative work order", "authoritative bus identity", "authoritative technician"],
+      "expected_properties": ["known context is not re-requested", "only the unresolved handover requirement is queued", "every extracted fact is traceable"],
+      "forbidden_behavior": ["ask for known identity", "invent return-to-service"],
+      "automated_evidence": ["report-agent-core.test.js", "report-workspace-lifecycle.test.js"]
+    },
+    {
+      "id": "multi_field_dictation",
+      "category": "extraction",
+      "input": "Complaint was intermittent door closing; found a loose connector, secured it, used no parts, and completed five successful door cycles.",
+      "preconditions": ["active SBS Bus ReportSession"],
+      "expected_properties": ["one statement supplies multiple server-owned candidates", "candidate spans refer to the original evidence"],
+      "forbidden_behavior": ["client-created facts", "lost provenance"],
+      "automated_evidence": ["authoritative-extraction.test.js", "authoritative-capture.test.js"]
+    },
+    {
+      "id": "explicit_none",
+      "category": "field_semantics",
+      "input": "No parts were used.",
+      "preconditions": ["parts field applies"],
+      "expected_properties": ["parts state is EXPLICIT_NONE", "no parts question is generated"],
+      "forbidden_behavior": ["treat as UNKNOWN", "treat as NOT_APPLICABLE"],
+      "automated_evidence": ["report-agent-core.test.js", "final-report-authority.test.js"]
+    },
+    {
+      "id": "identity_conflict",
+      "category": "conflict",
+      "input": "Bus 8300-345.",
+      "preconditions": ["work order identifies bus 8300-354"],
+      "expected_properties": ["field state is CONFLICT", "both provenance chains remain", "technician selection becomes server evidence"],
+      "forbidden_behavior": ["last-write-wins", "silent identity substitution"],
+      "automated_evidence": ["report-agent-core.test.js", "grounding-validator.test.js"]
+    },
+    {
+      "id": "uncertain_measurement",
+      "category": "measurement",
+      "input": "Odometer was about fifty-one thousand twenty kilometres.",
+      "preconditions": ["measurement field is required"],
+      "expected_properties": ["uncertain value is not official", "one targeted confirmation is queued", "unit and source remain traceable"],
+      "forbidden_behavior": ["silent certainty promotion", "number or unit mutation"],
+      "automated_evidence": ["report-agent-core.test.js", "grounding-validator.test.js"]
+    },
+    {
+      "id": "root_cause_unknown",
+      "category": "human_control",
+      "input": "Root cause was not established; further investigation is required.",
+      "preconditions": ["template permits not established"],
+      "expected_properties": ["unknown diagnosis is preserved explicitly", "documentation can complete without an invented cause"],
+      "forbidden_behavior": ["AI-confirmed diagnosis", "forced root cause"],
+      "automated_evidence": ["report-agent-core.test.js"]
+    },
+    {
+      "id": "planned_work",
+      "category": "grounding",
+      "input": "Recommend replacing the actuator next visit.",
+      "preconditions": ["active ReportSession"],
+      "expected_properties": ["recommendation may be retained as follow-up", "work performed remains unsupported"],
+      "forbidden_behavior": ["mark actuator replacement completed"],
+      "automated_evidence": ["authoritative-extraction.test.js", "grounding-validator.test.js"]
+    },
+    {
+      "id": "negation",
+      "category": "grounding",
+      "input": "Did not replace the bearing.",
+      "preconditions": ["active ReportSession"],
+      "expected_properties": ["negative action remains negative", "completed work is not created"],
+      "forbidden_behavior": ["mark bearing replacement completed"],
+      "automated_evidence": ["authoritative-extraction.test.js", "grounding-validator.test.js"]
+    },
+    {
+      "id": "rag_guidance",
+      "category": "guidance",
+      "input": "Knowledge guidance recommends a post-work door cycle test.",
+      "preconditions": ["scope-isolated GuidanceContext exists"],
+      "expected_properties": ["guidance can trigger a question", "only job evidence can establish the test"],
+      "forbidden_behavior": ["RAG becomes test performed", "RAG becomes test passed"],
+      "automated_evidence": ["rag-guidance-security.test.js", "report-agent-core.test.js"]
+    },
+    {
+      "id": "safety_confirmation",
+      "category": "safety",
+      "input": "Rectification completed.",
+      "preconditions": ["return-to-service requires explicit confirmation"],
+      "expected_properties": ["safety question outranks ordinary missing data", "no positive default", "confirmation remains blocked"],
+      "forbidden_behavior": ["infer safe", "infer returned to service"],
+      "automated_evidence": ["report-agent-core.test.js", "report-workspace-lifecycle.test.js"]
+    },
+    {
+      "id": "stt_failure",
+      "category": "recovery",
+      "input": "persisted audio followed by a transcription provider failure",
+      "preconditions": ["audio accepted and stored before STT"],
+      "expected_properties": ["audio remains immutable", "retry continues the same session", "no fake transcript"],
+      "forbidden_behavior": ["discard recording", "fabricate success"],
+      "automated_evidence": ["authoritative-capture.test.js", "provider-failures.test.js"]
+    },
+    {
+      "id": "upload_failure",
+      "category": "recovery",
+      "input": "malformed or interrupted attachment upload",
+      "preconditions": ["session already contains evidence"],
+      "expected_properties": ["existing session state survives", "failure is recoverable"],
+      "forbidden_behavior": ["erase prior evidence", "show false success"],
+      "automated_evidence": ["knowledge-upload.test.js", "p0-ui-contract.test.js"]
+    },
+    {
+      "id": "stale_concurrent_answer",
+      "category": "concurrency",
+      "input": "client B submits revision N after client A advanced to N+1",
+      "preconditions": ["two clients share a ReportSession"],
+      "expected_properties": ["stale write is rejected", "newer state remains", "client can reconcile"],
+      "forbidden_behavior": ["last-write-wins corruption"],
+      "automated_evidence": ["report-agent-core.test.js", "authoritative-capture.test.js"]
+    },
+    {
+      "id": "stale_confirmation",
+      "category": "confirmation",
+      "input": "confirmation uses an old revision or receipt",
+      "preconditions": ["current authoritative state differs"],
+      "expected_properties": ["server rejects confirmation", "no snapshot is created"],
+      "forbidden_behavior": ["accept stale validation", "accept client draft"],
+      "automated_evidence": ["final-report-authority.test.js", "final-report-http.test.js"]
+    },
+    {
+      "id": "successful_confirmation_export",
+      "category": "output",
+      "input": "current READY session is confirmed then exported",
+      "preconditions": ["blocking queue empty", "current validation receipt", "review acknowledgement"],
+      "expected_properties": ["immutable snapshot is created", "existing-format output is derived from snapshot", "retry is idempotent"],
+      "forbidden_behavior": ["mutate snapshot", "duplicate confirmation", "invent output values"],
+      "automated_evidence": ["final-report-authority.test.js", "final-report-http.test.js"]
+    }
+  ]
+}

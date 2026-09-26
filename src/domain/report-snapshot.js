@@ -44,6 +44,20 @@ function snapshotBody(input, code = 'INVALID_REPORT_SNAPSHOT') {
   if (guidanceIds.some((id) => evidenceIds.includes(id))) {
     throw new ContractValidationError('GuidanceContext identifiers cannot appear in evidence_ids.', 'GUIDANCE_NOT_JOB_EVIDENCE');
   }
+  const confirmed = session.phase === 'CONFIRMED';
+  const finalization = confirmed ? {
+    structured_state_hash: requiredString(input.structured_state_hash, 'structured_state_hash', code),
+    validation_ref: requiredString(input.validation_ref, 'validation_ref', code),
+    confirmation_ref: requiredString(input.confirmation_ref, 'confirmation_ref', code),
+    technician_principal_ref: requiredString(input.technician_principal_ref, 'technician_principal_ref', code),
+    confirmed_at: requiredTimestamp(input.confirmed_at, 'confirmed_at', code),
+    report: copy(input.report),
+  } : {};
+  if (confirmed && (!finalization.report || finalization.report.contract !== 'ExistingFormatReport'
+    || finalization.report.report_session_id !== session.session_id
+    || finalization.report.structured_state_hash !== finalization.structured_state_hash)) {
+    throw new ContractValidationError('Confirmed ReportSnapshot requires a matching authoritative report.', code);
+  }
   return {
     contract: 'ReportSnapshot',
     contract_version: '1',
@@ -60,6 +74,7 @@ function snapshotBody(input, code = 'INVALID_REPORT_SNAPSHOT') {
     guidance_context_ids: guidanceIds,
     validation_issues: contractArray(input.validation_issues || [], 'validation_issues', 'ValidationIssue', code),
     resolution_items: contractArray(input.resolution_items || [], 'resolution_items', 'ResolutionItem', code),
+    ...finalization,
     created_at: requiredTimestamp(input.created_at, 'created_at', code),
   };
 }

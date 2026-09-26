@@ -45,7 +45,7 @@ templateId + templateVersion
 
 Voice, typed statements, text uploads, and manual field entry converge on the existing `ReportSession`, `StructuredJobState`, completeness, and `ResolveQueue` runtime. Existing SBS Bus and Rail deterministic extractors are adapters into the selected schema. Facts outside that schema are retained as unsupported rather than rendered. Knowledge/context-only support becomes `NEEDS_CONFIRMATION`, and critical values require technician confirmation.
 
-`POST /api/template-reports/build` performs schema-bound final validation for predefined and published custom templates. It creates an exact-version draft and validation receipt. Confirmation uses the existing `/api/v2/reports/confirm` receipt chain; a material draft or binding change invalidates the hash.
+`POST /api/template-reports/build` is retained only as a non-authoritative compatibility/diagnostic projection. Supported P0 technician reports validate, review, confirm, snapshot, and export through `/api/report-sessions/:id/*`. Legacy V2 confirmation is disabled; a client draft or material client-side change cannot authorize finalization.
 
 ## Context corpora
 

@@ -111,7 +111,7 @@ test('template context endpoint rejects a corpus from another template', async (
   assert.equal(mismatch.body.status, 'FAIL');
 });
 
-test('every predefined template passes required-field validation and exact-version confirmation', async (t) => {
+test('every predefined template passes required-field validation while legacy client confirmation is disabled', async (t) => {
   const listed = await json(api('/api/templates'));
   for (const template of listed.body.data.templates.filter((item) => item.sourceArtifact?.kind === 'research-pack-prototype')) {
     const facts = template.schema.fields.filter((field) => field.required).map((field) => ({
@@ -138,10 +138,9 @@ test('every predefined template passes required-field validation and exact-versi
       validator_run_id: built.body.data.validation_receipt.validator_run_id,
       technician_id: 'TECH-TEMPLATE', technician_name: 'Template Technician',
     } }));
-    assert.equal(confirmed.body.status, 'PASS', template.templateId);
-    const token = confirmed.body.data.confirmation.confirmation_token;
+    assert.equal(confirmed.status, 410, template.templateId);
+    assert.equal(confirmed.body.error_code, 'LEGACY_AUTHORITY_DISABLED', template.templateId);
     t.after(() => fs.rm(path.join('data', 'validations', `${built.body.data.validation_receipt.validator_run_id}.json`), { force: true }));
-    t.after(() => fs.rm(path.join('data', 'confirmations', `${token}.json`), { force: true }));
   }
 });
 
@@ -505,8 +504,8 @@ test('schema conflicts independently gate V2 confirmation', async () => {
       technician_name: 'Alex',
     },
   }));
-  assert.equal(confirmed.body.status, 'FAIL');
-  assert.equal(confirmed.body.error_code, 'VALIDATION_NOT_REVIEWABLE');
+  assert.equal(confirmed.status, 410);
+  assert.equal(confirmed.body.error_code, 'LEGACY_AUTHORITY_DISABLED');
 });
 
 test('POST /api/v2/reports/build returns NEEDS_CONFIRMATION when a test.result is knowledge-sourced', async () => {
@@ -559,7 +558,7 @@ for (const scenario of [
     ],
   },
 ]) {
-  test(`${scenario.name} follows build → validate → confirm → save → export with exact schema binding`, async (t) => {
+  test(`${scenario.name} legacy build remains diagnostic but cannot confirm, save, or export authoritatively`, async (t) => {
     const facts = [...scenario.facts, {
       field: 'test.run_id',
       value: `${Date.now()}-${Math.random()}`,
@@ -585,27 +584,23 @@ for (const scenario of [
         technician_name: 'V2 Technician',
       },
     }));
-    assert.equal(confirmed.body.status, 'PASS');
-    assert.equal(confirmed.body.data.confirmation.schema_id, scenario.schemaId);
-    const confirmationToken = confirmed.body.data.confirmation.confirmation_token;
+    assert.equal(confirmed.status, 410);
+    assert.equal(confirmed.body.error_code, 'LEGACY_AUTHORITY_DISABLED');
     t.after(() => fs.rm(path.join('data', 'validations', `${built.body.data.validation_receipt.validator_run_id}.json`), { force: true }));
-    t.after(() => fs.rm(path.join('data', 'confirmations', `${confirmationToken}.json`), { force: true }));
 
     const saved = await json(api('/api/v2/reports/save', {
       method: 'POST',
-      body: { draft: built.body.data.draft, confirmation_token: confirmationToken },
+      body: { draft: built.body.data.draft, confirmation_token: `confirm_${'a'.repeat(48)}` },
     }));
-    assert.equal(saved.body.status, 'PASS');
-    assert.equal(saved.body.data.report_hash, confirmed.body.data.confirmation.report_hash);
-    t.after(() => fs.rm(saved.body.data.file, { force: true }));
+    assert.equal(saved.status, 410);
+    assert.equal(saved.body.error_code, 'LEGACY_AUTHORITY_DISABLED');
 
     const exported = await json(api('/api/v2/reports/export', {
       method: 'POST',
-      body: { draft: built.body.data.draft, confirmation_token: confirmationToken },
+      body: { draft: built.body.data.draft, confirmation_token: `confirm_${'a'.repeat(48)}` },
     }));
-    assert.equal(exported.body.status, 'PASS');
-    assert.match(exported.body.data.copyable_text, new RegExp(scenario.name, 'i'));
-    t.after(() => fs.rm(exported.body.data.file, { force: true }));
+    assert.equal(exported.status, 410);
+    assert.equal(exported.body.error_code, 'LEGACY_AUTHORITY_DISABLED');
   });
 }
 

@@ -87,7 +87,9 @@ export function createReportSession(input = {}) {
     guidance_context_ids: [],
     agent_run_ids: [],
     current_agent_run_id: null,
+    validation_ref: null,
     confirmation_ref: null,
+    snapshot_ref: null,
     recovery_phase: null,
     last_error: null,
   });
@@ -187,6 +189,8 @@ export function transitionReportSession(session, command = {}) {
     recovery_phase: toPhase === 'RECOVERABLE_ERROR' ? recoveryPhase : null,
     last_error: toPhase === 'RECOVERABLE_ERROR' ? lastError : null,
     confirmation_ref: command.confirmation_ref || session.confirmation_ref || null,
+    validation_ref: command.validation_ref || session.validation_ref || null,
+    snapshot_ref: command.snapshot_ref || session.snapshot_ref || null,
   });
   return deepFreeze({ session: next, event });
 }

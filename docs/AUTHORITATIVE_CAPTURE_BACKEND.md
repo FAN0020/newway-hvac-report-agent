@@ -4,7 +4,7 @@
 
 This backend owns the report lifecycle from `CONTEXT` through `CAPTURE`, `PROCESSING`, optional `CORRECTION_IF_NEEDED`, and creation/resolution of structured field candidates in `RESOLVE`. It also owns scoped guidance ingestion and retrieval.
 
-The visible browser now uses this chain for capture, extraction, field answers, confirmation events, and server-derived report facts. Final `ReportSnapshot` creation and the remaining `REVIEW -> READY -> CONFIRMED` cutover are still separate work. Compatibility report endpoints remain available for older tests/demos but are not authoritative substitutes for this session chain.
+The visible browser now uses this chain for capture, extraction, field answers, confirmation, immutable snapshot creation, and snapshot-owned export. The `REVIEW -> READY -> CONFIRMED` cutover is complete. Legacy confirmation/export endpoints return `410 LEGACY_AUTHORITY_DISABLED`; non-authoritative diagnostic projections cannot finalize a report.
 
 ## Architecture
 
@@ -266,13 +266,12 @@ The tests use a deterministic injected transcription provider to verify provider
 
 The visible browser now routes text/audio capture, transcript review, technician field answers, candidate confirmation, guidance upload/viewing, and server-derived report drafting through the authoritative ReportSession endpoints. The scoped deterministic RAG integration and its trust boundary are documented in `docs/AUTHORITATIVE_RAG_GUIDANCE_INTEGRATION.md`.
 
-Remaining cutover work is narrower:
+Final P0 cutover now includes `RESOLVE -> REVIEW -> READY -> CONFIRMED`, revision-bound validation receipts, immutable `ReportSnapshot` creation, and snapshot-owned export. Remaining work is P1/P2:
 
-1. Implement final `ReportSnapshot` creation and the `RESOLVE -> REVIEW -> READY -> CONFIRMED` lifecycle against an exact session revision.
-2. Decide how custom manager-published templates provide server-side extraction adapters; predefined catalog templates are currently authoritative.
-3. Extend the lifecycle explicitly before allowing multiple independent primary captures in one session.
-4. Replace the demo technician principal with authenticated server identity.
-5. Move file persistence to transactional storage before multi-process deployment.
-6. Measure domain transcription quality separately from backend correctness.
+1. Compile custom manager-published templates into server-side extraction/policy adapters; predefined catalog templates are authoritative today.
+2. Extend the lifecycle explicitly before allowing multiple independent primary captures in one session.
+3. Replace the demo server-assigned technician principal with production authentication.
+4. Move file persistence to transactional storage before multi-process deployment.
+5. Continue domain transcription quality evaluation; the P0 runtime and one real ReportSession audio journey are verified, but synthetic field variability remains imperfect.
 
 OCR, embeddings/vector search, semantic retrieval, generative report prose, automatic diagnosis, predictive maintenance, and a RAG-card UI remain intentionally out of scope.

@@ -7,12 +7,14 @@ import {
   createAgentRun,
   createFieldCandidate,
   createGuidanceContext,
+  createReportSnapshot,
   createTechnicianConfirmationEvent,
   createTranscriptArtifact,
   createTranscriptReview,
   hashContract,
 } from '../domain/index.js';
-import { runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
+import { buildAuthoritativeReport, runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
+import { reportToText } from '../tools/report-integrity.js';
 import { extractServiceFacts } from '../tools/extract-service-facts.js';
 import { extractV2Facts } from '../tools/extract-v2-facts.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
@@ -145,6 +147,7 @@ export class AuthoritativeCaptureService {
     uploadStore,
     retriever,
     jobContextProvider,
+    exportWriter,
     clock = () => new Date().toISOString(),
   } = {}) {
     if (!artifactStore || !sessionStore || !whisperProvider?.transcribe) {
@@ -158,6 +161,7 @@ export class AuthoritativeCaptureService {
     this.uploadStore = uploadStore || null;
     this.retriever = retriever || null;
     this.jobContextProvider = jobContextProvider || null;
+    this.exportWriter = exportWriter || ((snapshotId, text) => this.sessionStore.writeOfficialExport(snapshotId, text));
     this.clock = clock;
   }
 
@@ -377,33 +381,177 @@ export class AuthoritativeCaptureService {
     const transitioned = await this.sessionStore.transition({
       session_id: sessionId, expected_revision: session.revision, to_phase: 'READY',
       event_type: 'REPORT_REVIEW_COMPLETED', occurred_at: this.clock(),
-      details: { ready_for_confirmation: true },
+      details: { ready_for_confirmation: true, technician_principal_ref: 'principal:demo-technician' },
     });
-    return this.persistAgentState(transitioned.session);
+    const computed = await this.persistAgentState(transitioned.session);
+    const output = buildAuthoritativeReport({
+      session: computed.session,
+      agentState: computed.agent_state,
+      template: templateFor(computed.session.template_binding.template_id),
+    });
+    const validationBody = {
+      contract: 'ValidationReceipt', contract_version: '1', authority: 'SERVER',
+      session_id: computed.session.session_id,
+      session_revision: computed.session.revision,
+      template_binding: computed.session.template_binding,
+      agent_run_id: computed.session.current_agent_run_id,
+      structured_state_hash: output.structured_state_hash,
+      status: 'PASS',
+      blocking_issue_ids: [],
+      resolution_item_ids: [],
+      validated_at: this.clock(),
+    };
+    const validationReceipt = Object.freeze({
+      validation_id: `validation_${hashContract(validationBody).slice(7, 31)}`,
+      ...validationBody,
+    });
+    await this.sessionStore.putRecord('validation-receipts', validationReceipt.validation_id, validationReceipt);
+    const finalizedSession = await this.sessionStore.attachFinalization({
+      session_id: computed.session.session_id,
+      expected_revision: computed.session.revision,
+      validation_ref: validationReceipt.validation_id,
+    });
+    return { ...computed, session: finalizedSession, validation_receipt: validationReceipt };
   }
 
-  async confirmSession({ session_id: sessionId, expected_revision: expectedRevision, confirmation } = {}) {
+  async confirmSession({ session_id: sessionId, expected_revision: expectedRevision } = {}) {
     const session = await this.sessionStore.load(sessionId);
+    if (session.phase === 'CONFIRMED' && session.confirmation_ref && session.snapshot_ref) {
+      const existingConfirmation = await this.sessionStore.readRecord('confirmations', session.confirmation_ref);
+      if (Number(expectedRevision) !== session.revision && Number(expectedRevision) !== existingConfirmation.expected_revision) {
+        assertExpectedRevision(session, expectedRevision);
+      }
+      return {
+        session,
+        agent_state: (await this.getAgentState(sessionId)).agent_state,
+        confirmation: existingConfirmation,
+        snapshot: await this.sessionStore.readRecord('report-snapshots', session.snapshot_ref),
+        reused: true,
+      };
+    }
     assertExpectedRevision(session, expectedRevision);
     if (session.phase !== 'READY') {
       throw workflowError('Only a ready report can be confirmed.', 'REPORT_NOT_READY', 409);
     }
-    if (!confirmation || confirmation.report_session_id !== session.session_id
-      || !/^confirm_[a-f0-9]{48}$/u.test(String(confirmation.confirmation_token || ''))) {
-      throw workflowError('Confirmation is not bound to this ReportSession.', 'CONFIRMATION_SESSION_MISMATCH', 409);
+    if (!session.validation_ref) throw workflowError('The current revision has no validation receipt.', 'STALE_VALIDATION', 409);
+    const chain = await this.sessionStore.loadChain(sessionId);
+    const current = chain.agent_state?.session_revision === session.revision
+      ? { session, agent_state: chain.agent_state }
+      : await this.getAgentState(sessionId);
+    const output = buildAuthoritativeReport({
+      session: current.session,
+      agentState: current.agent_state,
+      template: templateFor(session.template_binding.template_id),
+    });
+    const validation = await this.sessionStore.readRecord('validation-receipts', session.validation_ref);
+    if (validation.session_id !== session.session_id
+      || validation.session_revision !== session.revision
+      || validation.structured_state_hash !== output.structured_state_hash
+      || validation.template_binding.template_id !== session.template_binding.template_id
+      || validation.template_binding.template_version !== session.template_binding.template_version
+      || validation.status !== 'PASS') {
+      throw workflowError('The validation receipt is stale for the current report state.', 'STALE_VALIDATION', 409);
     }
+    if (!chain.audit_events.some((event) => event.event_type === 'REPORT_REVIEW_COMPLETED' && event.revision === session.revision)) {
+      throw workflowError('Technician review acknowledgement is missing.', 'REVIEW_ACKNOWLEDGEMENT_REQUIRED', 409);
+    }
+    const technicianField = current.agent_state.report_fields.find((field) => field.field_id === 'technician.name');
+    const confirmationBody = {
+      contract: 'ReportConfirmation', contract_version: '1', authority: 'SERVER',
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      confirmed_revision: session.revision + 1,
+      template_binding: session.template_binding,
+      structured_state_hash: output.structured_state_hash,
+      validation_ref: validation.validation_id,
+      technician_principal_ref: 'principal:demo-technician',
+      technician_name: String(technicianField?.value || 'Demo technician'),
+      confirmed_at: this.clock(),
+    };
+    const confirmation = Object.freeze({
+      confirmation_id: `confirmation_${hashContract(confirmationBody).slice(7, 31)}`,
+      ...confirmationBody,
+    });
+    await this.sessionStore.putRecord('confirmations', confirmation.confirmation_id, confirmation);
     const transitioned = await this.sessionStore.transition({
       session_id: sessionId, expected_revision: session.revision, to_phase: 'CONFIRMED',
       event_type: 'REPORT_CONFIRMED', occurred_at: this.clock(),
-      confirmation_ref: confirmation.confirmation_token,
+      confirmation_ref: confirmation.confirmation_id,
+      validation_ref: validation.validation_id,
       details: {
-        confirmation_token: confirmation.confirmation_token,
-        report_id: confirmation.report_id,
-        report_hash: confirmation.report_hash,
-        technician_id: confirmation.technician_id,
+        confirmation_id: confirmation.confirmation_id,
+        validation_ref: validation.validation_id,
+        structured_state_hash: output.structured_state_hash,
+        technician_principal_ref: confirmation.technician_principal_ref,
       },
     });
-    return this.persistAgentState(transitioned.session);
+    const computed = await this.persistAgentState(transitioned.session);
+    const confirmedChain = await this.sessionStore.loadChain(sessionId);
+    const snapshot = createReportSnapshot({
+      session: computed.session,
+      fields: computed.agent_state.report_fields,
+      evidence_ids: computed.session.evidence_ids,
+      transcript_ids: computed.session.transcript_ids,
+      guidance_context_ids: computed.session.guidance_context_ids,
+      validation_issues: computed.agent_state.validation_issues,
+      resolution_items: computed.agent_state.resolution_queue,
+      structured_state_hash: output.structured_state_hash,
+      validation_ref: validation.validation_id,
+      confirmation_ref: confirmation.confirmation_id,
+      technician_principal_ref: confirmation.technician_principal_ref,
+      confirmed_at: confirmation.confirmed_at,
+      report: output.report,
+      created_at: this.clock(),
+    });
+    await this.sessionStore.putRecord('report-snapshots', snapshot.snapshot_id, snapshot);
+    const finalizedSession = await this.sessionStore.attachFinalization({
+      session_id: sessionId,
+      expected_revision: computed.session.revision,
+      validation_ref: validation.validation_id,
+      confirmation_ref: confirmation.confirmation_id,
+      snapshot_ref: snapshot.snapshot_id,
+    });
+    return {
+      session: finalizedSession,
+      agent_state: computed.agent_state,
+      confirmation,
+      snapshot,
+      evidence_count: confirmedChain.evidence.length,
+      reused: false,
+    };
+  }
+
+  async exportConfirmedSession({ session_id: sessionId, expected_revision: expectedRevision } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'CONFIRMED' || !session.snapshot_ref || !session.confirmation_ref) {
+      throw workflowError('Only an immutable confirmed snapshot can be exported.', 'REPORT_NOT_CONFIRMED', 409);
+    }
+    const snapshot = await this.sessionStore.readRecord('report-snapshots', session.snapshot_ref);
+    const confirmation = await this.sessionStore.readRecord('confirmations', session.confirmation_ref);
+    if (snapshot.session_id !== session.session_id || snapshot.session_revision !== session.revision
+      || snapshot.confirmation_ref !== confirmation.confirmation_id
+      || snapshot.snapshot_hash !== hashContract(Object.fromEntries(Object.entries(snapshot).filter(([key]) => !['snapshot_id', 'snapshot_hash'].includes(key))))) {
+      throw workflowError('The confirmed snapshot failed its integrity binding.', 'SNAPSHOT_IDENTITY_MISMATCH', 409);
+    }
+    const exportConfirmation = {
+      technician_id: confirmation.technician_principal_ref,
+      technician_name: confirmation.technician_name,
+      confirmed_at: confirmation.confirmed_at,
+      validator_run_id: confirmation.validation_ref,
+      report_hash: snapshot.snapshot_hash,
+    };
+    const text = reportToText(snapshot.report, exportConfirmation);
+    const exported = await this.exportWriter(snapshot.snapshot_id, text);
+    return {
+      session,
+      snapshot_id: snapshot.snapshot_id,
+      export_hash: hashContract(text),
+      format: 'text/plain',
+      file: exported.file,
+      export_text: text,
+      reused: !exported.created,
+    };
   }
 
   async attachEvidence({ session_id: sessionId, expected_revision: expectedRevision, filename, mime_type: mimeType, purpose, buffer } = {}) {
@@ -1212,6 +1360,7 @@ export class AuthoritativeCaptureService {
   async captureText({ session_id: sessionId, expected_revision: expectedRevision, text, language = 'und', idempotency_key: idempotencyKey } = {}) {
     const session = await this.sessionStore.load(sessionId);
     assertExpectedRevision(session, expectedRevision);
+    if (session.phase === 'CONFIRMED') throw workflowError('Confirmed reports are immutable.', 'REPORT_SESSION_FINAL', 409);
     const rawText = String(text || '').trim();
     if (!rawText) throw workflowError('Technician text is required.', 'TECHNICIAN_TEXT_REQUIRED');
     if (rawText.length > 20_000) throw workflowError('Technician text exceeds 20000 characters.', 'TECHNICIAN_TEXT_TOO_LARGE', 413);
@@ -1281,6 +1430,7 @@ export class AuthoritativeCaptureService {
   async captureAudio({ session_id: sessionId, expected_revision: expectedRevision, wav_buffer: wavBuffer, model = 'base', language = 'auto', idempotency_key: idempotencyKey } = {}) {
     const session = await this.sessionStore.load(sessionId);
     assertExpectedRevision(session, expectedRevision);
+    if (session.phase === 'CONFIRMED') throw workflowError('Confirmed reports are immutable.', 'REPORT_SESSION_FINAL', 409);
     if (!Buffer.isBuffer(wavBuffer)) throw workflowError('Audio must be supplied as WAV bytes.', 'INVALID_WAV');
     const audio = await this.artifactStore.putAudio(wavBuffer);
     const normalizedModel = String(model || 'base');

@@ -217,7 +217,7 @@ The following code was not copied into the authoritative path:
 2. The demo principal is server-assigned but is not yet backed by production authentication/authorization.
 3. Custom manager-created templates are not yet resolvable by `AuthoritativeCaptureService`; authoritative creation currently accepts the published predefined catalog.
 4. ReportSession currently models one primary capture chain. Adding multiple independent transcript captures to one in-progress session needs an explicit lifecycle extension rather than an illegal phase rewind.
-5. Final `ReportSnapshot` creation and `RESOLVE -> REVIEW -> READY -> CONFIRMED` cutover remain separate work. Existing confirmation/export tooling consumes the server-derived draft, but it has not yet been replaced by a ReportSnapshot-native finalization service.
+5. Historical reports and old client-fact records are not backfilled. New P0 finalization is ReportSnapshot-native and legacy client-draft confirmation/export routes are disabled.
 6. Historic reports and old client facts are not backfilled into the new evidence/candidate contracts.
 
 These gaps do not weaken the RAG boundary: no guidance-only claim can enter the authoritative candidate or report-fact chain.

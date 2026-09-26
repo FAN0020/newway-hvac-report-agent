@@ -1,5 +1,7 @@
 # Authoritative Report Agent Core
 
+> Historical Prompt 5 delivery record. The final P0 authority, endpoint, confirmation, snapshot, and export contracts are documented in `docs/FINAL_UNIFIED_REPORT_AGENT_P0.md`; where this record describes an intermediate state, the final document is authoritative.
+
 ## Scope and authority
 
 This phase implements the deterministic server-owned reporting loop on `feat/unified-report-session`:

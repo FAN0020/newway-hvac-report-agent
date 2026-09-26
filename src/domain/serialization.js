@@ -85,6 +85,9 @@ export function deserializeReportSession(serialized, { trusted_persistence_hash:
     guidance_context_ids: parsed.guidance_context_ids || [],
     agent_run_ids: parsed.agent_run_ids || [],
     current_agent_run_id: parsed.current_agent_run_id || null,
+    validation_ref: parsed.validation_ref || null,
+    confirmation_ref: parsed.confirmation_ref || null,
+    snapshot_ref: parsed.snapshot_ref || null,
   };
   validatePersistedSession(migrated);
   return deepFreeze(migrated);

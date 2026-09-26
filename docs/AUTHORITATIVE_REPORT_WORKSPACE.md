@@ -1,5 +1,7 @@
 # Authoritative Report Workspace — Prompt 6 delivery report
 
+> Historical Prompt 6 delivery record. The final P0 authority, endpoint, confirmation, snapshot, and export contracts are documented in `docs/FINAL_UNIFIED_REPORT_AGENT_P0.md`; where this record describes an intermediate state, the final document is authoritative.
+
 ## Outcome
 
 The technician workspace is now a minimal client of the authoritative `ReportSession` workflow:
@@ -176,7 +178,7 @@ Actual results:
 | Agent follow-up questions | PASS | ResolutionPlanner order and answer contracts map to one focused task with structured controls. |
 | Human confirmation | PASS | Correction decisions, resolution answers, review completion, and final confirmation are explicit server mutations with revision checks. |
 | Field provenance/evidence | PASS | Source dialog shows work-order records or exact transcript spans; resolution evidence survives conflict resolution. |
-| Existing template/report compatibility | PASS | SBS corrective-maintenance schema rendered and exported in the existing builder path after server confirmation. |
+| Existing template/report compatibility | PASS | SBS corrective-maintenance schema is rendered from the confirmed immutable snapshot through the unified export endpoint. |
 
 No P0 requirement is classified FAIL without explanation.
 
@@ -204,7 +206,7 @@ None known after the full suite and rendered-state verification.
 ### P1
 
 - The new authoritative workspace copy is English-only. Existing locale infrastructure and legacy bilingual surfaces remain intact, but these new strings should be moved into the locale catalog in a later localization phase.
-- Reopening an in-progress server-persisted ReportSession after a full browser reload needs a session-list/resume API and product decision; server restart persistence itself is already covered.
+- The active browser persists the current ReportSession identity in session storage and reloads authoritative server state after refresh. Cross-device/session discovery remains a later product decision.
 - Physical-device microphone permission and long-recording ergonomics should receive device-lab coverage in addition to automated capture/provider tests.
 
 ### P2

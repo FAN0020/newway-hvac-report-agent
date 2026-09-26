@@ -17,14 +17,11 @@ import { TemplateStore } from './storage/templates.js';
 import { ReportSessionStore } from './storage/report-sessions.js';
 import { WhisperProvider } from './providers/whisper.js';
 import { OllamaProvider } from './providers/ollama.js';
-import { confirmReportDraft } from './tools/confirm-report-draft.js';
-import { exportConfirmedReport } from './tools/export-confirmed-report.js';
 import { normalizeHvacTranscript } from './tools/normalize-hvac-transcript.js';
 import { extractServiceFacts } from './tools/extract-service-facts.js';
 import { generateReportDraft } from './tools/generate-report-draft.js';
 import { buildTranscriptCorrectionCandidates, retrieveHvacKnowledge, retrieveReportTemplate } from './tools/hvac-knowledge.js';
 import { planReportSections } from './tools/plan-report-sections.js';
-import { saveConfirmedReport } from './tools/save-confirmed-report.js';
 import { toolEnvelope } from './tools/tool-envelope.js';
 import { validateReportDraft } from './tools/validate-report-draft.js';
 import { validateReportInput } from './tools/validate-report-input.js';
@@ -161,6 +158,8 @@ const UNTRUSTED_CAPTURE_FIELDS = new Set([
   'session_id', 'revision', 'evidence_id', 'transcript_id', 'provenance', 'evidence_refs',
   'field_state', 'field_states', 'support_type', 'support_status', 'confirmed_by_technician',
   'confirmation', 'confirmation_receipt', 'server_receipt', 'reviewer_principal_ref', 'corrected_text',
+  'confirmed', 'validated', 'resolved', 'draft', 'final_draft', 'report_fields', 'field_candidates',
+  'snapshot', 'snapshot_ref', 'validation_ref', 'confirmation_ref',
   'facts', 'knowledge_hit', 'knowledge_hits', 'guidance_context', 'guidance_context_id',
   'guidance_context_ids', 'guidance', 'retrieval_results', 'retrieval_score', 'chunk_id',
   'scope_id', 'context_id', 'scope', 'context_binding', 'template_binding',
@@ -186,43 +185,6 @@ function rejectUntrustedAuthority(input, { allow = [] } = {}) {
       code: 'UNTRUSTED_CAPTURE_INPUT', status: 400,
     });
   }
-}
-
-function factsFromAuthoritativeCandidates(chain) {
-  const byField = new Map();
-  for (const candidate of chain.field_candidates || []) {
-    if (candidate.assessment === 'INVALID' || candidate.support_type === 'RAG_GUIDANCE') continue;
-    if (!byField.has(candidate.field_id)) byField.set(candidate.field_id, []);
-    byField.get(candidate.field_id).push(candidate);
-  }
-  return [...byField.entries()].flatMap(([field, candidates]) => {
-    const lastResolutionIndex = candidates.findLastIndex((item) => (
-      item.support_type === 'TECHNICIAN_CONFIRMATION' || item.extraction?.method === 'technician-field-answer'
-    ));
-    const active = lastResolutionIndex >= 0
-      ? [candidates[lastResolutionIndex]]
-      : candidates.filter((item) => item.assessment === 'VALID');
-    const distinctClaims = new Set(active.map((item) => JSON.stringify(item.claim)));
-    const selected = distinctClaims.size === 1 ? active.at(-1) : null;
-    if (!selected || selected.claim?.kind !== 'VALUE') return [];
-    const composite = selected.claim.value && typeof selected.claim.value === 'object' && !Array.isArray(selected.claim.value)
-      ? selected.claim.value
-      : { value: selected.claim.value, ...(selected.unit ? { unit: selected.unit } : {}) };
-    return [{
-      fact_id: selected.candidate_id,
-      field,
-      value: composite.value,
-      ...(composite.unit ? { unit: composite.unit } : {}),
-      support_status: selected.support_type === 'TECHNICIAN_CONFIRMATION'
-        ? 'CONFIRMED_BY_TECHNICIAN'
-        : selected.assessment === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_TRANSCRIPT',
-      source: `report-session:${chain.session.session_id}`,
-      source_refs: selected.evidence_refs.map((reference) => reference.span_id
-        ? `${reference.evidence_id}#${reference.span_id}`
-        : reference.evidence_id),
-      critical: selected.risk_class === 'CRITICAL',
-    }];
-  });
 }
 
 async function handleApi(request, response, url, traceId, config, services) {
@@ -283,15 +245,33 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
-  const sessionConfirmMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/confirmation$/u);
+  const sessionConfirmMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/confirm$/u);
   if (request.method === 'POST' && sessionConfirmMatch) {
     const input = await readJson(request);
-    rejectUntrustedAuthority(input, { allow: ['confirmation'] });
-    const confirmation = await reports.readConfirmation(input.confirmation_token);
+    rejectUntrustedAuthority(input);
     const result = await captureService.confirmSession({
-      session_id: decodeURIComponent(sessionConfirmMatch[1]), expected_revision: input.expected_revision, confirmation,
+      session_id: decodeURIComponent(sessionConfirmMatch[1]), expected_revision: input.expected_revision,
     });
-    writeJson(response, 200, toolEnvelope('confirm_report_session', traceId, 'PASS', { ...result, confirmation }));
+    writeJson(response, 200, toolEnvelope('confirm_report_session', traceId, 'PASS', result));
+    return;
+  }
+
+  const sessionExportMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/export$/u);
+  if (request.method === 'POST' && sessionExportMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.exportConfirmedSession({
+      session_id: decodeURIComponent(sessionExportMatch[1]), expected_revision: input.expected_revision,
+    });
+    writeJson(response, 200, toolEnvelope('export_report_session', traceId, 'PASS', result));
+    return;
+  }
+
+  const legacySessionConfirmationMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/confirmation$/u);
+  if (request.method === 'POST' && legacySessionConfirmationMatch) {
+    throw Object.assign(new Error('Legacy token-binding confirmation is disabled; confirm the authoritative ReportSession.'), {
+      code: 'LEGACY_AUTHORITY_DISABLED', status: 410,
+    });
     return;
   }
 
@@ -801,38 +781,15 @@ async function handleApi(request, response, url, traceId, config, services) {
   }
 
   if (request.method === 'POST' && url.pathname === '/api/reports/confirm') {
-    const input = await readJson(request);
-    writeJson(response, 200, await confirmReportDraft({
-      draft: input.draft,
-      validatorRunId: input.validator_run_id,
-      technicianId: input.technician_id,
-      technicianName: input.technician_name,
-      store: reports,
-      traceId,
-    }));
-    return;
+    throw Object.assign(new Error('Client-draft confirmation is disabled.'), { code: 'LEGACY_AUTHORITY_DISABLED', status: 410 });
   }
 
   if (request.method === 'POST' && url.pathname === '/api/reports/save') {
-    const input = await readJson(request);
-    writeJson(response, 200, await saveConfirmedReport({
-      draft: input.draft,
-      confirmationToken: input.confirmation_token,
-      store: reports,
-      traceId,
-    }));
-    return;
+    throw Object.assign(new Error('Client-draft official save is disabled.'), { code: 'LEGACY_AUTHORITY_DISABLED', status: 410 });
   }
 
   if (request.method === 'POST' && url.pathname === '/api/reports/export') {
-    const input = await readJson(request);
-    writeJson(response, 200, await exportConfirmedReport({
-      draft: input.draft,
-      confirmationToken: input.confirmation_token,
-      store: reports,
-      traceId,
-    }));
-    return;
+    throw Object.assign(new Error('Client-draft export is disabled.'), { code: 'LEGACY_AUTHORITY_DISABLED', status: 410 });
   }
 
   if (request.method === 'GET' && url.pathname === '/api/v2/scopes') {
@@ -1067,38 +1024,15 @@ async function handleApi(request, response, url, traceId, config, services) {
   }
 
   if (request.method === 'POST' && url.pathname === '/api/v2/reports/confirm') {
-    const input = await readJson(request);
-    writeJson(response, 200, await confirmReportDraft({
-      draft: input.draft,
-      validatorRunId: input.validator_run_id,
-      technicianId: input.technician_id,
-      technicianName: input.technician_name,
-      store: reports,
-      traceId,
-    }));
-    return;
+    throw Object.assign(new Error('Client-draft confirmation is disabled.'), { code: 'LEGACY_AUTHORITY_DISABLED', status: 410 });
   }
 
   if (request.method === 'POST' && url.pathname === '/api/v2/reports/save') {
-    const input = await readJson(request);
-    writeJson(response, 200, await saveConfirmedReport({
-      draft: input.draft,
-      confirmationToken: input.confirmation_token,
-      store: reports,
-      traceId,
-    }));
-    return;
+    throw Object.assign(new Error('Client-draft official save is disabled.'), { code: 'LEGACY_AUTHORITY_DISABLED', status: 410 });
   }
 
   if (request.method === 'POST' && url.pathname === '/api/v2/reports/export') {
-    const input = await readJson(request);
-    writeJson(response, 200, await exportConfirmedReport({
-      draft: input.draft,
-      confirmationToken: input.confirmation_token,
-      store: reports,
-      traceId,
-    }));
-    return;
+    throw Object.assign(new Error('Client-draft export is disabled.'), { code: 'LEGACY_AUTHORITY_DISABLED', status: 410 });
   }
 
   writeJson(response, 404, toolEnvelope('http_router', traceId, 'FAIL', {}, { error_code: 'NOT_FOUND' }));
@@ -1106,7 +1040,6 @@ async function handleApi(request, response, url, traceId, config, services) {
 
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
-  ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
   ['/locales/en.js', ['locales/en.js', 'text/javascript; charset=utf-8']],
   ['/locales/zh-CN.js', ['locales/zh-CN.js', 'text/javascript; charset=utf-8']],

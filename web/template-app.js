@@ -5,13 +5,14 @@ import { recentTechnicianTemplates, selectTechnicianTemplates } from './template
 
 const $ = (id) => document.getElementById(id);
 const RECENT_TEMPLATES_KEY = 'field-report.recent-template-ids';
+const ACTIVE_SESSION_KEY = 'field-report.active-authoritative-session';
 const mobileNavigation = window.matchMedia('(max-width: 760px)');
 const state = {
   token: '', templates: [], activeTemplate: null, catalogCategory: 'All', templatesLoading: true,
   templatesError: null, recentTemplateIds: [], session: null, agentState: null, chain: null,
   transcript: null, transcriptReview: null, processing: null, recoverableError: null,
   interaction: { statement: '', microphone_available: Boolean(navigator.mediaDevices?.getUserMedia) },
-  correctionDecisions: new Map(), confirmation: null, draft: null, editingField: null,
+  correctionDecisions: new Map(), confirmation: null, editingField: null,
   reviewFullReport: false,
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
 };
@@ -34,6 +35,23 @@ function loadRecentTemplateIds() {
 function recordRecentTemplate(templateId) {
   state.recentTemplateIds = [templateId, ...state.recentTemplateIds.filter((id) => id !== templateId)].slice(0, 3);
   try { sessionStorage.setItem(RECENT_TEMPLATES_KEY, JSON.stringify(state.recentTemplateIds)); } catch { /* memory fallback */ }
+}
+
+function rememberActiveSession() {
+  if (!state.session || !state.activeTemplate) return;
+  try {
+    sessionStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({
+      session_id: state.session.session_id,
+      template_id: state.activeTemplate.templateId,
+    }));
+  } catch { /* memory fallback */ }
+}
+
+function savedActiveSession() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(ACTIVE_SESSION_KEY) || 'null');
+    return value?.session_id && value?.template_id ? value : null;
+  } catch { return null; }
 }
 state.recentTemplateIds = loadRecentTemplateIds();
 
@@ -139,7 +157,8 @@ async function refreshSession() {
   state.chain = chain; state.session = chain.session; state.agentState = chain.agent_state;
   state.transcript = chain.transcripts.at(-1) || state.transcript;
   state.transcriptReview = chain.transcript_reviews.at(-1) || null;
-  if (chain.session.confirmation_ref) state.confirmation ||= { confirmation_token: chain.session.confirmation_ref };
+  state.confirmation = chain.confirmation || state.confirmation;
+  rememberActiveSession();
 }
 
 function button(label, className, handler) {
@@ -346,13 +365,13 @@ function renderWorkspace() {
 
 async function openWorkspace(templateId) {
   const template = state.templates.find((item) => item.templateId === templateId && item.status === 'PUBLISHED' && item.presentation?.technicianVisible !== false); if (!template) return;
-  recordRecentTemplate(templateId); state.activeTemplate = template; state.session = null; state.agentState = null; state.chain = null; state.transcript = null; state.transcriptReview = null; state.confirmation = null; state.draft = null; state.recoverableError = null; state.interaction.statement = '';
+  recordRecentTemplate(templateId); state.activeTemplate = template; state.session = null; state.agentState = null; state.chain = null; state.transcript = null; state.transcriptReview = null; state.confirmation = null; state.recoverableError = null; state.interaction.statement = '';
   state.reviewFullReport = false;
   $('template-reports-nav').hidden = false; setView('workspace'); renderWorkspace();
   try {
     const jobRef = template.templateId === 'bus-defect-rectification-corrective-maintenance' ? 'work-order:WO-111-1222' : `new-report:${crypto.randomUUID()}`;
     const created = await api('/api/report-sessions', { method: 'POST', body: { template_id: template.templateId, template_version: template.templateVersion, job_context_ref: jobRef } });
-    state.session = created.session; state.agentState = created.agent_state; await refreshSession(); renderWorkspace();
+    state.session = created.session; state.agentState = created.agent_state; rememberActiveSession(); await refreshSession(); renderWorkspace();
   } catch (error) { state.recoverableError = { kind: 'NETWORK', message: `Could not start this report. ${error.message}`, retry_action: 'RETRY_CONNECTION' }; renderWorkspace(); }
 }
 
@@ -461,18 +480,16 @@ async function confirmReport() {
   if (state.session.phase !== 'READY') return;
   setProcessing('CHECKING_COMPLETENESS');
   try {
-    const built = await api('/api/template-reports/build', { method: 'POST', body: { template_id: state.activeTemplate.templateId, report_session_id: state.session.session_id } });
-    const confirmed = await api('/api/v2/reports/confirm', { method: 'POST', body: { draft: built.draft, validator_run_id: built.validation_receipt.validator_run_id, technician_id: 'TECH-001', technician_name: 'Alex Tan' } });
-    const bound = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/confirmation`, { method: 'POST', body: { expected_revision: state.session.revision, confirmation_token: confirmed.confirmation.confirmation_token } });
-    state.draft = built.draft; state.confirmation = bound.confirmation; state.session = bound.session; state.agentState = bound.agent_state;
+    const confirmed = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/confirm`, { method: 'POST', body: { expected_revision: state.session.revision } });
+    state.confirmation = confirmed.confirmation; state.session = confirmed.session; state.agentState = confirmed.agent_state; rememberActiveSession();
   } catch (error) { handleMutationError(error); }
   finally { state.processing = null; renderWorkspace(); }
 }
 
 async function exportReport() {
-  if (!state.draft || !state.confirmation?.confirmation_token) { state.recoverableError = { kind: 'NETWORK', message: 'Reopen the confirmed report package before exporting.', retry_action: 'REFRESH_SESSION' }; renderWorkspace(); return; }
+  if (state.session?.phase !== 'CONFIRMED') { state.recoverableError = { kind: 'NETWORK', message: 'Reopen the confirmed report package before exporting.', retry_action: 'REFRESH_SESSION' }; renderWorkspace(); return; }
   try {
-    const result = await api('/api/v2/reports/export', { method: 'POST', body: { draft: state.draft, confirmation_token: state.confirmation.confirmation_token } });
+    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/export`, { method: 'POST', body: { expected_revision: state.session.revision } });
     const text = result.export_text || result.text || JSON.stringify(result, null, 2); const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = element('a'); link.href = url; link.download = `${state.activeTemplate.templateId}.txt`; link.click(); URL.revokeObjectURL(url);
   } catch (error) { handleMutationError(error); renderWorkspace(); }
 }
@@ -502,7 +519,18 @@ async function publishSetup() { try { const data = await api(`/api/templates/dra
 
 async function init() {
   state.templatesLoading = true; renderCatalog();
-  try { const bootstrap = await fetch('/session-bootstrap', { method: 'POST' }).then((response) => response.json()); state.token = bootstrap.token; const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template); state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local'; }
+  try {
+    const bootstrap = await fetch('/session-bootstrap', { method: 'POST' }).then((response) => response.json()); state.token = bootstrap.token;
+    const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template);
+    state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local';
+    const saved = savedActiveSession();
+    const template = saved && state.templates.find((item) => item.templateId === saved.template_id);
+    if (saved && template) {
+      state.activeTemplate = template; state.session = { session_id: saved.session_id }; $('template-reports-nav').hidden = false;
+      try { await refreshSession(); setView('workspace'); renderWorkspace(); }
+      catch { sessionStorage.removeItem(ACTIVE_SESSION_KEY); state.session = null; state.activeTemplate = null; }
+    }
+  }
   catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; renderCatalog(); }
 }
 
