@@ -26,6 +26,7 @@ import { saveConfirmedReport } from './tools/save-confirmed-report.js';
 import { toolEnvelope } from './tools/tool-envelope.js';
 import { validateReportDraft } from './tools/validate-report-draft.js';
 import { validateReportInput } from './tools/validate-report-input.js';
+import { hashValue } from './tools/report-integrity.js';
 import { extractV2Facts } from './tools/extract-v2-facts.js';
 import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
@@ -40,6 +41,13 @@ import {
   checkHardGates,
   planV2Report,
 } from './v2/report-builder.js';
+import {
+  createReportSession,
+  evaluateCompleteness,
+  factsFromStructuredState,
+  mapFactsToStructuredState,
+  structuredStateSnapshot,
+} from '../web/report-runtime.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -156,6 +164,7 @@ async function handleApi(request, response, url, traceId, config) {
       ...result,
       source_hash: audioMetadata.source_hash,
       attempt,
+      input_mode: 'VOICE_TRANSCRIPT',
     }, { idempotencyKey });
     writeJson(response, 201, toolEnvelope('transcribe_audio', traceId, 'PASS', { transcript, reused: false }));
     return;
@@ -164,8 +173,13 @@ async function handleApi(request, response, url, traceId, config) {
   if (request.method === 'POST' && url.pathname === '/api/transcripts/manual') {
     const input = await readJson(request);
     const rawText = String(input.raw_text || '').trim();
-    const keyHash = crypto.createHash('sha256').update(`${input.language || 'zh'}:${rawText}`).digest('hex');
-    const transcript = await artifacts.putManualTranscript({ raw_text: rawText, language: input.language }, {
+    const editedFromArtifactId = String(input.edited_from_artifact_id || '').trim() || null;
+    const inputMode = editedFromArtifactId ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT';
+    if (input.input_mode && input.input_mode !== inputMode) {
+      throw Object.assign(new Error('Transcript source mode does not match its evidence binding.'), { code: 'TRANSCRIPT_SOURCE_MISMATCH', status: 400 });
+    }
+    const keyHash = crypto.createHash('sha256').update(`${input.language || 'zh'}:${inputMode}:${editedFromArtifactId || ''}:${rawText}`).digest('hex');
+    const transcript = await artifacts.putManualTranscript({ raw_text: rawText, language: input.language, input_mode: inputMode, edited_from_artifact_id: editedFromArtifactId }, {
       idempotencyKey: String(input.idempotency_key || `manual:${keyHash}`),
     });
     writeJson(response, 201, toolEnvelope('create_manual_transcript', traceId, 'PASS', { transcript }));
@@ -285,6 +299,7 @@ async function handleApi(request, response, url, traceId, config) {
       provider: input.use_llm === false || !model ? undefined : ollama,
       model,
       traceId,
+      reportSessionId: input.report_session_id,
     });
     writeJson(response, 200, result);
     return;
@@ -454,24 +469,78 @@ async function handleApi(request, response, url, traceId, config) {
         .digest('hex')
         .slice(0, 24)}`;
     const knowledgeHits = Array.isArray(input.knowledge_hits) ? input.knowledge_hits : [];
+    const requestedSessionId = String(input.report_session_id || '').trim().slice(0, 160);
+    const reportSessionId = requestedSessionId || `server_${traceId}`;
+    const reportTypes = {
+      SBS_BUS: 'sbs_bus_maintenance',
+      SBS_RAIL: 'sbs_rail_maintenance',
+      OILFIELD: 'oilfield_inspection',
+      POWER_GRID: 'power_grid_inspection',
+    };
+    const reportType = reportTypes[resolved.scopeId];
+    const mappedSession = mapFactsToStructuredState(createReportSession({ id: reportSessionId, reportType }), facts);
+    const completeness = evaluateCompleteness(mappedSession);
+    const authoritativeFacts = factsFromStructuredState(mappedSession);
     const report = resolved.scopeId === 'SBS_BUS'
-      ? buildBusReportSections({ facts, factsReceiptId })
+      ? buildBusReportSections({ facts: authoritativeFacts, factsReceiptId })
       : resolved.scopeId === 'SBS_RAIL'
-        ? buildRailReportSections({ facts, factsReceiptId })
-        : buildIndustrialReportSections({ scopeId: resolved.scopeId, facts, factsReceiptId });
-    const plan = planV2Report({ scopeId: resolved.scopeId, facts, factsReceiptId });
+        ? buildRailReportSections({ facts: authoritativeFacts, factsReceiptId })
+        : buildIndustrialReportSections({ scopeId: resolved.scopeId, facts: authoritativeFacts, factsReceiptId });
+    const plan = planV2Report({ scopeId: resolved.scopeId, facts: authoritativeFacts, factsReceiptId });
+    const schemaViolations = [
+      ...completeness.conflicts.map((field) => ({ class: 'SCHEMA_FIELD_CONFLICT', field, message: `Conflicting values for ${field} require technician resolution.` })),
+      ...completeness.needsConfirmation.map((field) => ({ class: 'SCHEMA_FIELD_NEEDS_CONFIRMATION', field, message: `${field} requires technician confirmation.` })),
+      ...completeness.invalidValues.map((item) => ({ class: 'SCHEMA_INVALID_VALUE', field: item.fieldId, message: `${item.fieldId} failed the schema ${item.reason} constraint.` })),
+    ];
+    // Retrieved procedures remain visible as advice. They never become proof
+    // that the technician performed an action, so retrieval alone must not
+    // block a grounded report.
+    const knowledgeAdvisories = assertNoServiceFactInvention({ facts: authoritativeFacts, knowledgeHits })
+      .map((item) => Object.freeze({
+        class: 'KNOWLEDGE_ACTION_NOT_PROMOTED',
+        detail: item.detail,
+      }));
     const violations = [
-      ...assertNoServiceFactInvention({ facts, knowledgeHits }),
-      ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
+      ...schemaViolations,
+      ...checkHardGates({ scopeId: resolved.scopeId, facts: authoritativeFacts }).violations,
     ];
     const followUpQuestions = [
       ...buildFollowUpQuestions({
-      scopeId: resolved.scopeId,
-      missingSections: plan.missing_required_fields,
+        scopeId: resolved.scopeId,
+        missingSections: plan.missing_required_fields,
       }),
       ...buildGateConfirmationQuestions({ violations }),
     ];
-    writeJson(response, 200, toolEnvelope('v2_report_build', traceId, violations.length ? 'NEEDS_CONFIRMATION' : 'PASS', {
+    const schema = { id: mappedSession.schemaId, version: mappedSession.schemaVersion };
+    const stateSnapshot = structuredStateSnapshot(mappedSession);
+    const structuredStateHash = hashValue(stateSnapshot);
+    const draftFingerprint = hashValue({ contextId, reportSessionId, structuredStateHash, sections: report.sections });
+    const draft = {
+      report_id: `report_${draftFingerprint.slice(7, 19)}`,
+      report_version: 1,
+      report_session_id: reportSessionId,
+      schema_id: schema.id,
+      schema_version: schema.version,
+      scope_id: resolved.scopeId,
+      context_id: contextId,
+      template_version: report.reportVersion,
+      facts_hash: hashValue(authoritativeFacts),
+      structured_state_hash: structuredStateHash,
+      sections: report.sections,
+      missing_required_fields: plan.missing_required_fields,
+      disclaimer: {
+        text: 'Technician review and confirmation are required. Knowledge references do not prove that work was performed.',
+      },
+    };
+    const status = violations.length ? 'NEEDS_CONFIRMATION' : 'PASS';
+    const validation = {
+      trace_id: traceId,
+      status,
+      data: { can_enter_technician_review: violations.length === 0, gates: { violations } },
+    };
+    const validationReceipt = await reports.recordStructuredValidation({ draft, validation, facts: authoritativeFacts });
+    writeJson(response, 200, toolEnvelope('v2_report_build', traceId, status, {
+      structured_job_state: stateSnapshot,
       report: {
         scope_id: resolved.scopeId,
         context_id: contextId,
@@ -480,9 +549,47 @@ async function handleApi(request, response, url, traceId, config) {
         sections: report.sections,
         missing_required_fields: plan.missing_required_fields,
       },
+      draft,
+      validation_receipt: validationReceipt,
       gates: { violations },
+      knowledge_advisories: knowledgeAdvisories,
       follow_up_questions: followUpQuestions,
     }, { retryable: false }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/confirm') {
+    const input = await readJson(request);
+    writeJson(response, 200, await confirmReportDraft({
+      draft: input.draft,
+      validatorRunId: input.validator_run_id,
+      technicianId: input.technician_id,
+      technicianName: input.technician_name,
+      store: reports,
+      traceId,
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/save') {
+    const input = await readJson(request);
+    writeJson(response, 200, await saveConfirmedReport({
+      draft: input.draft,
+      confirmationToken: input.confirmation_token,
+      store: reports,
+      traceId,
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/v2/reports/export') {
+    const input = await readJson(request);
+    writeJson(response, 200, await exportConfirmedReport({
+      draft: input.draft,
+      confirmationToken: input.confirmation_token,
+      store: reports,
+      traceId,
+    }));
     return;
   }
 
@@ -496,7 +603,8 @@ const staticFiles = new Map([
   ['/locales/en.js', ['locales/en.js', 'text/javascript; charset=utf-8']],
   ['/locales/zh-CN.js', ['locales/zh-CN.js', 'text/javascript; charset=utf-8']],
   ['/locales/overrides.js', ['locales/overrides.js', 'text/javascript; charset=utf-8']],
-  ['/favicon.svg', ['favicon.svg', 'image/svg+xml; charset=utf-8']],
+  ['/report-runtime.js', ['report-runtime.js', 'text/javascript; charset=utf-8']],
+  ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],
   ['/pcm-capture-worklet.js', ['pcm-capture-worklet.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],

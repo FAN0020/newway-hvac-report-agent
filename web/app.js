@@ -1,142 +1,157 @@
 import { PcmWavRecorder } from './audio-recorder.js';
-import { i18n, t } from './i18n.js';
-
-const uiLanguage = document.getElementById('ui-language');
-uiLanguage.value = i18n.getLocale();
-i18n.translateDom(document);
-
-function setLocalizedText(target, key, variables = {}) {
-  const item = typeof target === 'string' ? document.getElementById(target) : target;
-  if (!item) return null;
-  item.dataset.i18nRuntimeKey = key;
-  item.dataset.i18nRuntimeVariables = JSON.stringify(variables);
-  item.textContent = t(key, resolveLocalizedVariables(variables));
-  return item;
-}
-
-function translatedVariable(key, variables = {}) {
-  return { $i18n: key, variables };
-}
-
-function resolveLocalizedVariables(variables = {}) {
-  return Object.fromEntries(Object.entries(variables).map(([name, value]) => {
-    if (value && typeof value === 'object' && value.$i18n) {
-      return [name, t(value.$i18n, resolveLocalizedVariables(value.variables || {}))];
-    }
-    return [name, value];
-  }));
-}
-
-function localizedNode(tag, className, key, variables = {}) {
-  const item = document.createElement(tag);
-  if (className) item.className = className;
-  return setLocalizedText(item, key, variables);
-}
-
-function translateRuntimeDom(root = document) {
-  for (const item of root.querySelectorAll('[data-i18n-runtime-key]')) {
-    let variables = {};
-    try { variables = JSON.parse(item.dataset.i18nRuntimeVariables || '{}'); } catch { /* keep safe empty variables */ }
-    item.textContent = t(item.dataset.i18nRuntimeKey, resolveLocalizedVariables(variables));
-  }
-}
-
-const STATUS_KEYS = Object.freeze({
-  UPLOADED: 'status.uploaded', PROCESSING: 'status.processing', PARSED: 'status.parsed',
-  CHUNKED: 'status.chunked', INDEXED: 'status.indexed', READY: 'status.ready', FAILED: 'status.failed',
-  PASS: 'status.pass', NEEDS_CONFIRMATION: 'status.needsConfirmation',
-  DIRECT_TRANSCRIPT: 'status.directTranscript', MANUAL_ENTRY: 'status.manualEntry',
-  CONFIRMED_BY_TECHNICIAN: 'status.confirmedByTechnician', UNCERTAIN: 'status.uncertain',
-});
-
-function localizedStatusVariable(value) {
-  const key = STATUS_KEYS[String(value || '').toUpperCase()];
-  return key ? translatedVariable(key) : String(value || t('common.unknown'));
-}
-
-const FIELD_KEYS = Object.freeze({
-  work_order: 'fields.work_order', equipment: 'fields.equipment', customer_complaint: 'fields.customer_complaint',
-  inspection_findings: 'fields.inspection_findings', work_performed: 'fields.work_performed', parts_used: 'fields.parts_used',
-  test_results: 'fields.test_results', completion_status: 'fields.completion_status', unresolved_issues: 'fields.unresolved_issues',
-  follow_up_recommendations: 'fields.follow_up_recommendations', refrigerant_record: 'fields.refrigerant_record',
-  measurements: 'fields.measurements', attachments: 'fields.attachments', cost_quote: 'fields.cost_quote',
-  warranty: 'fields.warranty', customer_feedback: 'fields.customer_feedback',
-  vehicle_identification: 'fieldLabels.vehicleIdentification', asset_identification: 'fieldLabels.assetIdentification',
-  works_summary: 'fieldLabels.worksSummary', trigger_findings: 'fieldLabels.triggerFindings',
-  diagnosis: 'fieldLabels.diagnosis', parts_materials: 'fieldLabels.partsMaterials', tests_results: 'fieldLabels.testsResults',
-  safety_hv_notes: 'fieldLabels.safetyHvNotes', compliance_audit: 'fieldLabels.complianceAudit',
-  track_access_record: 'fieldLabels.trackAccessRecord', completion_state_return_to_service: 'fieldLabels.completionReturnToService',
-  safety_ops_notes: 'fieldLabels.safetyOpsNotes', reliability_compliance: 'fieldLabels.reliabilityCompliance',
-  provenance: 'fieldLabels.provenance',
-  'asset.registration_no': 'fieldLabels.assetRegistrationNo', 'asset.internal_fleet_no': 'fieldLabels.assetInternalFleetNo',
-  'asset.bus_model': 'fieldLabels.assetBusModel', 'asset.depot': 'fieldLabels.assetDepot',
-  'asset.package': 'fieldLabels.assetPackage', 'asset.line': 'fieldLabels.assetLine',
-  'asset.train_set': 'fieldLabels.assetTrainSet', 'asset.car': 'fieldLabels.assetCar',
-  'asset.stock_class': 'fieldLabels.assetStockClass', 'asset.subsystem': 'fieldLabels.assetSubsystem',
-  'work.type': 'fieldLabels.workType', 'work.trigger': 'fieldLabels.workTrigger',
-  'work.work_order_id': 'fieldLabels.workOrderId', 'work.order_id': 'fieldLabels.workOrderId',
-  'work.fault_code': 'fieldLabels.workFaultCode', 'work.description': 'fieldLabels.workDescription',
-  'diagnosis.root_cause': 'fieldLabels.diagnosisRootCause', 'parts.part_number': 'fieldLabels.partsPartNumber',
-  'parts.replaced': 'fieldLabels.partsReplaced', 'test.result': 'fieldLabels.testResult',
-  'completion.state': 'fieldLabels.completionState', 'access.approval': 'fieldLabels.accessApproval',
-  estimated_completion_time: 'fieldLabels.estimatedCompletionTime', part_price: 'fieldLabels.partPrice',
-  contract_reference: 'fieldLabels.contractReference', penalty_or_claim: 'fieldLabels.penaltyOrClaim',
-});
-
-const FIELD_PREFIX_KEYS = Object.freeze({
-  'measurement.': 'fieldLabels.measurement', 'safety.': 'fieldLabels.safety',
-  'provenance.': 'fieldLabels.provenance', 'reliability.': 'fieldLabels.reliability',
-});
-
-function localizedFieldKey(value) {
-  const field = String(value || '');
-  if (FIELD_KEYS[field]) return FIELD_KEYS[field];
-  return Object.entries(FIELD_PREFIX_KEYS).find(([prefix]) => field.startsWith(prefix))?.[1] || null;
-}
-
-function localizedField(value) {
-  const key = localizedFieldKey(value);
-  return key ? t(key) : String(value || '—');
-}
-
-function localizedFieldNode(tag, className, value) {
-  const key = localizedFieldKey(value);
-  return key ? localizedNode(tag, className, key) : node(tag, className, String(value || '—'));
-}
+import { t } from './i18n.js';
+import {
+  REPORT_SCHEMAS,
+  audioPreferenceState,
+  applyResolveDecision,
+  applyTranscriptArtifact,
+  beginResolveFlow,
+  bindSessionConfirmation,
+  confirmationViewState,
+  correctionDecisionPayload,
+  createReportSession,
+  createResolveQueue,
+  createSessionRuntime,
+  factsFromStructuredState,
+  globalViewStatus,
+  hasMaterialReportChange,
+  invalidateSessionConfirmation,
+  knowledgeQueryState,
+  mapFactsToStructuredState,
+  reportSearchText,
+  reviewStatus,
+  resolveAttentionCount,
+  resolveProgress,
+  schemaFor,
+  transcriptSourceLabel,
+} from './report-runtime.js';
 
 const ids = [
-  'auth-gate', 'auth-token', 'auth-submit', 'auth-status', 'network-mode', 'network-warning', 'fill-demo',
+  'auth-gate', 'auth-token', 'auth-submit', 'auth-status', 'network-mode', 'network-warning',
+  'page-title', 'page-eyebrow', 'topbar-status', 'mobile-menu', 'journey', 'reports-list', 'report-search',
+  'context-icon', 'context-title', 'context-schema', 'sbs-source-row', 'open-evidence', 'review-evidence', 'edit-information',
+  'evidence-drawer', 'close-evidence', 'drawer-backdrop', 'audit-timeline', 'evidence-source',
+  'evidence-corrections', 'evidence-facts', 'evidence-state', 'evidence-resolve', 'evidence-context', 'evidence-validation', 'evidence-finalization', 'fill-demo',
   'refresh-health', 'health-summary', 'health-details', 'start-recording', 'stop-recording', 'audio-file',
-  'recording-status', 'audio-preview', 'language', 'model', 'transcribe', 'retry', 'manual-transcript',
+  'recording-status', 'audio-preview', 'language', 'model', 'transcribe', 'retry', 'type-instead', 'manual-entry',
+  'manual-transcript', 'manual-source-hint', 'statement-ready', 'statement-source', 'view-statement', 'edit-statement', 'statement-preview',
   'use-manual', 'transcription-status', 'transcript-output', 'artifact-output', 'build-report',
-  'correction-section', 'correction-raw', 'correction-proposed', 'correction-list', 'correction-technician-name',
-  'correction-technician-id', 'confirm-corrections', 'correction-status', 'correction-evidence',
+  'transcript-source', 'transcript-history',
+  'capture-identity', 'capture-technician-name', 'capture-technician-id',
+  'correction-section', 'correction-raw', 'correction-proposed', 'correction-list',
+  'confirm-corrections', 'correction-status', 'correction-evidence', 'resolve-count', 'resolve-progress',
   'questions-section', 'questions-list', 'apply-answers', 'evidence-section', 'facts-output', 'issues-output',
-  'report-section', 'validator-banner', 'report-output', 'validator-output', 'confirm-section',
-  'technician-name', 'technician-id', 'confirm-check', 'confirm-report', 'save-report', 'export-report',
-  'copy-export', 'confirmation-status', 'export-output',
+  'fact-count', 'issue-count', 'validation-label', 'report-section', 'validator-banner', 'report-output',
+  'validator-output', 'confirm-section', 'review-identity-summary', 'review-identity-fields', 'change-technician', 'technician-name', 'technician-id', 'confirm-check', 'confirm-report',
+  'save-report', 'export-report', 'copy-export', 'confirmation-status', 'export-output', 'complete-summary', 'complete-status', 'start-another-report',
+  'complete-meta', 'v2-upload-file', 'v2-upload-submit', 'v2-upload-status', 'v2-uploader', 'v2-upload-list',
+  'v2-upload-progress', 'v2-upload-record', 'v2-upload-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk',
+  'v2-retrieve-submit', 'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
+  'v2-retrieve-scope-hint', 'scope-selector-buttons', 'scope-selector-status', 'v1-panel', 'v2-panel',
+  'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status', 'v2-facts-table-wrap',
+  'v2-facts-table', 'v2-report-output', 'v2-report-banner', 'v2-report-missing', 'v2-report-gates',
+  'v2-report-sections', 'v2-demo-play', 'v2-demo-status', 'v2-demo-captions', 'v2-demo-fixes',
+  'v2-demo-fix-list', 'v2-walkthrough-start', 'v2-walkthrough', 'v2-wt-progress', 'v2-wt-step', 'settings-language', 'settings-model',
+  'v2-wt-title', 'v2-wt-desc', 'v2-wt-skip', 'v2-wt-next',
 ];
 const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+const runtime = createSessionRuntime();
+const sessions = new Map();
+const sidebar = document.querySelector('.sidebar');
+const mobileSidebarQuery = window.matchMedia('(max-width: 900px)');
+const sessionTokenKey = 'hvac_demo_session_token';
+const demoNarration = '客户反映不制冷。检查发现运行电容损坏。更换了一个35微法电容。试机运行正常。问题已解决。建议下次保养清洗滤网。';
+const examples = {
+  HVAC: demoNarration,
+  SBS_BUS: 'Preventive maintenance on bus MAN A95. The front door would not close. Inspection found the door control module was faulty. Replaced the door control module. Tested door opening and closing normal. Completion status completed.',
+  SBS_RAIL: 'Corrective maintenance on train set C751A 7001/7002. TAMS access approved. Inspected car three door, replaced the worn door roller, tested operation, and returned the train to service.',
+  OILFIELD: 'At Shengli Oilfield gathering station 3, inspected crude oil pipeline section P-17 according to the pipeline safety inspection procedure. Found coating damage and surface corrosion near weld W-12. Wall thickness measured 8.4 millimetres. Cleaned the affected area and applied temporary corrosion protection. No active leak was found. The section remains in service with follow-up inspection required.',
+  POWER_GRID: 'At the 110 kV Riverside substation, inspected transformer T2 under the periodic inspection procedure. Oil temperature was 62 degrees Celsius and the visual inspection found no leakage. Cleaned the bushing surface, completed insulation checks, and confirmed the test result was normal. Safety isolation was removed after verification and the transformer was returned to service.',
+};
+const scopeMeta = {
+  HVAC: { icon: '❉', contextId: 'HVAC' },
+  SBS_BUS: { icon: '▰', contextId: 'SBS/BUS' },
+  SBS_RAIL: { icon: '▥', contextId: 'SBS/RAIL' },
+  OILFIELD: { icon: '◈', contextId: 'OILFIELD' },
+  POWER_GRID: { icon: 'ϟ', contextId: 'POWER/GRID' },
+};
+const FINALIZATION_ROUTES = Object.freeze({
+  HVAC: Object.freeze({ confirm: '/api/reports/confirm', save: '/api/reports/save', export: '/api/reports/export' }),
+  SBS: Object.freeze({ confirm: '/api/v2/reports/confirm', save: '/api/v2/reports/save', export: '/api/v2/reports/export' }),
+});
 
+let sessionToken = '';
+let activeSession = null;
 let recorder;
 let recordingTimer;
-let currentBlob;
-let currentAudioId;
-let previewUrl;
+let recordingElapsedTimer;
+let recordingStartedAt = 0;
+let recordingSessionId;
 let currentTranscript;
 let currentNormalization;
 let currentCorrectionReceipt;
-let currentInputValidation;
 let currentFacts = [];
 let currentFactsReceiptId;
 let currentDraft;
 let currentValidation;
 let confirmationToken;
 let ollamaReady = false;
-let sessionToken = '';
-const manualFields = {};
-const sessionTokenKey = 'hvac_demo_session_token';
-const demoNarration = 'The customer reports the air conditioner is not cooling. Inspection found the operating capacitor is damaged. Replaced it with a 35 µF capacitor. Test run is normal. Problem resolved. Recommendation: clean the filter at the next service.';
+let currentView = 'reports';
+let knowledgeScope = 'SBS_BUS';
+let knowledgeRequestGeneration = 0;
+let knowledgeSearchPending = false;
+let previousEvidenceFocus = null;
+let audioDefaults = audioPreferenceState();
+let demoRunGeneration = 0;
+let activeDemoRun = null;
+const knowledgeTransients = new Map();
+
+function node(tag, className, text) {
+  const item = document.createElement(tag);
+  if (className) item.className = className;
+  if (text !== undefined) item.textContent = text;
+  return item;
+}
+
+function syncSidebarAccessibility() {
+  const mobile = mobileSidebarQuery.matches;
+  const open = sidebar.classList.contains('open');
+  sidebar.inert = mobile && !open;
+  if (mobile && !open) sidebar.setAttribute('aria-hidden', 'true');
+  else sidebar.removeAttribute('aria-hidden');
+  el['mobile-menu'].setAttribute('aria-expanded', String(mobile && open));
+}
+
+function setSidebarOpen(open, { focus = false } = {}) {
+  sidebar.classList.toggle('open', open && mobileSidebarQuery.matches);
+  syncSidebarAccessibility();
+  if (open && mobileSidebarQuery.matches && focus) sidebar.querySelector('a, button')?.focus();
+}
+
+mobileSidebarQuery.addEventListener('change', syncSidebarAccessibility);
+syncSidebarAccessibility();
+
+function renderEmptyState(container, { icon = '▤', title, message, actionLabel, action } = {}) {
+  const body = node('div');
+  body.append(node('span', 'empty-icon', icon), node('h3', '', title), node('p', '', message));
+  if (actionLabel) {
+    const button = node('button', 'primary', actionLabel);
+    button.addEventListener('click', action);
+    body.append(button);
+  }
+  const wrapper = node('div', 'empty-state');
+  wrapper.append(body);
+  container.replaceChildren(wrapper);
+}
+
+function cancelDemoRun(message = 'Demo stopped. Its synthetic report remains in this local demo workspace.') {
+  if (!activeDemoRun) return;
+  demoRunGeneration += 1;
+  runtime.beginRequest(activeDemoRun.sessionId, 'demo-statement');
+  activeDemoRun = null;
+  el['v2-demo-play'].disabled = false;
+  el['v2-demo-status'].textContent = message;
+}
 
 function setSessionToken(value) {
   sessionToken = String(value || '').trim();
@@ -144,17 +159,17 @@ function setSessionToken(value) {
   else sessionStorage.removeItem(sessionTokenKey);
 }
 
-function requireLogin(messageKey = 'auth.prompt', variables = {}) {
+function requireLogin(message = 'Enter the temporary demo passcode set when the server started.') {
   setSessionToken('');
   el['auth-gate'].hidden = false;
-  setLocalizedText(el['auth-status'], messageKey, variables);
+  el['auth-status'].textContent = message;
   el['auth-token'].value = '';
   el['auth-token'].focus();
 }
 
 async function api(path, body, options = {}) {
   const { allowToolFailure = false, ...fetchOptions } = options;
-  if (!sessionToken) throw new Error(t('auth.noSession'));
+  if (!sessionToken) throw new Error('No demo session established yet.');
   const headers = new Headers(fetchOptions.headers || {});
   headers.set('authorization', `Bearer ${sessionToken}`);
   const requestOptions = { ...fetchOptions, headers };
@@ -165,13 +180,9 @@ async function api(path, body, options = {}) {
   }
   const response = await fetch(path, requestOptions);
   let result;
-  try {
-    result = await response.json();
-  } catch {
-    result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
-  }
-  if (response.status === 401) requireLogin('auth.invalid');
-  if (!response.ok || (!allowToolFailure && (result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR'))) {
+  try { result = await response.json(); } catch { result = { status: 'FAIL', error_code: `HTTP_${response.status}` }; }
+  if (response.status === 401) requireLogin('Invalid passcode or expired session. Please re-enter.');
+  if (!response.ok || (!allowToolFailure && ['FAIL', 'RETRYABLE_ERROR'].includes(result.status))) {
     const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
     error.result = result;
     throw error;
@@ -179,1777 +190,1406 @@ async function api(path, body, options = {}) {
   return result;
 }
 
-function node(tag, className, text) {
-  const item = document.createElement(tag);
-  if (className) item.className = className;
-  if (text !== undefined) item.textContent = text;
-  return item;
+async function apiRaw(path, body, headers = {}) {
+  if (!sessionToken) throw new Error('No demo session established yet.');
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set('authorization', `Bearer ${sessionToken}`);
+  const response = await fetch(path, { method: 'POST', headers: requestHeaders, body });
+  const result = await response.json();
+  if (response.status === 401) requireLogin('Invalid passcode or expired session. Please re-enter.');
+  if (!response.ok || ['FAIL', 'RETRYABLE_ERROR'].includes(result.status)) {
+    const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
+    error.result = result;
+    throw error;
+  }
+  return result;
+}
+
+function addAudit(label, detail = '') {
+  if (!activeSession) return;
+  activeSession.audit ||= [];
+  activeSession.audit.push({ label, detail, at: new Date().toISOString() });
+  renderAudit();
+}
+
+function renderAudit() {
+  const entries = activeSession?.audit || [];
+  el['audit-timeline'].replaceChildren(...entries.map((entry) => node('div', 'audit-entry', `${entry.label} · ${entry.at.slice(11, 19)}${entry.detail ? `\n${entry.detail}` : ''}`)));
+}
+
+function evidenceJson(value, empty = 'Not available yet.') {
+  if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) return empty;
+  try { return JSON.stringify(value, null, 2); }
+  catch { return 'This evidence could not be displayed.'; }
+}
+
+function renderEvidence() {
+  const session = activeSession;
+  renderTranscriptEvidence();
+  renderAudit();
+  el['evidence-corrections'].textContent = evidenceJson(session && {
+    decisions: session.correctionDecisions?.length ? session.correctionDecisions : session.corrections,
+    receipt: session.correctionReceipt,
+  });
+  el['evidence-facts'].textContent = evidenceJson(session && { facts: session.facts, facts_receipt_id: session.factsReceiptId });
+  el['evidence-state'].textContent = evidenceJson(session && {
+    schema_id: session.schemaId, schema_version: session.schemaVersion,
+    structured_job_state: session.structuredState, field_states: session.fieldStates, completeness: session.completeness,
+  });
+  el['evidence-resolve'].textContent = evidenceJson(session && {
+    answers: session.resolveAnswers,
+    technician_follow_ups: (session.facts || []).filter((fact) => fact.source === 'technician_follow_up'),
+  });
+  el['evidence-context'].textContent = evidenceJson(session && {
+    audio_id: session.capture?.audioId || null,
+    attachment: session.capture?.attachment || null,
+    supporting_documents: session.evidence,
+    knowledge_references: session.knowledgeHits || [],
+  });
+  el['evidence-validation'].textContent = evidenceJson(session && { input: session.inputValidation, report: session.validation });
+  el['evidence-finalization'].textContent = evidenceJson(session && { confirmation: session.confirmation, official_artifacts: session.exportState });
+}
+
+function showEvidence() {
+  previousEvidenceFocus = document.activeElement;
+  el['evidence-drawer'].hidden = false;
+  el['drawer-backdrop'].hidden = false;
+  document.querySelector('.app-shell').inert = true;
+  document.body.classList.add('drawer-open');
+  renderEvidence();
+  el['close-evidence'].focus();
+}
+
+function hideEvidence() {
+  el['evidence-drawer'].hidden = true;
+  el['drawer-backdrop'].hidden = true;
+  document.querySelector('.app-shell').inert = false;
+  document.body.classList.remove('drawer-open');
+  if (previousEvidenceFocus?.isConnected) previousEvidenceFocus.focus();
+  previousEvidenceFocus = null;
+}
+
+function renderTranscriptEvidence() {
+  const artifact = activeSession?.transcriptArtifact;
+  el['transcript-source'].textContent = artifact ? transcriptSourceLabel(artifact) : 'No source yet';
+  el['transcript-output'].textContent = artifact?.raw_text || 'No transcript captured for this report.';
+  el['transcript-output'].classList.toggle('empty', !artifact);
+  el['artifact-output'].textContent = artifact ? JSON.stringify(artifact, null, 2) : '—';
+  const history = activeSession?.transcriptHistory || [];
+  el['transcript-history'].replaceChildren(...history.map((item) => {
+    const entry = node('article');
+    entry.append(node('small', '', `${transcriptSourceLabel(item)} · immutable earlier version`), document.createTextNode(item.raw_text));
+    return entry;
+  }));
+}
+
+function resetCurrentReferences() {
+  currentTranscript = activeSession?.transcriptArtifact || null;
+  currentNormalization = activeSession?.normalization || null;
+  currentCorrectionReceipt = activeSession?.correctionReceipt || null;
+  currentFacts = activeSession?.facts || [];
+  currentFactsReceiptId = activeSession?.factsReceiptId || null;
+  currentDraft = activeSession?.reportDraft || null;
+  currentValidation = activeSession?.validation || null;
+  confirmationToken = activeSession?.confirmation?.confirmation_token || null;
+}
+
+function navigate(view) {
+  currentView = view;
+  if (view === 'resolve' && activeSession) activeSession.visitedResolve = true;
+  for (const section of document.querySelectorAll('.view')) section.classList.toggle('active', section.id === `view-${view}`);
+  const target = document.getElementById(`view-${view}`);
+  if (!target) return;
+  el['page-title'].textContent = target.dataset.title;
+  el['page-eyebrow'].textContent = target.dataset.eyebrow;
+  for (const item of document.querySelectorAll('.nav-item')) item.classList.toggle('active', item.dataset.nav === view || (['capture', 'resolve', 'review', 'complete'].includes(view) && item.dataset.nav === 'reports'));
+  const journeyView = ['capture', 'resolve', 'review', 'complete'].includes(view);
+  el.journey.hidden = !journeyView;
+  if (journeyView) updateJourney(view);
+  else el['topbar-status'].textContent = globalViewStatus(view, knowledgeScope);
+  if (view === 'settings') {
+    el['settings-language'].value = audioDefaults.language;
+    el['settings-model'].value = audioDefaults.model;
+  }
+  setSidebarOpen(false);
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+function updateJourney(step) {
+  const order = ['capture', 'resolve', 'review', 'complete'];
+  const index = order.indexOf(step);
+  for (const button of el.journey.querySelectorAll('button')) {
+    const buttonIndex = order.indexOf(button.dataset.step);
+    button.classList.toggle('active', buttonIndex === index);
+    button.classList.toggle('done', buttonIndex < index);
+    const confirmedComplete = button.dataset.step === 'complete' && Boolean(activeSession?.confirmation);
+    button.disabled = !activeSession || (buttonIndex > index && !confirmedComplete) || (buttonIndex === 1 && step !== 'resolve' && !activeSession.visitedResolve);
+  }
+}
+
+function saveTransientFromDom() {
+  if (!activeSession) return;
+  activeSession.capture.language = el.language.value;
+  activeSession.capture.model = el.model.value;
+  const technicianName = el['capture-technician-name'].value || el['technician-name'].value || activeSession.jobContext?.technicianName || '';
+  const technicianId = el['capture-technician-id'].value || el['technician-id'].value || activeSession.jobContext?.technicianId || '';
+  activeSession.jobContext = { ...activeSession.jobContext, technicianName, technicianId };
+  runtime.setTransient(activeSession.id, {
+    statement: el['manual-transcript'].value,
+    technicianName,
+    technicianId,
+  });
+}
+
+function restoreTransientToDom() {
+  const transient = activeSession ? runtime.getTransient(activeSession.id) : {};
+  const technicianName = activeSession?.jobContext?.technicianName || transient.technicianName || '';
+  const technicianId = activeSession?.jobContext?.technicianId || transient.technicianId || '';
+  el['manual-transcript'].value = transient.statement || '';
+  for (const id of ['capture-technician-name', 'technician-name']) el[id].value = technicianName;
+  for (const id of ['capture-technician-id', 'technician-id']) el[id].value = technicianId;
+  if (activeSession) {
+    el.language.value = activeSession.capture.language;
+    el.model.value = activeSession.capture.model;
+  }
+}
+
+function restoreSessionUi() {
+  const capture = activeSession?.capture;
+  const artifact = activeSession?.transcriptArtifact;
+  el['audio-preview'].hidden = !capture?.previewUrl;
+  el['audio-preview'].src = capture?.previewUrl || '';
+  el.transcribe.disabled = true;
+  const transcriptionFailed = activeSession?.processing.status === 'error' && /^Transcription failed:/i.test(activeSession.processing.error || '');
+  el.retry.hidden = !transcriptionFailed;
+  el.retry.disabled = !transcriptionFailed;
+  const ownsRecording = Boolean(recorder && recordingSessionId === activeSession?.id);
+  const anotherReportRecording = Boolean(recorder && recordingSessionId !== activeSession?.id);
+  el['recording-status'].textContent = ownsRecording
+    ? `Recording… ${formatElapsed(Date.now() - recordingStartedAt)}`
+    : (anotherReportRecording ? 'A recording is active in another report.' : (activeSession?.processing.error || (artifact ? 'Statement ready.' : (capture?.audioBlob ? 'Audio ready for transcription.' : 'Ready to record.'))));
+  el['manual-entry'].hidden = !capture?.manualEntryOpen;
+  el['statement-ready'].hidden = !artifact;
+  el['statement-source'].textContent = artifact ? transcriptSourceLabel(artifact) : 'Captured statement';
+  el['statement-preview'].textContent = artifact?.raw_text || '';
+  el['statement-preview'].hidden = true;
+  el['view-statement'].setAttribute('aria-expanded', 'false');
+  el['manual-source-hint'].textContent = artifact ? 'Saving changes creates a new edited transcript and keeps this source immutable.' : 'Typed text is stored as manual input.';
+  el['transcription-status'].textContent = activeSession?.processing.status === 'processing' ? 'Processing…' : (artifact ? 'Statement ready.' : 'Waiting for a statement.');
+  el['start-recording'].hidden = ownsRecording;
+  el['start-recording'].disabled = anotherReportRecording;
+  el['start-recording'].classList.toggle('recording', ownsRecording);
+  el['stop-recording'].hidden = !ownsRecording;
+  el['stop-recording'].disabled = !ownsRecording;
+  renderTranscriptEvidence();
+  el['complete-summary'].textContent = activeSession?.complete.summary || '';
+  renderCompleteMeta(activeSession?.complete.meta || '');
+  el['export-output'].value = activeSession?.complete.copyableText || '';
+  el['export-output'].hidden = !activeSession?.complete.copyableText;
+  el['copy-export'].disabled = !activeSession?.complete.copyableText;
+  el['save-report'].disabled = !activeSession?.confirmation;
+  el['export-report'].disabled = !activeSession?.confirmation;
+  renderCompleteState(activeSession);
+  el['use-manual'].disabled = !(artifact || el['manual-transcript'].value.trim());
+  el['use-manual'].textContent = 'Continue';
+  el['confirm-corrections'].disabled = false;
+}
+
+function renderCompleteMeta(meta) {
+  el['complete-meta'].replaceChildren(...String(meta || '').split('\n').filter(Boolean).map((line) => node('span', '', line)));
+}
+
+function renderCompleteState(session = activeSession) {
+  const saved = Boolean(session?.exportState?.saved);
+  el['complete-status'].textContent = saved ? 'Saved · official JSON created' : 'Confirmed · not yet saved';
+  el['complete-status'].classList.toggle('saved', saved);
+}
+
+function activateSession(session) {
+  if (activeSession) saveTransientFromDom();
+  activeSession = session;
+  runtime.activate(session);
+  resetCurrentReferences();
+  restoreTransientToDom();
+  restoreSessionUi();
+  updateCaptureContext();
+  if (session.capture.audioBlob && !session.transcriptArtifact && session.processing.status === 'idle') transcribe(1, session);
+}
+
+function createNewReport(reportType, { demo = false } = {}) {
+  const session = createReportSession({ reportType });
+  session.capture = { ...session.capture, ...audioDefaults };
+  session.demo = demo;
+  session.audit = [];
+  session.status = 'CAPTURE';
+  sessions.set(session.id, session);
+  activateSession(session);
+  addAudit(demo ? 'Synthetic demo report created' : 'Report created', `${session.schemaId} · version ${session.schemaVersion}`);
+  navigate('capture');
+}
+
+function updateCaptureContext() {
+  if (!activeSession) return;
+  const schema = schemaFor(activeSession.schemaId);
+  const meta = scopeMeta[activeSession.scope];
+  el['context-icon'].textContent = meta.icon;
+  el['context-title'].textContent = schema.name;
+  el['context-schema'].textContent = `Schema ${schema.id} · v${schema.version}`;
+  el['manual-transcript'].placeholder = schema.statementPlaceholder;
+  el['sbs-source-row'].hidden = activeSession.scope === 'HVAC';
+  const lastReference = activeSession.evidence?.at(-1);
+  el['v2-upload-status'].textContent = activeSession.scope === 'HVAC' ? '' : (lastReference
+    ? `${lastReference.filename || 'Supporting document'} is attached as reference material only; it is not proof that work occurred.`
+    : 'Optional reference material for this report scope; it is not proof that work occurred.');
+  el['topbar-status'].textContent = `${activeSession.demo ? 'Demo · ' : ''}${schema.name} · scope locked`;
+}
+
+function renderReports() {
+  const query = el['report-search'].value.trim().toLowerCase();
+  const filter = document.querySelector('.filter.active')?.dataset.filter || 'all';
+  const rows = [...sessions.values()].filter((session) => {
+    const confirmed = Boolean(session.confirmation);
+    const matchesFilter = filter === 'all' || (filter === 'confirmed' ? confirmed : !confirmed);
+    return matchesFilter && reportSearchText(session).includes(query);
+  });
+  if (!rows.length) {
+    renderEmptyState(el['reports-list'], {
+      title: sessions.size ? 'No reports match this view' : 'No reports yet',
+      message: sessions.size ? 'Change the filter or search text.' : 'Create a report to capture on-site work and produce a technician-confirmed export.',
+      actionLabel: sessions.size ? undefined : '＋ Create first report',
+      action: () => navigate('new-report'),
+    });
+    return;
+  }
+  el['reports-list'].replaceChildren(...rows.map((session) => {
+    const schema = schemaFor(session.schemaId);
+    const row = node('button', 'report-row');
+    const title = node('div');
+    title.append(node('strong', '', schema.name), node('small', '', `${session.demo ? 'DEMO · ' : ''}${session.id}`));
+    row.append(title, node('span', '', session.updatedAt.slice(0, 10)), node('span', 'status-pill', `${session.demo ? 'Demo · ' : ''}${session.confirmation ? 'Confirmed' : session.status.replaceAll('_', ' ')}`), node('b', '', '→'));
+    row.addEventListener('click', () => {
+      activateSession(session);
+      const destination = session.confirmation ? 'complete' : (session.reportDraft ? 'review' : 'capture');
+      if (destination === 'review') renderReview();
+      navigate(destination);
+    });
+    return row;
+  }));
 }
 
 function healthBadge(label, ready, detail) {
   const item = node('div', `health-item ${ready ? 'ready' : 'not-ready'}`);
-  const detailNode = detail && typeof detail === 'object' && detail.$i18n
-    ? localizedNode('span', '', detail.$i18n, detail.variables || {})
-    : node('span', '', detail);
-  item.append(node('strong', '', `${ready ? '●' : '○'} ${label}`), detailNode);
+  item.append(node('strong', '', `${ready ? '●' : '○'} ${label}`), node('span', '', detail));
   return item;
 }
 
 async function refreshHealth() {
-  setLocalizedText(el['health-summary'], 'runtime.checking');
-  try {
-    const result = await api('/api/health', undefined, { allowToolFailure: true });
-    const { whisper, ollama } = result.data;
-    ollamaReady = ollama.ready;
-    setLocalizedText(el['health-summary'], whisper.ready ? 'runtime.voiceAvailable' : 'runtime.whisperUnavailable');
-    el['health-details'].replaceChildren(
-      healthBadge('Whisper', whisper.ready, whisper.ready ? translatedVariable('common.available', { name: whisper.model }) : whisper.error_code),
-      healthBadge('Ollama', ollama.ready, ollama.ready ? translatedVariable('common.models', { count: ollama.models.length }) : translatedVariable('runtime.deterministicFlow')),
-    );
-  } catch (error) {
-    setLocalizedText(el['health-summary'], 'runtime.healthFailed', { message: error.message });
-    throw error;
-  }
+  el['health-summary'].textContent = 'Checking local components…';
+  const result = await api('/api/health', undefined, { allowToolFailure: true });
+  const { whisper, ollama } = result.data;
+  ollamaReady = ollama.ready;
+  el['health-summary'].textContent = whisper.ready ? 'Voice capture is available.' : 'Voice capture is not prepared; manual entry remains available.';
+  el['health-details'].replaceChildren(healthBadge('Whisper', whisper.ready, whisper.ready ? `${whisper.model} available` : whisper.error_code), healthBadge('Ollama', ollama.ready, ollama.ready ? `${ollama.models.length} models` : 'deterministic fallback'));
 }
 
 async function unlockWithToken(token) {
   setSessionToken(token);
-  setLocalizedText(el['auth-status'], 'auth.verifying');
+  el['auth-status'].textContent = 'Verifying passcode…';
   try {
     await refreshHealth();
     el['auth-gate'].hidden = true;
-    delete el['auth-status'].dataset.i18nRuntimeKey;
-    delete el['auth-status'].dataset.i18nRuntimeVariables;
     el['auth-status'].textContent = '';
+    el['topbar-status'].textContent = globalViewStatus(currentView, knowledgeScope);
+    renderReports();
+    await refreshKnowledgeUploads();
   } catch (error) {
-    if (sessionToken) requireLogin('auth.cannotEstablish', { message: error.message });
+    if (sessionToken) requireLogin(`Cannot establish session: ${error.message}`);
   }
 }
 
 async function initializeSession() {
   const lanLike = !['localhost', '127.0.0.1', '::1'].includes(location.hostname);
-  setLocalizedText(el['network-mode'], lanLike ? 'network.lanMode' : 'network.localMode');
-  setLocalizedText(el['network-warning'], !window.isSecureContext && lanLike ? 'network.insecureMicrophone' : 'network.trustedNote');
+  el['network-mode'].textContent = lanLike ? 'LAN demo mode' : 'Local demo mode';
+  el['network-warning'].style.display = lanLike ? 'block' : 'none';
+  el['network-warning'].textContent = !window.isSecureContext && lanLike ? 'Microphone capture may be unavailable over LAN HTTP. Use manual entry or upload a WAV.' : 'Use only on trusted networks; this is not a public deployment.';
   if (!window.isSecureContext) {
     el['start-recording'].disabled = true;
-    setLocalizedText(el['recording-status'], 'network.microphoneDisabled');
+    el['recording-status'].textContent = 'Microphone capture is unavailable in this browser context; upload a WAV or type the statement.';
   }
-
   const remembered = sessionStorage.getItem(sessionTokenKey);
-  if (remembered) {
-    await unlockWithToken(remembered);
-    return;
-  }
+  if (remembered) return unlockWithToken(remembered);
   try {
     const response = await fetch('/session-bootstrap', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (response.ok) {
-      const result = await response.json();
-      await unlockWithToken(result.token);
-      return;
-    }
-  } catch {
-    // LAN mode intentionally has no automatic token bootstrap.
-  }
+    if (response.ok) return unlockWithToken((await response.json()).token);
+  } catch { /* LAN mode intentionally has no automatic bootstrap. */ }
   requireLogin();
 }
 
-function invalidateConfirmation(messageKey = 'confirmation.changed', variables = {}) {
+function invalidateConfirmation(message = 'Report content changed; validation and confirmation are required again.') {
   confirmationToken = null;
+  if (activeSession) invalidateSessionConfirmation(activeSession);
   el['save-report'].disabled = true;
   el['export-report'].disabled = true;
   el['copy-export'].disabled = true;
   el['export-output'].hidden = true;
-  setLocalizedText(el['confirmation-status'], messageKey, variables);
+  el['export-output'].value = '';
+  el['complete-summary'].textContent = '';
+  renderCompleteMeta('');
+  el['confirmation-status'].textContent = message;
+  if (activeSession) updateJourney(currentView);
+  renderReports();
 }
 
-function acceptTranscript(artifact, messageKey) {
-  currentTranscript = artifact;
-  currentDraft = null;
-  currentValidation = null;
-  currentFactsReceiptId = null;
-  currentNormalization = null;
-  currentCorrectionReceipt = null;
-  currentInputValidation = null;
-  Object.keys(manualFields).forEach((key) => delete manualFields[key]);
-  invalidateConfirmation('capture.transcriptExists');
-  el['transcript-output'].textContent = artifact.raw_text;
-  el['transcript-output'].classList.remove('empty');
-  el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
-  setLocalizedText(el['transcription-status'], 'capture.sourceSaved', { message: translatedVariable(messageKey), provider: artifact.provider });
-  el['build-report'].disabled = false;
-  // Real speech transcription now feeds the active SBS V2 workflow directly.
-  // The immutable source artifact remains visible in V1; V2 receives a reviewable
-  // copy so terminology corrections still require technician confirmation.
-  if (typeof v2 !== 'undefined' && v2?.contextId && v2.contextId.startsWith('SBS/') && v2El?.['v2-facts-text']) {
-    v2El['v2-facts-text'].value = artifact.raw_text;
-    v2SetStatus('v2-facts-status', 'Real speech transcript copied into the active SBS workflow. Review it, then extract facts.');
-  }
-  ['correction-section', 'questions-section', 'evidence-section', 'report-section', 'confirm-section'].forEach((id) => { el[id].hidden = true; });
+function invalidateConfirmationIfMaterialChanged(message) {
+  if (activeSession?.confirmation && hasMaterialReportChange(activeSession)) invalidateConfirmation(message);
 }
 
-function selectAudio(blob, messageKey, variables = {}) {
-  currentBlob = blob;
-  currentAudioId = null;
-  el.transcribe.disabled = false;
+function acceptTranscript(artifact, message, session = activeSession) {
+  applyTranscriptArtifact(session, artifact);
+  runtime.setTransient(session.id, { ...runtime.getTransient(session.id), statement: artifact.raw_text });
+  session.capture.manualEntryOpen = false;
+  session.audit ||= [];
+  session.audit.push({ label: 'Statement source captured', detail: `${transcriptSourceLabel(artifact)} · ${artifact.artifact_id}`, at: new Date().toISOString() });
+  if (session.confirmation && hasMaterialReportChange(session)) invalidateSessionConfirmation(session);
+  if (activeSession?.id !== session.id) return;
+  currentTranscript = session.transcriptArtifact;
+  invalidateConfirmationIfMaterialChanged('The source statement changed; validation and confirmation are required again.');
+  renderTranscriptEvidence();
+  renderAudit();
+  el['statement-ready'].hidden = false;
+  el['statement-source'].textContent = transcriptSourceLabel(artifact);
+  el['statement-preview'].textContent = artifact.raw_text;
+  el['manual-entry'].hidden = true;
+  el.retry.hidden = true;
   el.retry.disabled = true;
-  setLocalizedText(el['recording-status'], messageKey, variables);
-  if (previewUrl) URL.revokeObjectURL(previewUrl);
-  previewUrl = URL.createObjectURL(blob);
-  el['audio-preview'].src = previewUrl;
+  el['recording-status'].textContent = 'Statement ready.';
+  el['use-manual'].disabled = false;
+  el['transcription-status'].textContent = message;
+}
+
+function selectAudio(blob, message, session = activeSession) {
+  if (!session) return;
+  const capture = session.capture;
+  capture.audioBlob = blob;
+  capture.audioId = null;
+  if (capture.previewUrl) URL.revokeObjectURL(capture.previewUrl);
+  capture.previewUrl = URL.createObjectURL(blob);
+  if (activeSession?.id !== session.id) return;
+  el.retry.hidden = true;
+  el.retry.disabled = true;
+  el['recording-status'].textContent = message;
+  el['audio-preview'].src = capture.previewUrl;
   el['audio-preview'].hidden = false;
 }
 
-el['start-recording'].addEventListener('click', async () => {
-  el['start-recording'].disabled = true;
-  try {
-    recorder = new PcmWavRecorder();
-    const { sampleRate } = await recorder.start();
-    el['stop-recording'].disabled = false;
-    setLocalizedText(el['recording-status'], 'capture.recording', { sampleRate });
-    recordingTimer = setTimeout(() => el['stop-recording'].click(), 90_000);
-  } catch (error) {
-    setLocalizedText(el['recording-status'], 'capture.cannotStart', { message: error.message });
-    el['start-recording'].disabled = false;
-  }
-});
+function formatElapsed(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
-el['stop-recording'].addEventListener('click', async () => {
+function stopRecordingClock() {
   clearTimeout(recordingTimer);
-  el['stop-recording'].disabled = true;
+  clearInterval(recordingElapsedTimer);
+  recordingTimer = null;
+  recordingElapsedTimer = null;
+}
+
+async function finishRecording() {
+  if (!recorder || !recordingSessionId) return;
+  stopRecordingClock();
+  const ownedRecorder = recorder;
+  const targetSession = sessions.get(recordingSessionId);
+  if (activeSession?.id === targetSession?.id) {
+    el['stop-recording'].disabled = true;
+    el['recording-status'].textContent = 'Preparing recording…';
+  }
   try {
-    const wav = await recorder.stop();
-    selectAudio(wav, 'capture.recordingReady', { size: Math.round(wav.size / 1024) });
-  } catch (error) {
-    setLocalizedText(el['recording-status'], 'capture.cannotStop', { message: error.message });
-  } finally {
+    const wav = await ownedRecorder.stop();
+    selectAudio(wav, `Recording captured · ${Math.round(wav.size / 1024)} KB`, targetSession);
     recorder = null;
-    el['start-recording'].disabled = false;
-  }
-});
-
-el['audio-file'].addEventListener('change', () => {
-  const file = el['audio-file'].files?.[0];
-  if (file) selectAudio(file, 'capture.selectedWav', { filename: file.name });
-});
-
-async function uploadIfNeeded() {
-  if (currentAudioId) return currentAudioId;
-  const result = await api('/api/audio', undefined, { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: currentBlob });
-  currentAudioId = result.data.audio_id;
-  return currentAudioId;
-}
-
-async function transcribe(attempt) {
-  el.transcribe.disabled = true;
-  el.retry.disabled = true;
-  setLocalizedText(el['transcription-status'], 'capture.transcribing');
-  try {
-    const audioId = await uploadIfNeeded();
-    const result = await api('/api/transcriptions', {
-      audio_id: audioId, model: el.model.value, language: el.language.value, attempt,
-      idempotency_key: `${audioId}:${el.model.value}:${el.language.value}:attempt-${attempt}`,
-    });
-    acceptTranscript(result.data.transcript, result.data.reused ? 'capture.reusedTranscription' : 'capture.transcriptionComplete');
+    recordingSessionId = null;
+    if (activeSession?.id === targetSession?.id) await transcribe(1, targetSession);
   } catch (error) {
-    setLocalizedText(el['transcription-status'], 'capture.transcriptionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-    el.retry.disabled = attempt >= 2;
+    if (activeSession?.id === targetSession?.id) {
+      el['recording-status'].textContent = `Could not finish the recording: ${error.message}`;
+      el['transcription-status'].textContent = 'Use Type instead or upload a valid WAV recording.';
+    }
   } finally {
-    el.transcribe.disabled = false;
+    if (recorder === ownedRecorder) recorder = null;
+    recordingSessionId = null;
+    if (activeSession?.id === targetSession?.id) restoreSessionUi();
+    else {
+      el['start-recording'].hidden = false;
+      el['start-recording'].disabled = false;
+      el['stop-recording'].hidden = true;
+    }
   }
 }
 
-el.transcribe.addEventListener('click', () => transcribe(1));
-el.retry.addEventListener('click', () => transcribe(2));
-el['use-manual'].addEventListener('click', async () => {
-  el['use-manual'].disabled = true;
+async function uploadIfNeeded(session, requestToken) {
+  if (session.capture.audioId) return session.capture.audioId;
+  const result = await apiRaw('/api/audio', session.capture.audioBlob, { 'content-type': 'audio/wav' });
+  if (!runtime.accepts(requestToken)) return null;
+  session.capture.audioId = result.data.audio_id;
+  return session.capture.audioId;
+}
+
+async function transcribe(attempt, session = activeSession) {
+  if (!session) return;
+  const requestToken = runtime.beginRequest(session.id, 'transcribe');
+  if (activeSession?.id === session.id) {
+    session.capture.language = el.language.value;
+    session.capture.model = el.model.value;
+  }
+  session.processing = { status: 'processing', error: null };
+  if (activeSession?.id === session.id) {
+    el['start-recording'].hidden = false;
+    el['start-recording'].disabled = true;
+    el['stop-recording'].hidden = true;
+    el['use-manual'].disabled = true;
+    el.retry.hidden = true;
+    el.retry.disabled = true;
+    el['recording-status'].textContent = 'Transcribing…';
+    el['transcription-status'].textContent = 'Transcribing locally…';
+  }
   try {
-    const result = await api('/api/transcripts/manual', { raw_text: el['manual-transcript'].value, language: 'zh' });
-    acceptTranscript(result.data.transcript, 'capture.manualSaved');
+    const audioId = await uploadIfNeeded(session, requestToken);
+    if (!audioId) return;
+    const result = await api('/api/transcriptions', { audio_id: audioId, model: session.capture.model, language: session.capture.language, attempt, idempotency_key: `${audioId}:${session.capture.model}:${session.capture.language}:attempt-${attempt}` });
+    if (!runtime.accepts(requestToken)) return;
+    acceptTranscript(result.data.transcript, result.data.reused ? 'Statement ready · reused verified transcription.' : 'Statement ready.', session);
+    session.processing = { status: 'idle', error: null };
+    if (activeSession?.id === session.id) {
+      el['manual-transcript'].value = result.data.transcript.raw_text;
+      el['recording-status'].textContent = 'Statement ready.';
+    }
   } catch (error) {
-    setLocalizedText(el['transcription-status'], 'capture.manualSaveFailed', { message: error.message });
+    if (runtime.accepts(requestToken)) {
+      session.processing = { status: 'error', error: `Transcription failed: ${error.message}` };
+      if (activeSession?.id === session.id) {
+        const reason = String(error.message || 'Transcription failed').replace(/[.!?。！？]+$/u, '');
+        el['recording-status'].textContent = 'Transcription failed.';
+        el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${reason}. Retry once or type instead.`;
+        el.retry.hidden = false;
+        el.retry.disabled = attempt >= 2;
+        el['use-manual'].disabled = !el['manual-transcript'].value.trim();
+      }
+    }
   } finally {
-    el['use-manual'].disabled = false;
+    if (activeSession?.id === session.id && !recorder) {
+      el['start-recording'].hidden = false;
+      el['start-recording'].disabled = false;
+      el['stop-recording'].hidden = true;
+    }
   }
-});
-
-function renderQuestions(inputValidation) {
-  const questions = inputValidation.data.follow_up_questions || [];
-  el['questions-section'].hidden = questions.length === 0;
-  el['questions-list'].replaceChildren(...questions.map(({ field, question }) => {
-    const wrapper = node('div', 'question');
-    const label = node('label');
-    const knownQuestionFields = new Set(['customer_complaint', 'inspection_findings', 'work_performed', 'test_results', 'completion_status']);
-    label.append(knownQuestionFields.has(field) ? localizedNode('strong', '', `questions.fields.${field}`) : node('strong', '', question));
-    const input = node('textarea');
-    input.rows = 2;
-    input.dataset.field = field;
-    input.value = manualFields[field] || '';
-    input.dataset.i18nPlaceholder = 'capture.enterObservation';
-    input.placeholder = t('capture.enterObservation');
-    const missing = node('label', 'missing-check');
-    const checkbox = node('input');
-    checkbox.type = 'checkbox';
-    checkbox.dataset.missingField = field;
-    missing.append(checkbox, localizedNode('span', '', 'capture.notProvidedThisTime'));
-    label.append(input);
-    wrapper.append(label, missing);
-    return wrapper;
-  }));
 }
 
-function renderEvidence(normalization, inputValidation) {
-  const factNodes = currentFacts.length ? currentFacts.map((fact) => {
-    const card = node('div', 'fact-card');
-    card.append(
-      localizedFieldNode('strong', '', fact.field),
-      node('span', '', typeof fact.value === 'string' ? fact.value : JSON.stringify(fact.value)),
-      localizedNode('small', '', 'evidence.factSupport', { status: localizedStatusVariable(fact.support_status), sources: fact.source_refs.join(', ') }),
-    );
-    return card;
-  }) : [localizedNode('p', 'empty-note', 'evidence.noFacts')];
-  el['facts-output'].replaceChildren(...factNodes);
-  const corrections = normalization.data.correction_candidates || [];
-  const missing = inputValidation.data.missing_required_fields || [];
-  const issueNodes = [
-    corrections.length
-      ? localizedNode('div', 'fact-card', 'evidence.candidateCount', { count: corrections.length })
-      : localizedNode('div', 'fact-card', 'evidence.originalUnchanged'),
-    missing.length
-      ? localizedNode('div', 'fact-card needs-attention', 'evidence.stillMissing', { fields: missing.map(localizedField).join(', ') })
-      : localizedNode('div', 'fact-card', 'evidence.minimumCovered'),
-  ];
-  el['issues-output'].replaceChildren(...issueNodes);
-  el['evidence-section'].hidden = false;
-}
-
-function renderCorrectionReview(normalization) {
-  const candidates = normalization.data.correction_candidates || [];
-  el['correction-raw'].textContent = normalization.data.raw_text;
-  el['correction-proposed'].textContent = normalization.data.proposed_text;
-  el['correction-evidence'].textContent = JSON.stringify({
-    knowledge_version: normalization.data.knowledge_version,
-    candidate_bundle_hash: normalization.data.candidate_bundle_hash,
-    deterministic_fallback_used: normalization.data.deterministic_fallback_used,
-    candidates,
-    warnings: normalization.warnings,
-  }, null, 2);
-  el['correction-list'].replaceChildren(...(candidates.length ? candidates.map((candidate) => {
-    const critical = candidate.status === 'NEEDS_TECHNICIAN_CONFIRMATION';
-    const card = node('div', `correction-card ${critical ? 'critical' : ''}`);
+function renderResolveCard(item) {
+  const card = node('div', `resolve-item ${item.severity === 'high' ? 'critical' : ''}`);
+  const head = node('div', 'resolve-item-head');
+  head.append(node('strong', '', item.question), node('span', 'item-type', item.type.replaceAll('_', ' ')));
+  card.append(head);
+  const controls = node('div', 'decision-controls');
+  if (item.candidate) {
     const change = node('div', 'correction-change');
-    change.append(node('code', '', candidate.source_span.text), node('span', '', '→'), node('code', '', candidate.candidate));
-    const reason = node('small', '', `${candidate.reason} · ${candidate.match_basis.match_basis} · ${candidate.knowledge_version}`);
-    const controls = node('div', 'decision-controls');
-    for (const [value, labelText] of [['ACCEPT', 'Accept this fix'], ['REJECT', 'Keep original']]) {
-      const label = node('label');
-      const radio = node('input');
-      radio.type = 'radio';
-      radio.name = `decision-${candidate.candidate_id}`;
-      radio.value = value;
-      radio.dataset.candidateId = candidate.candidate_id;
-      label.append(radio, localizedNode('span', '', value === 'ACCEPT' ? 'correction.accept' : 'correction.reject'));
-      controls.append(label);
+    change.append(node('code', '', item.candidate.source_span?.text || 'Original wording'), node('span', '', '→'), node('code', '', item.candidate.candidate || 'Proposed wording'));
+    card.append(change);
+    if (item.candidate.reason) card.append(node('small', '', item.candidate.reason));
+    for (const [value, labelText] of [['ACCEPT', 'Accept supported reading'], ['REJECT', 'Keep original words']]) {
+      const label = node('label'); const radio = node('input');
+      radio.type = 'radio'; radio.name = item.id; radio.value = value;
+      label.append(radio, document.createTextNode(labelText)); controls.append(label);
     }
-    if (critical) {
-      const label = node('label', 'critical-confirm');
-      const checkbox = node('input');
-      checkbox.type = 'checkbox';
-      checkbox.dataset.criticalCandidateId = candidate.candidate_id;
-      label.append(checkbox, localizedNode('span', '', 'correction.criticalConfirm'));
-      controls.append(label);
+    if (item.type === 'CRITICAL_VALUE') {
+      const label = node('label'); const checkbox = node('input'); checkbox.type = 'checkbox'; checkbox.dataset.criticalConfirmation = item.id;
+      label.append(checkbox, document.createTextNode('I manually verified this critical value')); controls.append(label);
     }
-    card.append(change, reason, controls);
-    return card;
-  }) : [localizedNode('div', 'fact-card', 'correction.noCandidates')]));
-  setLocalizedText(el['correction-status'], candidates.length ? 'correction.candidatesFound' : 'correction.confirmOriginal', { count: candidates.length });
-  el['correction-section'].hidden = false;
+  } else {
+    let valueControl;
+    if (item.type === 'CONFLICT') {
+      valueControl = node('select');
+      valueControl.append(node('option', '', 'Choose the supported value'));
+      for (const candidate of item.candidates || []) {
+        const value = String(candidate.value ?? candidate);
+        const option = node('option', '', value); option.value = value; valueControl.append(option);
+      }
+      if (item.candidates?.length) {
+        const evidence = node('div', 'resolve-evidence');
+        evidence.append(node('small', '', 'Conflicting recorded values'), ...item.candidates.map((candidate) => node('span', '', String(candidate.value ?? candidate))));
+        card.append(evidence);
+      }
+    } else {
+      valueControl = node('textarea'); valueControl.rows = 2;
+      valueControl.value = item.type === 'CRITICAL_VALUE' ? String(activeSession.fieldStates?.[item.targetField || item.fieldId]?.value ?? '') : '';
+      valueControl.placeholder = 'Enter only what was observed or recorded.';
+    }
+    valueControl.dataset.resolveValue = item.id;
+    card.append(valueControl);
+    for (const [value, labelText] of [['CONFIRM', 'Use this observed value'], ['NOT_PROVIDED', 'Not provided / pending']]) {
+      const label = node('label'); const radio = node('input'); radio.type = 'radio'; radio.name = item.id; radio.value = value;
+      label.append(radio, document.createTextNode(labelText)); controls.append(label);
+    }
+    for (const choice of item.quickChoices || []) {
+      const button = node('button', 'ghost', choice.label); button.type = 'button';
+      button.addEventListener('click', () => { valueControl.value = choice.value; card.querySelector(`input[name="${CSS.escape(item.id)}"][value="CONFIRM"]`).checked = true; });
+      controls.append(button);
+    }
+  }
+  card.append(controls);
+  return card;
 }
 
-function renderDraft(validation) {
-  el['report-output'].replaceChildren(...currentDraft.sections.map((section) => {
-    const block = node('section', 'report-section-block');
-    block.append(node('h3', '', section.title));
-    for (const item of section.items) {
-      const line = node('p', item.type === 'template_text' ? 'placeholder' : '');
-      line.textContent = item.text;
-      if (item.fact_ids?.length) line.append(localizedNode('small', 'source-tag', 'report.sourceFacts', { factIds: item.fact_ids.join(', ') }));
+function renderGenericResolve(queue, { reset = false } = {}) {
+  if (reset) beginResolveFlow(activeSession, queue);
+  el['correction-raw'].textContent = activeSession.transcript.original;
+  el['correction-proposed'].textContent = activeSession.transcript.normalized || activeSession.transcript.original;
+  el['correction-evidence'].textContent = JSON.stringify({ schema_id: activeSession.schemaId, schema_version: activeSession.schemaVersion, facts: currentFacts }, null, 2);
+  const progress = resolveProgress(activeSession);
+  el['resolve-count'].textContent = `${progress.remaining} detail${progress.remaining === 1 ? '' : 's'} needed`;
+  el['resolve-progress'].textContent = progress.current ? `${progress.completed + 1} of ${progress.total}` : `${progress.completed} of ${progress.total}`;
+  el['correction-list'].replaceChildren(...(progress.current ? [renderResolveCard(progress.current)] : []));
+  el['questions-list'].replaceChildren();
+  el['confirm-corrections'].textContent = progress.remaining > 1 ? 'Save and next' : 'Save and continue';
+  el['correction-status'].textContent = progress.current ? 'Use only observed or recorded information.' : 'All requested decisions are recorded.';
+}
+
+function collectCurrentResolveDecision() {
+  const session = activeSession;
+  const item = resolveProgress(session).current;
+  if (!item) return null;
+  const selected = el['correction-list'].querySelector(`input[name="${CSS.escape(item.id)}"]:checked`);
+  if (!selected) throw new Error('Choose an explicit outcome before continuing.');
+  if (item.candidate) {
+    const criticalControl = el['correction-list'].querySelector(`[data-critical-confirmation="${CSS.escape(item.id)}"]`);
+    if (criticalControl && !criticalControl.checked) throw new Error('Manually verify this critical value before continuing.');
+    const answer = { decision: selected.value, value: selected.value === 'ACCEPT' ? item.candidate.candidate : item.candidate.source_span?.text, criticalValueConfirmed: Boolean(criticalControl) };
+    session.resolveAnswers[item.id] = answer;
+    session.unresolvedItems = session.unresolvedItems.map((candidate) => candidate.id === item.id ? { ...candidate, answer } : candidate);
+    session.resolveQueue = session.unresolvedItems;
+    session.resolveFlow.completed += 1;
+    return { item, answer };
+  }
+  const control = el['correction-list'].querySelector(`[data-resolve-value="${CSS.escape(item.id)}"]`);
+  const value = control?.value.trim() || String(session.fieldStates?.[item.targetField || item.fieldId]?.value ?? '').trim();
+  if (selected.value === 'CONFIRM' && !value) throw new Error('Enter or choose the observed value, or mark the item not provided.');
+  Object.assign(session, applyResolveDecision(session, item, { decision: selected.value, value }));
+  currentFacts = factsFromStructuredState(session);
+  invalidateConfirmationIfMaterialChanged('Resolved report information changed; validation and confirmation are required again.');
+  return { item, answer: session.resolveAnswers[item.id] };
+}
+
+async function prepareHvacResolve() {
+  if (!activeSession || !currentTranscript) return;
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'prepare-hvac-resolve');
+  const normalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
+  if (!runtime.accepts(requestToken)) return;
+  currentNormalization = normalization;
+  session.normalization = normalization;
+  session.transcript.normalized = normalization.data.proposed_text || session.transcript.original;
+  session.correctionCandidates = normalization.data.correction_candidates || [];
+  session.resolveAnswers = {};
+  session.unresolvedItems = createResolveQueue({ correctionCandidates: session.correctionCandidates, missingFields: [], conflicts: [] });
+  session.processing = { status: 'idle', error: null };
+  el['transcription-status'].textContent = 'Statement ready.';
+  addAudit('Terminology candidates prepared', `${session.correctionCandidates.length} candidates`);
+  if (!session.unresolvedItems.length) {
+    const { technicianId, technicianName } = session.jobContext;
+    const result = await api('/api/corrections/confirm', { transcript_artifact_id: currentTranscript.artifact_id, candidate_bundle_hash: currentNormalization.data.candidate_bundle_hash, decisions: [], technician_id: technicianId, technician_name: technicianName });
+    if (!runtime.accepts(requestToken)) return;
+    currentCorrectionReceipt = result.data.correction_receipt;
+    session.correctionReceipt = currentCorrectionReceipt;
+    session.corrections = [];
+    addAudit('Original transcript verified', `${technicianName} · ${technicianId}`);
+    await generateHvacReport();
+    return;
+  }
+  renderGenericResolve(session.unresolvedItems, { reset: true });
+  navigate('resolve');
+}
+
+async function processSbsStatement(raw, requestToken) {
+  const session = activeSession;
+  const meta = scopeMeta[session.scope];
+  const previous = session.transcriptArtifact;
+  const sameStatement = previous?.raw_text === raw;
+  const editedFromArtifactId = !sameStatement && previous?.artifact_id ? previous.artifact_id : null;
+  const artifact = sameStatement ? previous : {
+    artifact_id: `manual_${session.id}_${(session.transcriptHistory?.length || 0) + 1}`,
+    provider: 'manual',
+    model: 'manual-entry',
+    raw_text: raw,
+    source_hash: null,
+    language: 'en',
+    input_mode: editedFromArtifactId ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT',
+    edited_from_artifact_id: editedFromArtifactId,
+  };
+  acceptTranscript(artifact, 'Manual statement captured.');
+  const extracted = await api('/api/v2/facts/extract', { context_id: meta.contextId, raw_text: raw });
+  if (!runtime.accepts(requestToken)) return;
+  currentFacts = extracted.data.facts || [];
+  Object.assign(session, mapFactsToStructuredState(session, currentFacts));
+  session.resolveAnswers = {};
+  session.unresolvedItems = createResolveQueue(session);
+  session.processing = { status: 'idle', error: null };
+  el['transcription-status'].textContent = 'Statement ready.';
+  addAudit('Facts extracted', `${currentFacts.length} grounded facts`);
+  if (session.unresolvedItems.length) {
+    renderGenericResolve(session.unresolvedItems, { reset: true });
+    navigate('resolve');
+  } else {
+    await buildSbsReport(requestToken, true);
+  }
+}
+
+async function buildSbsReport(existingToken, resolveMissing = false) {
+  const session = activeSession;
+  const requestToken = existingToken || runtime.beginRequest(session.id, 'build-sbs-report');
+  const authoritativeFacts = factsFromStructuredState(session);
+  const result = await api('/api/v2/reports/build', { context_id: scopeMeta[session.scope].contextId, report_session_id: session.id, facts: authoritativeFacts, knowledge_hits: session.knowledgeHits || [] }, { allowToolFailure: true });
+  if (!runtime.accepts(requestToken)) return;
+  if (!['PASS', 'NEEDS_CONFIRMATION'].includes(result.status)) throw new Error(result.error_code || 'Report could not be built.');
+  currentDraft = result.data.draft;
+  currentValidation = { trace_id: result.trace_id, status: result.status, data: { can_enter_technician_review: result.status === 'PASS', gates: result.data.gates, validation_receipt: result.data.validation_receipt } };
+  session.reportDraft = currentDraft;
+  session.reportDocument = currentDraft;
+  session.validation = currentValidation;
+  session.completeness = result.data.structured_job_state?.completeness || session.completeness;
+  const missingSections = result.data.report?.missing_required_fields || [];
+  if (resolveMissing && missingSections.length) {
+    session.unresolvedItems = missingSections.map((fieldId, index) => ({
+      id: `missing_field_${fieldId}_${index}`,
+      type: 'MISSING_FIELD',
+      fieldId,
+      targetField: schemaFor(session.schemaId).requiredGroups.find((group) => group.id === fieldId)?.targetField || fieldId,
+      severity: 'high',
+      question: `No grounded information was found for ${fieldId.replaceAll('_', ' ')}.`,
+      evidence: [],
+      answer: null,
+    }));
+    renderGenericResolve(session.unresolvedItems, { reset: true });
+    addAudit('Missing information queued for explicit review', `${missingSections.length} report sections`);
+    navigate('resolve');
+    return;
+  }
+  session.status = 'REVIEW';
+  invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
+  addAudit('Report built and validated', result.status);
+  renderReview();
+  navigate('review');
+}
+
+async function generateHvacReport() {
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'generate-hvac-report');
+  session.processing = { status: 'processing', error: null };
+  const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: session.manualFields, use_llm: ollamaReady });
+  if (!runtime.accepts(requestToken)) return;
+  currentFacts = extracted.data.facts;
+  currentFactsReceiptId = extracted.data.facts_receipt_id;
+  const inputValidation = await api('/api/reports/validate-input', { facts_receipt_id: currentFactsReceiptId });
+  if (!runtime.accepts(requestToken)) return;
+  Object.assign(session, mapFactsToStructuredState(session, currentFacts));
+  session.factsReceiptId = currentFactsReceiptId;
+  session.inputValidation = inputValidation;
+  const followUps = inputValidation.data.follow_up_questions || [];
+  if (!session.hvacMissingResolved && followUps.length) {
+    session.hvacMissingPhase = true;
+    session.unresolvedItems = followUps.map(({ field, question }, index) => ({
+      id: `missing_field_${field}_${index}`,
+      type: 'MISSING_FIELD',
+      fieldId: field,
+      severity: 'high',
+      question,
+      evidence: [],
+      answer: null,
+    }));
+    renderGenericResolve(session.unresolvedItems, { reset: true });
+    addAudit('Missing information queued for explicit review', `${followUps.length} follow-up questions`);
+    navigate('resolve');
+    return;
+  }
+  const plan = await api('/api/reports/plan', { facts_receipt_id: currentFactsReceiptId, service_type: 'general_hvac' });
+  if (!runtime.accepts(requestToken)) return;
+  const template = await api('/api/reports/template', { template_id: 'hvac_service_report', version: '1.0.0' });
+  if (!runtime.accepts(requestToken)) return;
+  const generated = await api('/api/reports/generate', { facts_receipt_id: currentFactsReceiptId, report_session_id: session.id, plan: plan.data, template: template.data.template, use_llm: ollamaReady });
+  if (!runtime.accepts(requestToken)) return;
+  currentDraft = generated.data.draft;
+  currentValidation = await api('/api/reports/validate-draft', { draft: currentDraft, facts_receipt_id: currentFactsReceiptId });
+  if (!runtime.accepts(requestToken)) return;
+  session.reportDraft = currentDraft;
+  session.reportDocument = currentDraft;
+  session.validation = currentValidation;
+  session.inputValidation = inputValidation;
+  session.status = 'REVIEW';
+  session.processing = { status: 'idle', error: null };
+  invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
+  addAudit('Report built and independently validated', currentValidation.status);
+  renderReview();
+  navigate('review');
+}
+
+function renderReportSections() {
+  const sections = currentDraft?.sections || [];
+  el['report-output'].replaceChildren(...sections.map((section) => {
+    const block = node('div', 'report-section-block');
+    block.append(node('h3', section.required && (section.content || []).every((line) => line === 'Not provided / pending confirmation') ? 'v2-section-missing' : '', section.title));
+    for (const item of section.items || section.content || []) {
+      const text = typeof item === 'string' ? item : item.text;
+      const line = node('p', typeof item === 'object' && item.type === 'template_text' ? 'placeholder' : '', text || 'Not provided / pending confirmation');
+      if (typeof item === 'object' && item.fact_ids?.length) line.append(node('small', 'source-tag', `Source: ${item.fact_ids.join(', ')}`));
       block.append(line);
     }
     return block;
   }));
-  const reviewable = validation.data.can_enter_technician_review;
-  el['validator-banner'].className = `validator-banner ${reviewable ? 'pass' : 'fail'}`;
-  setLocalizedText(el['validator-banner'], reviewable ? 'report.validatorReady' : 'report.validatorBlocked', {
-    status: localizedStatusVariable(validation.status),
-    coverage: Math.round(validation.data.provenance_coverage * 100),
-  });
-  el['validator-output'].textContent = JSON.stringify(validation, null, 2);
-  el['report-section'].hidden = false;
-  el['confirm-section'].hidden = !reviewable;
-  el['confirm-report'].disabled = !reviewable || !el['confirm-check'].checked;
 }
 
-async function prepareCorrectionReview() {
-  if (!currentTranscript) return;
-  invalidateConfirmation();
-  el['build-report'].disabled = true;
-  currentCorrectionReceipt = null;
-  setLocalizedText(el['transcription-status'], 'capture.terminologySearching');
-  try {
-    currentNormalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
-    renderCorrectionReview(currentNormalization);
-    setLocalizedText(el['transcription-status'], 'capture.suggestionsShown');
-  } catch (error) {
-    setLocalizedText(el['transcription-status'], 'capture.suggestionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  } finally {
-    el['build-report'].disabled = false;
-  }
+function renderReview() {
+  resetCurrentReferences();
+  invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
+  renderReportSections();
+  const issueCount = resolveAttentionCount(activeSession);
+  const reviewable = Boolean(currentValidation?.data?.can_enter_technician_review) && issueCount === 0;
+  const status = reviewStatus(activeSession, { reviewable, issueCount });
+  el['validator-banner'].className = `validator-banner ${status === 'CONFIRMED' ? 'confirmed' : (reviewable ? 'pass' : 'fail')}`;
+  el['validator-banner'].textContent = status === 'CONFIRMED'
+    ? 'Confirmed: this exact reviewed version is bound to the technician confirmation.'
+    : (reviewable
+      ? `Ready to confirm: validation ${currentValidation.status} and no required information is pending.`
+      : (issueCount ? `${issueCount} item${issueCount === 1 ? ' still needs' : 's still need'} information. The draft remains reviewable but cannot be confirmed.` : `Validation ${currentValidation?.status || 'FAIL'}: resolve validation issues before confirmation.`));
+  el['validator-output'].textContent = JSON.stringify(currentValidation, null, 2);
+  el['fact-count'].textContent = String(currentFacts.length);
+  el['issue-count'].textContent = String(issueCount);
+  el['validation-label'].textContent = status === 'CONFIRMED' ? 'Confirmed' : (issueCount ? 'Needs information' : (reviewable ? 'Ready' : 'Validation failed'));
+  const technicianName = activeSession.jobContext?.technicianName || '';
+  const technicianId = activeSession.jobContext?.technicianId || '';
+  el['technician-name'].value = technicianName;
+  el['technician-id'].value = technicianId;
+  el['review-identity-summary'].textContent = technicianName && technicianId ? `${technicianName} · ${technicianId}` : 'Technician not set';
+  el['review-identity-fields'].hidden = true;
+  el['change-technician'].setAttribute('aria-expanded', 'false');
+  const confirmationState = confirmationViewState(activeSession, { reviewable });
+  el['confirm-check'].checked = confirmationState.checkboxChecked;
+  el['confirm-check'].disabled = confirmationState.confirmed;
+  el['confirm-report'].disabled = confirmationState.confirmationDisabled;
+  el['confirmation-status'].textContent = issueCount ? 'Confirmation is blocked while required information remains pending.' : confirmationState.message;
+  el['save-report'].disabled = !confirmationState.canFinalize;
+  el['export-report'].disabled = !confirmationState.canFinalize;
 }
 
-async function generateReportFromReceipt() {
-  if (!currentCorrectionReceipt) return;
-  invalidateConfirmation();
-  setLocalizedText(el['transcription-status'], 'capture.generating');
-  try {
-    const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: manualFields, use_llm: ollamaReady });
-    currentFacts = extracted.data.facts;
-    currentFactsReceiptId = extracted.data.facts_receipt_id;
-    const inputValidation = await api('/api/reports/validate-input', { facts_receipt_id: currentFactsReceiptId });
-    currentInputValidation = inputValidation;
-    const plan = await api('/api/reports/plan', { facts_receipt_id: currentFactsReceiptId, service_type: 'general_hvac' });
-    const template = await api('/api/reports/template', { template_id: 'hvac_service_report', version: '1.0.0' });
-    const generated = await api('/api/reports/generate', { facts_receipt_id: currentFactsReceiptId, plan: plan.data, template: template.data.template, use_llm: ollamaReady });
-    currentDraft = generated.data.draft;
-    currentValidation = await api('/api/reports/validate-draft', { draft: currentDraft, facts_receipt_id: currentFactsReceiptId });
-    renderQuestions(inputValidation);
-    renderEvidence(currentNormalization, inputValidation);
-    renderDraft(currentValidation);
-    setLocalizedText(el['transcription-status'], 'capture.generationReady');
-  } catch (error) {
-    setLocalizedText(el['transcription-status'], 'capture.generationFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  }
+async function confirmCurrentReport() {
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'confirm-report');
+  if (resolveAttentionCount(session) > 0) throw new Error('Required information is still pending. Return to Resolve before confirming.');
+  const technicianName = el['technician-name'].value.trim();
+  const technicianId = el['technician-id'].value.trim();
+  if (!technicianName || !technicianId) throw new Error('Technician name and ID are required.');
+  session.jobContext = { ...session.jobContext, technicianId, technicianName };
+  runtime.setTransient(session.id, { ...runtime.getTransient(session.id), technicianId, technicianName });
+  const isHvac = session.scope === 'HVAC';
+  const endpoint = isHvac ? FINALIZATION_ROUTES.HVAC.confirm : FINALIZATION_ROUTES.SBS.confirm;
+  const result = await api(endpoint, { draft: currentDraft, validator_run_id: currentValidation.trace_id, technician_id: technicianId, technician_name: technicianName });
+  if (!runtime.accepts(requestToken)) return;
+  confirmationToken = result.data.confirmation.confirmation_token;
+  bindSessionConfirmation(session, result.data.confirmation);
+  session.updatedAt = new Date().toISOString();
+  addAudit('Report confirmed', `${technicianName} · ${technicianId}`);
+  el['save-report'].disabled = false;
+  el['export-report'].disabled = false;
+  session.complete.meta = `Report: ${currentDraft.report_id} · version ${currentDraft.report_version}\nSchema: ${session.schemaId} · ${session.schemaVersion}\nConfirmed: ${result.data.confirmation.confirmed_at}\nHash: ${result.data.confirmation.report_hash}`;
+  renderCompleteMeta(session.complete.meta);
+  navigate('complete');
+  renderReports();
 }
 
-el['build-report'].addEventListener('click', prepareCorrectionReview);
-el['confirm-corrections'].addEventListener('click', async () => {
-  if (!currentNormalization || !currentTranscript) return;
-  el['confirm-corrections'].disabled = true;
-  try {
-    const decisions = (currentNormalization.data.correction_candidates || []).map((candidate) => {
-      const selected = el['correction-list'].querySelector(`input[name="decision-${candidate.candidate_id}"]:checked`);
-      if (!selected) throw new Error(t('correction.chooseDecision', { source: candidate.source_span.text, candidate: candidate.candidate }));
-      const critical = el['correction-list'].querySelector(`[data-critical-candidate-id="${candidate.candidate_id}"]`);
-      return { candidate_id: candidate.candidate_id, decision: selected.value, critical_value_confirmed: critical ? critical.checked : false };
-    });
-    const result = await api('/api/corrections/confirm', {
-      transcript_artifact_id: currentTranscript.artifact_id,
-      candidate_bundle_hash: currentNormalization.data.candidate_bundle_hash,
-      decisions,
-      technician_id: el['correction-technician-id'].value,
-      technician_name: el['correction-technician-name'].value,
-    });
-    currentCorrectionReceipt = result.data.correction_receipt;
-    el['technician-id'].value = el['correction-technician-id'].value;
-    el['technician-name'].value = el['correction-technician-name'].value;
-    setLocalizedText(el['correction-status'], 'correction.receiptIssued', { receiptId: currentCorrectionReceipt.correction_receipt_id, time: currentCorrectionReceipt.confirmed_at });
-    await generateReportFromReceipt();
-  } catch (error) {
-    setLocalizedText(el['correction-status'], 'correction.confirmationFailed', { code: error.result?.error_code || 'INPUT', message: error.message });
-  } finally {
-    el['confirm-corrections'].disabled = false;
-  }
-});
-el['apply-answers'].addEventListener('click', () => {
-  for (const input of el['questions-list'].querySelectorAll('textarea[data-field]')) {
-    const missing = el['questions-list'].querySelector(`[data-missing-field="${input.dataset.field}"]`)?.checked;
-    if (!missing && input.value.trim()) manualFields[input.dataset.field] = input.value.trim();
-    else delete manualFields[input.dataset.field];
-  }
-  generateReportFromReceipt();
-});
-
-el['confirm-check'].addEventListener('change', () => {
-  el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review;
-});
-el['confirm-report'].addEventListener('click', async () => {
-  invalidateConfirmation('confirmation.binding');
-  try {
-    const result = await api('/api/reports/confirm', {
-      draft: currentDraft,
-      validator_run_id: currentValidation.trace_id,
-      technician_id: el['technician-id'].value,
-      technician_name: el['technician-name'].value,
-    });
-    confirmationToken = result.data.confirmation.confirmation_token;
-    el['save-report'].disabled = false;
-    el['export-report'].disabled = false;
-    setLocalizedText(el['confirmation-status'], 'confirmation.confirmed', { version: result.data.confirmation.report_version, time: result.data.confirmation.confirmed_at });
-  } catch (error) {
-    setLocalizedText(el['confirmation-status'], 'confirmation.failed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  }
-});
-
-el['save-report'].addEventListener('click', async () => {
-  try {
-    const result = await api('/api/reports/save', { draft: currentDraft, confirmation_token: confirmationToken });
-    setLocalizedText(el['confirmation-status'], 'confirmation.saveResult', { action: translatedVariable(result.data.reused ? 'common.reused' : 'common.saved'), file: result.data.file });
-  } catch (error) {
-    setLocalizedText(el['confirmation-status'], 'confirmation.saveRejected', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  }
-});
-el['export-report'].addEventListener('click', async () => {
-  try {
-    const result = await api('/api/reports/export', { draft: currentDraft, confirmation_token: confirmationToken });
+async function saveOrExport(kind) {
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, `finalize-${kind}`);
+  const isHvac = session.scope === 'HVAC';
+  const endpoint = isHvac ? FINALIZATION_ROUTES.HVAC[kind] : FINALIZATION_ROUTES.SBS[kind];
+  const result = await api(endpoint, { draft: currentDraft, confirmation_token: confirmationToken });
+  if (!runtime.accepts(requestToken)) return;
+  session.exportState.files.push(result.data.file);
+  if (kind === 'save') {
+    session.exportState.saved = true;
+    session.complete.summary = `Official JSON saved at ${result.data.file}`;
+    el['complete-summary'].textContent = session.complete.summary;
+    addAudit('Official JSON saved', result.data.file);
+    renderCompleteState(session);
+  } else {
     el['export-output'].value = result.data.copyable_text;
     el['export-output'].hidden = false;
     el['copy-export'].disabled = false;
-    setLocalizedText(el['confirmation-status'], 'confirmation.exportResult', { action: translatedVariable(result.data.reused ? 'common.reused' : 'common.exported'), file: result.data.file });
-  } catch (error) {
-    setLocalizedText(el['confirmation-status'], 'confirmation.exportRejected', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
+    session.complete.copyableText = result.data.copyable_text;
+    session.complete.summary = 'Copyable text export is ready. The official confirmation binding remains intact.';
+    el['complete-summary'].textContent = session.complete.summary;
+    addAudit('Text export created', result.data.file);
   }
-});
-el['copy-export'].addEventListener('click', async () => {
-  await navigator.clipboard.writeText(el['export-output'].value);
-  setLocalizedText(el['confirmation-status'], 'confirmation.copied');
-});
-el['fill-demo'].addEventListener('click', () => {
-  el['manual-transcript'].value = demoNarration;
-  setLocalizedText(el['transcription-status'], 'capture.demoFilled');
-});
-el['auth-submit'].addEventListener('click', () => unlockWithToken(el['auth-token'].value));
-el['auth-token'].addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') unlockWithToken(el['auth-token'].value);
-});
-el['refresh-health'].addEventListener('click', () => refreshHealth().catch(() => {}));
-initializeSession();
-
-// =====================================================================
-// V2 · SBS Bus / SBS Rail panel (additive — V1 flow and ids untouched)
-// Reuses V1 module-level sessionToken / api() / node() / requireLogin().
-// =====================================================================
-const V2_SCOPE_DEFAULTS = Object.freeze({
-  HVAC: Object.freeze({ contextId: 'HVAC', scopeId: 'HVAC', display: 'HVAC', v2: false }),
-  SBS_BUS: Object.freeze({ contextId: 'SBS/BUS', scopeId: 'SBS_BUS', display: 'SBS / Bus', v2: true }),
-  SBS_RAIL: Object.freeze({ contextId: 'SBS/RAIL', scopeId: 'SBS_RAIL', display: 'SBS / Rail', v2: true }),
-  OILFIELD: Object.freeze({ contextId: 'OILFIELD', scopeId: 'OILFIELD', display: 'Oilfield / Pipeline', v2: true }),
-  POWER_GRID: Object.freeze({ contextId: 'POWER/GRID', scopeId: 'POWER_GRID', display: 'Power Grid / Energy', v2: true }),
-});
-
-const v2Ids = [
-  'v1-panel', 'v2-panel', 'scope-selector-status', 'scope-selector-buttons',
-  'v2-upload-scope-hint', 'v2-upload-file', 'v2-upload-submit', 'v2-uploader',
-  'v2-upload-status', 'v2-upload-progress', 'v2-upload-record', 'v2-upload-list',
-  'v2-retrieve-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk', 'v2-retrieve-submit',
-  'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
-  'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status',
-  'v2-transcript-review', 'v2-transcript-corrections', 'v2-transcript-questions', 'v2-transcript-apply',
-  'v2-facts-table-wrap', 'v2-facts-table', 'v2-report-output', 'v2-report-banner',
-  'v2-report-missing', 'v2-follow-up', 'v2-follow-up-list', 'v2-follow-up-apply',
-  'v2-report-gates', 'v2-report-sections', 'v2-demo-status',
-];
-const v2El = Object.fromEntries(v2Ids.map((id) => [id, document.getElementById(id)]));
-
-const v2 = {
-  scopeId: 'HVAC',
-  contextId: 'HVAC',
-  display: 'HVAC',
-  scopes: [],
-  scopesLoaded: false,
-  facts: [],
-  knowledgeHits: [],
-  followUpQuestions: [],
-  correctionSuggestions: [],
-  transcriptQuestions: [],
-  reportResult: null,
-  uploadTimer: null,
-  reportBlocked: false,
-};
-
-const V2_UPLOAD_STEPS = ['UPLOADED', 'PROCESSING', 'PARSED', 'CHUNKED', 'INDEXED'];
-
-function v2SetStatus(id, key, variables = {}) {
-  if (!key) {
-    delete v2El[id].dataset.i18nRuntimeKey;
-    delete v2El[id].dataset.i18nRuntimeVariables;
-    v2El[id].textContent = '';
-    return;
-  }
-  setLocalizedText(v2El[id], key, variables);
 }
 
-function v2UpdateScopeSelector() {
-  for (const button of v2El['scope-selector-buttons'].querySelectorAll('.scope-button')) {
-    const scopeId = button.dataset.scopeId;
-    button.classList.toggle('active', scopeId === v2.scopeId);
-    const info = V2_SCOPE_DEFAULTS[scopeId];
-    if (info && v2.scopes.length) {
-      const found = v2.scopes.find((scope) => scope.scope_id === scopeId);
-      if (found && found.display) button.textContent = found.display;
-    }
-  }
-  const info = V2_SCOPE_DEFAULTS[v2.scopeId];
-  setLocalizedText(v2El['scope-selector-status'], 'scope.currentPanel', {
-    scope: info.display,
-    panel: translatedVariable(info.v2 ? 'scope.v2Panel' : 'scope.v1Panel'),
-  });
-}
-
-function v2SetScopeHints() {
-  setLocalizedText(v2El['v2-upload-scope-hint'], 'scope.uploadHint', { scope: v2.display });
-  setLocalizedText(v2El['v2-retrieve-scope-hint'], 'scope.retrievalHint', {
-    scope: v2.display,
-    otherScopes: translatedVariable('scope.otherScopes'),
-  });
-}
-
-function v2UpdateStatementPlaceholder() {
-  const placeholderKeys = {
-    SBS_BUS: 'v2.facts.busPlaceholder',
-    SBS_RAIL: 'v2.facts.railPlaceholder',
-    OILFIELD: 'v2.facts.oilfieldPlaceholder',
-    POWER_GRID: 'v2.facts.powerGridPlaceholder',
-  };
-  const key = placeholderKeys[v2.scopeId] || 'v2.facts.busPlaceholder';
-  v2El['v2-facts-text'].dataset.i18nPlaceholder = key;
-  v2El['v2-facts-text'].placeholder = t(key);
-}
-
-function v2SetScope(scopeId) {
-  const info = V2_SCOPE_DEFAULTS[scopeId];
-  if (!info) return;
-  v2.scopeId = scopeId;
-  v2.contextId = info.contextId;
-  v2.display = info.display;
-  v2.facts = [];
-  v2.knowledgeHits = [];
-  v2.followUpQuestions = [];
-  v2.correctionSuggestions = [];
-  v2.transcriptQuestions = [];
-  v2.reportResult = null;
-  v2.reportBlocked = false;
-  v2StopDemo();
-  v2StopUploadAnimation();
-  if (v2Wt.active) {
-    // Scope changed under an active walkthrough: restart it so the
-    // sample upload/query/statement match the newly selected scope.
-    if (!v2WtAllowed()) v2WtStop();
-    else v2WtRestart();
-  }
-  v2UpdateScopeSelector();
-  v2El['v1-panel'].hidden = info.v2;
-  v2El['v2-panel'].hidden = !info.v2;
-  if (!info.v2) return;
-  v2El['v2-report-build'].disabled = true;
-  v2El['v2-report-output'].hidden = true;
-  v2El['v2-follow-up'].hidden = true;
-  v2El['v2-transcript-review'].hidden = true;
-  v2El['v2-facts-table-wrap'].hidden = true;
-  v2El['v2-upload-record'].hidden = true;
-  v2El['v2-upload-progress'].hidden = true;
-  v2El['v2-retrieve-results'].replaceChildren();
-  v2El['v2-retrieve-warnings'].replaceChildren();
-  v2SetScopeHints();
-  v2UpdateStatementPlaceholder();
-  v2El['v2-upload-status'].className = 'live-status';
-  v2El['v2-facts-status'].className = 'live-status';
-  v2SetStatus('v2-upload-status', 'v2.upload.noneSelectedYet');
-  v2SetStatus('v2-retrieve-status', '');
-  v2SetStatus('v2-facts-status', '');
-  v2RefreshScopes();
-  v2RefreshUploads();
-}
-
-async function v2RefreshScopes() {
-  if (v2.scopesLoaded) return;
+async function uploadSbsDocument(file) {
+  if (!activeSession || activeSession.scope === 'HVAC') return;
+  const session = activeSession;
+  const scopeAtStart = session.scope;
+  const requestToken = runtime.beginRequest(session.id, 'upload-reference');
+  el['v2-upload-status'].textContent = `Uploading ${file.name}…`;
   try {
-    const result = await api('/api/v2/scopes');
-    v2.scopes = Array.isArray(result.data?.scopes) ? result.data.scopes : [];
-    v2.scopesLoaded = true;
-    v2UpdateScopeSelector();
-  } catch (error) {
-    v2SetStatus('v2-upload-status', 'v2.upload.unavailable', { message: error.message });
-  }
+    const result = await apiRaw('/api/v2/uploads', file, { 'x-file-name': file.name, 'x-scope-id': scopeAtStart, 'x-mime-type': file.type || 'application/octet-stream', 'x-uploader': el['v2-uploader'].value || 'demo-technician', 'x-scenario': 'report-capture', 'content-type': 'application/octet-stream' });
+    if (!runtime.accepts(requestToken)) return;
+    session.evidence.push(result.data.upload);
+    invalidateConfirmationIfMaterialChanged('Report evidence changed; validation and confirmation are required again.');
+    el['v2-upload-status'].textContent = result.data.upload.status === 'READY'
+      ? `${file.name} is attached as reference material only; it is not proof that work occurred.`
+      : `${file.name} could not be processed.`;
+    addAudit('Reference document uploaded', `${file.name} · ${result.data.upload.status}`);
+  } catch (error) { if (runtime.accepts(requestToken)) el['v2-upload-status'].textContent = `Upload failed: ${error.message}`; }
 }
 
-function v2StatusBadge(status) {
-  const ready = status === 'READY';
-  const failed = status === 'FAILED';
-  const item = node('span', `status-badge ${ready ? 'ready' : failed ? 'failed' : ''}`);
-  const key = STATUS_KEYS[String(status || '').toUpperCase()];
-  if (key) setLocalizedText(item, key);
-  else item.textContent = status || t('common.unknown');
-  return item;
-}
-
-function v2UploadRow(upload) {
+function renderUploadRow(upload) {
   const row = node('div', 'upload-row');
-  const name = node('span', 'name', upload.filename || upload.upload_id || '—');
-  const at = String(upload.provenance?.uploaded_at || '').slice(0, 19).replace('T', ' ');
-  const meta = localizedNode('span', 'meta', 'v2.upload.rowMeta', {
-    scope: upload.scope_id || '—', chunks: translatedVariable('common.chunks', { count: upload.chunk_count ?? 0 }), time: at || '—',
-  });
-  row.append(name, v2StatusBadge(upload.status), meta);
+  row.append(node('span', 'name', upload.filename || upload.upload_id || '—'), node('span', 'status-badge', upload.status || 'UNKNOWN'), node('span', 'meta', `${upload.scope_id || '—'} · ${upload.chunk_count ?? 0} chunks`));
   return row;
 }
 
-async function v2RefreshUploads() {
-  if (!sessionToken) {
-    v2El['v2-upload-list'].replaceChildren(localizedNode('p', 'empty-note', 'v2.upload.loginRequired'));
-    return;
-  }
-  v2SetStatus('v2-upload-status', 'v2.upload.loading');
+async function refreshKnowledgeUploads() {
+  if (!sessionToken) return renderEmptyState(el['v2-upload-list'], { title: 'Sign in to view uploads', message: 'Upload records appear after the demo session is established.' });
+  const scopeAtStart = knowledgeScope;
+  const generation = ++knowledgeRequestGeneration;
   try {
-    const listPath = `/api/v2/uploads?scope_id=${encodeURIComponent(v2.scopeId)}`;
-    const result = await api(listPath);
-    const uploads = Array.isArray(result.data?.uploads) ? result.data.uploads : [];
-    v2El['v2-upload-list'].replaceChildren(
-      ...(uploads.length ? uploads.map(v2UploadRow) : [localizedNode('p', 'empty-note', 'v2.upload.empty')]),
-    );
-    if (v2El['v2-upload-status'].dataset.i18nRuntimeKey === 'v2.upload.loading') v2SetStatus('v2-upload-status', '');
+    const result = await api(`/api/v2/uploads?scope_id=${encodeURIComponent(scopeAtStart)}`);
+    if (generation !== knowledgeRequestGeneration || scopeAtStart !== knowledgeScope) return;
+    const uploads = result.data?.uploads || [];
+    el['v2-upload-list'].replaceChildren(...(uploads.length ? uploads.map(renderUploadRow) : [node('p', 'supporting', 'No upload records in this scope yet.')]));
   } catch (error) {
-    v2SetStatus('v2-upload-status', 'v2.upload.loadFailed', { message: error.message });
+    if (generation === knowledgeRequestGeneration && scopeAtStart === knowledgeScope) el['v2-upload-list'].replaceChildren(node('p', 'supporting', `Could not load uploads: ${error.message}`));
   }
 }
 
-async function v2UploadFile(file) {
-  if (!sessionToken) throw new Error(t('auth.noSession'));
-  const uploadPath = '/api/v2/uploads';
-  const headers = {
-    authorization: `Bearer ${sessionToken}`,
-    'x-file-name': file.name,
-    'x-scope-id': v2.scopeId,
-    'x-mime-type': file.type || 'application/octet-stream',
-    'x-uploader': v2El['v2-uploader'].value.trim() || 'demo-technician',
-    'x-scenario': 'demo',
-    'content-type': 'application/octet-stream',
-  };
-  const response = await fetch(uploadPath, { method: 'POST', headers, body: file });
-  let result;
-  try {
-    result = await response.json();
-  } catch {
-    result = { status: 'FAIL', error_code: `HTTP_${response.status}` };
+function setKnowledgeScope(scope) {
+  knowledgeTransients.set(knowledgeScope, { query: el['v2-retrieve-query'].value });
+  knowledgeScope = scope;
+  knowledgeSearchPending = false;
+  const schema = REPORT_SCHEMAS[scope];
+  el['v2-retrieve-query'].value = knowledgeTransients.get(scope)?.query || '';
+  el['scope-selector-status'].textContent = `${schema.name} · scope isolated`;
+  el['v2-upload-scope-hint'].textContent = `Documents stay inside ${schema.name}.`;
+  el['v2-retrieve-scope-hint'].textContent = `Search cannot return content from HVAC or the other SBS domain.`;
+  for (const button of el['scope-selector-buttons'].querySelectorAll('button')) {
+    const selected = button.dataset.scopeId === scope;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
   }
-  if (response.status === 401) requireLogin('auth.invalid');
-  if (!response.ok || result.status === 'FAIL' || result.status === 'RETRYABLE_ERROR') {
-    const error = new Error(result.data?.message || result.error_code || `HTTP ${response.status}`);
-    error.result = result;
-    throw error;
-  }
-  return result;
+  el['v2-retrieve-results'].replaceChildren();
+  el['v2-retrieve-warnings'].replaceChildren();
+  updateKnowledgeSearchState();
+  if (currentView === 'knowledge') el['topbar-status'].textContent = globalViewStatus('knowledge', knowledgeScope);
+  refreshKnowledgeUploads();
 }
 
-function v2UploadStepChip(status, extra = '') {
-  const ready = status === 'READY';
-  const failed = status === 'FAILED';
-  const chip = node('span', `v2-step-chip ${ready ? 'ready' : failed ? 'failed' : ''}`);
-  const key = STATUS_KEYS[String(status || '').toUpperCase()];
-  chip.append(key ? localizedNode('span', '', key) : document.createTextNode(status), node('time', '', extra));
-  return chip;
+function updateKnowledgeSearchState() {
+  const state = knowledgeQueryState(el['v2-retrieve-query'].value);
+  el['v2-retrieve-submit'].disabled = knowledgeSearchPending || !state.valid;
+  return state;
 }
 
-function v2StopUploadAnimation() {
-  if (v2.uploadTimer) {
-    clearInterval(v2.uploadTimer);
-    v2.uploadTimer = null;
-  }
-}
-
-function v2StartUploadAnimation() {
-  v2StopUploadAnimation();
-  const box = v2El['v2-upload-progress'];
-  box.hidden = false;
-  box.replaceChildren();
-  let index = 0;
-  const step = () => {
-    if (index < V2_UPLOAD_STEPS.length) {
-      box.append(v2UploadStepChip(V2_UPLOAD_STEPS[index], new Date().toLocaleTimeString()));
-      index += 1;
-    }
-  };
-  step();
-  v2.uploadTimer = setInterval(step, 400);
-}
-
-function v2RenderUploadRecord(upload) {
-  const box = v2El['v2-upload-record'];
-  box.hidden = false;
-  const lines = [
-    ['upload_id', upload.upload_id],
-    ['filename', upload.filename],
-    ['scope_id', upload.scope_id],
-    ['chunk_count', upload.chunk_count],
-    ['token_count', upload.indexed?.token_count ?? '—'],
-    ['sha256 (first 8 chars)', upload.sha256 ? upload.sha256.slice(0, 8) : '—'],
-    ['size_bytes', upload.size_bytes],
-  ];
-  box.replaceChildren(...lines.map(([label, value]) => {
-    const line = node('div', 'kv');
-    line.append(node('b', '', `${label}: `), document.createTextNode(String(value ?? '—')));
-    return line;
-  }));
-}
-
-v2El['v2-upload-file'].addEventListener('change', () => {
-  const file = v2El['v2-upload-file'].files?.[0];
-  v2El['v2-upload-submit'].disabled = !file;
-  v2El['v2-upload-status'].className = 'live-status';
-  if (!file) {
-    v2SetStatus('v2-upload-status', 'v2.upload.noneSelectedYet');
-    return;
-  }
-  v2SetStatus('v2-upload-status', 'v2.upload.selected', { filename: file.name, size: (file.size / 1024).toFixed(1) });
-  if (!v2El['v2-uploader'].value.trim() && el['technician-name']?.value) {
-    v2El['v2-uploader'].value = el['technician-name'].value;
-  }
-});
-
-v2El['v2-upload-submit'].addEventListener('click', async () => {
-  const file = v2El['v2-upload-file'].files?.[0];
-  if (!file) {
-    v2SetStatus('v2-upload-status', 'v2.upload.selectFirst');
-    return;
-  }
-  v2El['v2-upload-submit'].disabled = true;
-  v2El['v2-upload-file'].disabled = true;
-  v2El['v2-upload-record'].hidden = true;
-  v2SetStatus('v2-upload-status', 'v2.upload.processing');
-  v2StartUploadAnimation();
-  try {
-    const result = await v2UploadFile(file);
-    const upload = result.data?.upload;
-    if (!upload) throw new Error(t('v2.upload.missingRecord'));
-    if (upload.status === 'FAILED') {
-      v2El['v2-upload-progress'].append(v2UploadStepChip('FAILED', new Date().toLocaleTimeString()));
-      const reason = upload.errors?.[0]?.message || t('v2.upload.processingFailed');
-      v2SetStatus('v2-upload-status', 'v2.upload.failed', { message: reason });
-      v2El['v2-upload-status'].className = 'live-status v2-error-text';
-    } else {
-      v2El['v2-upload-progress'].append(v2UploadStepChip('READY', new Date().toLocaleTimeString()));
-      v2RenderUploadRecord(upload);
-      v2SetStatus('v2-upload-status', 'v2.upload.complete', { filename: upload.filename });
-      v2El['v2-upload-status'].className = 'live-status';
-    }
-    v2RefreshUploads();
-  } catch (error) {
-    v2SetStatus('v2-upload-status', 'v2.upload.failed', { message: error.message });
-    v2El['v2-upload-status'].className = 'live-status v2-error-text';
-  } finally {
-    v2StopUploadAnimation();
-    v2El['v2-upload-submit'].disabled = false;
-    v2El['v2-upload-file'].disabled = false;
-  }
-});
-
-function v2RenderRetrieveWarnings(warnings) {
-  const box = v2El['v2-retrieve-warnings'];
-  if (!Array.isArray(warnings) || warnings.length === 0) {
-    box.replaceChildren();
-    return;
-  }
-  const blocked = warnings.includes('CROSS_DOMAIN_BLOCKED');
-  const note = blocked ? localizedNode('p', 'warning-line', 'v2.retrieval.crossDomainBlocked') : null;
-  const detail = localizedNode('p', 'hint', 'v2.retrieval.warnings', { warnings: warnings.join(', ') });
-  box.replaceChildren(...(note ? [note, detail] : [detail]));
-}
-
-function v2RenderRetrieveResults(results) {
-  const box = v2El['v2-retrieve-results'];
-  if (!results.length) {
-    box.replaceChildren(localizedNode('p', 'empty-note', 'v2.retrieval.noResults'));
-    return;
-  }
-  box.replaceChildren(...results.map((item) => {
+function renderKnowledgeResults(results) {
+  if (!results.length) return renderEmptyState(el['v2-retrieve-results'], { icon: '⌕', title: 'No results', message: 'Try a term that belongs to the selected scope.' });
+  el['v2-retrieve-results'].replaceChildren(...results.map((item) => {
     const card = node('div', 'result-card');
-    const head = node('div', 'head');
-    head.append(
-      localizedNode('span', 'status-badge', item.source === 'upload' ? 'common.upload' : 'common.knowledgeBase'),
-      node('span', '', item.scope_id || '—'),
-      localizedNode('span', 'score', 'common.score', { score: Number(item.score || 0).toFixed(2) }),
-    );
-    const full = String(item.text || '');
-    const text = node('p', 'text', full.slice(0, 120) + (full.length > 120 ? '…' : ''));
-    const prov = localizedNode('p', 'prov', 'v2.retrieval.provenance', {
-      source: item.provenance?.file || item.doc_id || '—',
-      uploader: item.provenance?.uploader ? translatedVariable('v2.retrieval.provenanceUploader', { uploader: item.provenance.uploader }) : '',
-      matched: Array.isArray(item.matched_terms) && item.matched_terms.length
-        ? translatedVariable('v2.retrieval.provenanceMatched', { terms: item.matched_terms.join(', ') })
-        : '',
-    });
-    card.append(head, text, prov);
+    card.append(node('strong', '', item.source === 'upload' ? 'Uploaded reference' : 'Knowledge base'), node('p', '', item.text), node('p', 'prov', `Source: ${item.provenance?.file || item.doc_id || '—'} · score ${Number(item.score || 0).toFixed(2)}`));
     return card;
   }));
 }
 
-v2El['v2-retrieve-submit'].addEventListener('click', async () => {
-  const query = v2El['v2-retrieve-query'].value.trim();
-  const topK = Math.max(1, Math.min(20, Math.floor(Number(v2El['v2-retrieve-topk'].value) || 5)));
-  v2El['v2-retrieve-submit'].disabled = true;
-  v2El['v2-retrieve-results'].replaceChildren();
-  v2El['v2-retrieve-warnings'].replaceChildren();
-  v2SetStatus('v2-retrieve-status', 'v2.retrieval.searching');
+// The filler is deliberately non-submitting; security tests assert this handler stays free of network calls.
+el['fill-demo'].addEventListener('click', () => {
+  if (!activeSession) createNewReport('hvac_service', { demo: true });
+  else navigate('capture');
+  activeSession.demo = true;
+  addAudit('Synthetic example added', 'Demo data · no real customer or asset data');
+  updateCaptureContext();
+  activeSession.capture.manualEntryOpen = true;
+  el['manual-entry'].hidden = false;
+  el['manual-transcript'].value = examples[activeSession.scope] || demoNarration;
+  runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), statement: el['manual-transcript'].value });
+  el['use-manual'].disabled = false;
+  el['manual-source-hint'].textContent = 'Synthetic demo text is stored as manual input only if you continue.';
+  el['transcription-status'].textContent = 'Synthetic example filled in. Review it, then choose Continue.';
+  el['manual-transcript'].focus();
+});
+
+el['auth-submit'].addEventListener('click', (event) => { event.preventDefault(); unlockWithToken(el['auth-token'].value); });
+el['auth-token'].addEventListener('keydown', (event) => { if (event.key === 'Enter') el['auth-submit'].click(); });
+el['refresh-health'].addEventListener('click', () => refreshHealth().catch((error) => { el['health-summary'].textContent = `Health check failed: ${error.message}`; }));
+for (const id of ['settings-language', 'settings-model']) el[id].addEventListener('change', () => {
+  audioDefaults = audioPreferenceState({ language: el['settings-language'].value, model: el['settings-model'].value });
+});
+el['mobile-menu'].addEventListener('click', () => {
+  setSidebarOpen(!sidebar.classList.contains('open'), { focus: true });
+});
+document.addEventListener('click', (event) => {
+  const nav = event.target.closest('[data-nav]');
+  if (nav) {
+    if (activeDemoRun && nav.dataset.nav !== 'help') cancelDemoRun('Demo stopped because you left Help. Its synthetic report remains labelled Demo.');
+    if (v2Wt.active) v2WtStop('stopped');
+    if (currentView === 'capture') saveTransientFromDom();
+    if (nav.dataset.nav === 'reports') renderReports();
+    navigate(nav.dataset.nav);
+  }
+  if (sidebar.classList.contains('open') && !sidebar.contains(event.target) && !el['mobile-menu'].contains(event.target)) {
+    setSidebarOpen(false);
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !el['evidence-drawer'].hidden) { event.preventDefault(); hideEvidence(); return; }
+  if (event.key === 'Escape' && sidebar.classList.contains('open')) {
+    setSidebarOpen(false);
+    el['mobile-menu'].focus();
+    return;
+  }
+  if (event.key !== 'Tab' || el['evidence-drawer'].hidden) return;
+  const focusable = [...el['evidence-drawer'].querySelectorAll('button, summary, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((item) => !item.disabled && !item.hidden);
+  if (!focusable.length) { event.preventDefault(); el['evidence-drawer'].focus(); return; }
+  const [first] = focusable; const last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
+document.getElementById('report-type-grid').addEventListener('click', (event) => { const card = event.target.closest('[data-report-type]'); if (card) createNewReport(card.dataset.reportType); });
+el['report-search'].addEventListener('input', renderReports);
+el['v2-retrieve-query'].addEventListener('input', () => {
+  const state = updateKnowledgeSearchState();
+  if (!state.valid) el['v2-retrieve-status'].textContent = 'Enter a search term to search this scope.';
+});
+for (const filter of document.querySelectorAll('.filter')) filter.addEventListener('click', () => { document.querySelector('.filter.active')?.classList.remove('active'); filter.classList.add('active'); renderReports(); });
+for (const id of ['open-evidence', 'review-evidence']) el[id].addEventListener('click', showEvidence);
+el['close-evidence'].addEventListener('click', hideEvidence);
+el['drawer-backdrop'].addEventListener('click', hideEvidence);
+el['edit-information'].addEventListener('click', () => {
+  if (!activeSession) return;
+  const pending = (activeSession.unresolvedItems || []).map((item) => item.answer?.decision === 'NOT_PROVIDED' ? { ...item, answer: null } : item);
+  if (pending.some((item) => !item.answer)) {
+    for (const item of pending.filter((candidate) => !candidate.answer)) delete activeSession.resolveAnswers[item.id];
+    renderGenericResolve(pending, { reset: true });
+    navigate('resolve');
+  } else navigate('capture');
+});
+el['start-another-report'].addEventListener('click', () => navigate('new-report'));
+
+el['start-recording'].addEventListener('click', async () => {
+  if (recorder) return;
+  const session = activeSession;
+  el['start-recording'].disabled = true;
+  recordingSessionId = session?.id;
+  el['recording-status'].textContent = 'Waiting for microphone permission…';
   try {
-    const result = await api('/api/v2/retrieve', {
-      context_id: v2.contextId,
-      query,
-      top_k: topK,
-      include_uploads: true,
-    });
-    v2.knowledgeHits = (result.data?.results || []).map((item) => item.text);
-    v2RenderRetrieveWarnings(result.warnings || []);
-    v2RenderRetrieveResults(result.data?.results || []);
-    v2SetStatus('v2-retrieve-status', 'v2.retrieval.complete', { count: (result.data?.results || []).length });
-  } catch (error) {
-    v2.knowledgeHits = [];
-    v2SetStatus('v2-retrieve-status', 'v2.retrieval.failed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  } finally {
-    v2El['v2-retrieve-submit'].disabled = false;
-  }
-});
-
-function v2RenderFacts(facts) {
-  const table = v2El['v2-facts-table'];
-  if (!facts.length) {
-    table.replaceChildren(localizedNode('p', 'empty-note', 'v2.facts.noFacts'));
-    return;
-  }
-  const head = node('div', 'fact-table head');
-  head.append(
-    localizedNode('span', '', 'common.field'), localizedNode('span', '', 'v2.facts.editableValue'),
-    localizedNode('span', '', 'common.unit'), localizedNode('span', '', 'common.supportStatus'), localizedNode('span', '', 'v2.facts.review'),
-  );
-  const rows = facts.map((fact, index) => {
-    const row = node('div', 'fact-table');
-    const input = document.createElement('input');
-    input.className = 'v2-fact-input';
-    input.value = typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value ?? '');
-    input.setAttribute('aria-label', t('v2.facts.valueFor', { field: localizedField(fact.field || `fact ${index + 1}`) }));
-    input.addEventListener('input', () => {
-      fact.value = input.value;
-      fact.support_status = 'MANUAL_ENTRY';
-      fact.source = 'technician:edit';
-      v2.reportBlocked = false;
-      v2El['v2-report-build'].disabled = false;
-    });
-    const confirm = localizedNode('button', 'v2-confirm-fact', fact.support_status === 'CONFIRMED_BY_TECHNICIAN' ? 'v2.facts.confirmed' : 'common.confirm');
-    confirm.type = 'button';
-    confirm.disabled = fact.support_status === 'CONFIRMED_BY_TECHNICIAN';
-    confirm.addEventListener('click', () => {
-      fact.value = input.value;
-      fact.support_status = 'CONFIRMED_BY_TECHNICIAN';
-      fact.source = 'technician:review';
-      v2.reportBlocked = false;
-      v2El['v2-report-build'].disabled = false;
-      v2RenderFacts(v2.facts);
-    });
-    row.append(
-      localizedFieldNode('span', fact.critical ? 'badge-critical' : '', fact.field),
-      input,
-      node('span', '', fact.unit || '—'),
-      fact.support_status ? localizedNode('span', '', STATUS_KEYS[fact.support_status] || 'common.unknown') : node('span', '', '—'),
-      confirm,
-    );
-    return row;
-  });
-  table.replaceChildren(head, ...rows);
-}
-
-function v2RenderFollowUps(questions) {
-  v2.followUpQuestions = Array.isArray(questions) ? questions : [];
-  const section = v2El['v2-follow-up'];
-  if (!v2.followUpQuestions.length) {
-    section.hidden = true;
-    v2El['v2-follow-up-list'].replaceChildren();
-    return;
-  }
-  const cards = v2.followUpQuestions.map((item) => {
-    const label = document.createElement('label');
-    label.className = 'v2-follow-up-card';
-    label.append(node('strong', '', item.question || item.field));
-    const input = document.createElement('textarea');
-    input.rows = 2;
-    input.dataset.field = item.field;
-    input.dataset.sectionId = item.section_id;
-    input.dataset.confirmationOnly = item.confirmation_only ? 'true' : 'false';
-    if (item.target_value) input.dataset.targetValue = item.target_value;
-    input.placeholder = t(item.confirmation_only ? 'v2.facts.confirmPlaceholder' : 'v2.facts.answerPlaceholder');
-    label.append(input, localizedNode('small', '', 'v2.facts.followUpMeta', {
-      section: localizedField(item.section_id),
-      field: localizedField(item.field),
-    }));
-    return label;
-  });
-  v2El['v2-follow-up-list'].replaceChildren(...cards);
-  section.hidden = false;
-}
-
-function v2RenderTranscriptReview(review) {
-  v2.correctionSuggestions = Array.isArray(review?.correction_suggestions) ? review.correction_suggestions : [];
-  v2.transcriptQuestions = Array.isArray(review?.confirmation_questions) ? review.confirmation_questions : [];
-  const section = v2El['v2-transcript-review'];
-  const corrections = v2.correctionSuggestions.map((item) => {
-    const label = document.createElement('label');
-    label.className = 'v2-follow-up-card';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.dataset.correctionId = item.correction_id;
-    label.append(
-      checkbox,
-      document.createTextNode(` “${item.source_text}” → “${item.suggested_text}”`),
-      node('small', '', `${item.confidence} · ${item.reason}`),
-    );
-    return label;
-  });
-  const questions = v2.transcriptQuestions.map((item) => {
-    const card = node('div', 'v2-follow-up-card');
-    card.append(localizedNode('strong', '', 'v2.facts.criticalClarification'), node('p', '', item.question), node('small', '', item.reason));
-    return card;
-  });
-  v2El['v2-transcript-corrections'].replaceChildren(...corrections);
-  v2El['v2-transcript-questions'].replaceChildren(...questions);
-  v2El['v2-transcript-apply'].hidden = corrections.length === 0;
-  section.hidden = corrections.length === 0 && questions.length === 0;
-}
-
-v2El['v2-transcript-apply'].addEventListener('click', () => {
-  const accepted = new Set([...v2El['v2-transcript-corrections'].querySelectorAll('input[data-correction-id]:checked')]
-    .map((input) => input.dataset.correctionId));
-  if (!accepted.size) {
-    v2SetStatus('v2-facts-status', 'v2.facts.selectCorrection');
-    return;
-  }
-  let text = v2El['v2-facts-text'].value;
-  const selected = v2.correctionSuggestions
-    .filter((item) => accepted.has(item.correction_id))
-    .sort((a, b) => b.start - a.start);
-  for (const item of selected) {
-    if (text.slice(item.start, item.end) !== item.source_text) continue;
-    text = `${text.slice(0, item.start)}${item.suggested_text}${text.slice(item.end)}`;
-  }
-  v2El['v2-facts-text'].value = text;
-  v2SetStatus('v2-facts-status', 'v2.facts.correctionsApplied', { count: selected.length });
-  v2El['v2-facts-extract'].click();
-});
-
-v2El['v2-follow-up-apply'].addEventListener('click', () => {
-  let applied = 0;
-  for (const input of v2El['v2-follow-up-list'].querySelectorAll('textarea[data-field]')) {
-    const value = input.value.trim();
-    if (!value) continue;
-    const field = input.dataset.field;
-    const confirmationOnly = input.dataset.confirmationOnly === 'true';
-    if (confirmationOnly && !/^(?:confirm(?:ed)?|yes|确认|是)$/iu.test(value)) continue;
-    const targetValue = input.dataset.targetValue || '';
-    const existing = v2.facts.find((fact) => fact.field === field && (!targetValue || String(fact.value) === targetValue));
-    if (confirmationOnly && !existing) continue;
-    const fact = existing || { field };
-    if (!confirmationOnly) fact.value = value;
-    fact.support_status = 'CONFIRMED_BY_TECHNICIAN';
-    fact.source = 'technician:follow-up';
-    fact.critical = field === 'completion.state' || field === 'test.result' || field.startsWith('safety.') || field === 'access.approval';
-    if (!existing) v2.facts.push(fact);
-    applied += 1;
-  }
-  if (!applied) {
-    v2SetStatus('v2-facts-status', 'v2.facts.answerFollowUp');
-    return;
-  }
-  v2.reportBlocked = false;
-  v2RenderFacts(v2.facts);
-  v2El['v2-facts-table-wrap'].hidden = false;
-  v2El['v2-report-build'].disabled = false;
-  v2El['v2-report-build'].click();
-});
-
-v2El['v2-facts-extract'].addEventListener('click', async () => {
-  const raw = v2El['v2-facts-text'].value.trim();
-  if (!raw) {
-    v2SetStatus('v2-facts-status', 'v2.facts.enterFirst');
-    return;
-  }
-  v2El['v2-facts-extract'].disabled = true;
-  v2El['v2-facts-status'].className = 'live-status';
-  v2El['v2-report-output'].hidden = true;
-  v2SetStatus('v2-facts-status', 'v2.facts.extracting');
-  try {
-    const result = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: raw });
-    v2.facts = Array.isArray(result.data?.facts) ? result.data.facts : [];
-    v2RenderTranscriptReview(result.data?.transcript_review || {});
-    v2.reportBlocked = false;
-    v2RenderFacts(v2.facts);
-    v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
-    v2El['v2-report-build'].disabled = v2.facts.length === 0;
-    let retrievalCount = 0;
-    try {
-      const focusedParts = v2.facts
-        .filter((fact) => /^(?:asset\.|standard\.|measurement\.|defect\.)/u.test(String(fact.field || '')))
-        .map((fact) => `${fact.value ?? ''}${fact.unit ? ` ${fact.unit}` : ''}`)
-        .filter(Boolean);
-      const retrievalQuery = [...new Set(focusedParts)].join(' ').slice(0, 1500) || raw;
-      const retrieval = await api('/api/v2/retrieve', {
-        context_id: v2.contextId,
-        query: retrievalQuery,
-        top_k: 3,
-        include_uploads: true,
-      });
-      const results = retrieval.data?.results || [];
-      retrievalCount = results.length;
-      v2.knowledgeHits = results.map((item) => item.text);
-      v2El['v2-retrieve-query'].value = retrievalQuery;
-      v2El['v2-retrieve-topk'].value = '3';
-      v2RenderRetrieveWarnings(retrieval.warnings || []);
-      v2RenderRetrieveResults(results);
-      v2SetStatus('v2-retrieve-status', 'v2.retrieval.automaticComplete', { count: retrievalCount });
-    } catch {
-      // Retrieval supports guidance but must never prevent fact extraction.
-      v2.knowledgeHits = [];
-      v2SetStatus('v2-retrieve-status', 'v2.retrieval.automaticUnavailable');
+    recorder = new PcmWavRecorder();
+    await recorder.start();
+    recordingStartedAt = Date.now();
+    if (activeSession?.id === session?.id) {
+      el['start-recording'].hidden = true;
+      el['stop-recording'].hidden = false;
+      el['stop-recording'].disabled = false;
+      el['recording-status'].textContent = 'Recording… 0:00';
     }
-    v2SetStatus('v2-facts-status', 'v2.facts.extractedWithRetrieval', { count: v2.facts.length, retrievalCount });
+    recordingElapsedTimer = setInterval(() => {
+      if (activeSession?.id === recordingSessionId) el['recording-status'].textContent = `Recording… ${formatElapsed(Date.now() - recordingStartedAt)}`;
+    }, 1000);
+    recordingTimer = setTimeout(() => { finishRecording(); }, 90_000);
   } catch (error) {
-    v2.facts = [];
-    v2El['v2-report-build'].disabled = true;
-    v2SetStatus('v2-facts-status', 'v2.facts.extractionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  } finally {
-    v2El['v2-facts-extract'].disabled = false;
+    recorder = null;
+    recordingSessionId = null;
+    if (activeSession?.id === session?.id) {
+      el['recording-status'].textContent = `Microphone permission or capture failed: ${error.message}`;
+      el['transcription-status'].textContent = 'Use Type instead or upload a valid WAV recording.';
+      el['start-recording'].disabled = false;
+    }
   }
 });
-
-function v2RenderReport(result) {
-  v2.reportResult = result;
-  const report = result.data?.report || {};
-  const gates = result.data?.gates || {};
-  const violations = Array.isArray(gates.violations) ? gates.violations : [];
-  const needsConfirm = result.status === 'NEEDS_CONFIRMATION' || violations.length > 0;
-  v2El['v2-report-output'].hidden = false;
-
-  const missing = Array.isArray(report.missing_required_fields) ? report.missing_required_fields : [];
-  const incomplete = missing.length > 0;
-
-  const banner = v2El['v2-report-banner'];
-  banner.className = `validator-banner ${needsConfirm ? 'fail' : incomplete ? '' : 'pass'}`;
-  setLocalizedText(banner, needsConfirm
-    ? 'v2.facts.hardGateBlocked'
-    : incomplete ? 'v2.facts.draftIncomplete' : 'v2.facts.hardGatePassedComplete');
-
-  const missingBox = v2El['v2-report-missing'];
-  setLocalizedText(missingBox, missing.length ? 'v2.facts.missingRequired' : 'v2.facts.allRequired', {
-    fields: missing.map(localizedField).join(', '),
-  });
-  missingBox.hidden = missing.length === 0;
-  v2RenderFollowUps(result.data?.follow_up_questions || []);
-
-  v2El['v2-report-gates'].replaceChildren(...(violations.length ? violations.map((violation) => {
-    const item = node('p', 'gate-item');
-    item.append(
-      node('strong', '', `[${violation.class}]`),
-      node('code', '', violation.field || ''),
-      document.createTextNode(` ${violation.detail || ''}`),
-    );
-    return item;
-  }) : []));
-
-  const sections = Array.isArray(report.sections) ? report.sections : [];
-  v2El['v2-report-sections'].replaceChildren(...sections.map((section) => {
-    const block = node('div', 'report-section-block');
-    const content = Array.isArray(section.content) && section.content.length ? section.content : [t('common.notProvided')];
-    const isMissing = section.required === true && content.every((line) => line === 'Not provided / pending confirmation');
-    const heading = node('h3', isMissing ? 'v2-section-missing' : '');
-    heading.append(document.createTextNode(section.title));
-    if (section.required) heading.append(document.createTextNode(' ('), localizedNode('span', '', 'common.required'), document.createTextNode(')'));
-    block.append(heading);
-    for (const line of content) block.append(node('p', '', line));
-    return block;
-  }));
+el['stop-recording'].addEventListener('click', finishRecording);
+el['audio-file'].addEventListener('change', async () => {
+  const file = el['audio-file'].files?.[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.wav') && file.type !== 'audio/wav') {
+    el['recording-status'].textContent = 'Choose a valid WAV recording.';
+    el['transcription-status'].textContent = 'The selected file was not sent.';
+    return;
+  }
+  activeSession.capture.audioOrigin = 'upload';
+  selectAudio(file, `Uploaded ${file.name}`);
+  await transcribe(1);
+});
+el.retry.addEventListener('click', async () => transcribe(2));
+el['type-instead'].addEventListener('click', () => {
+  if (!activeSession) return;
+  activeSession.capture.manualEntryOpen = true;
+  el['manual-entry'].hidden = false;
+  el['manual-source-hint'].textContent = activeSession.transcriptArtifact ? 'Saving changes creates a new edited transcript and keeps the prior source immutable.' : 'Typed text is stored as manual input.';
+  el['manual-transcript'].focus();
+});
+el['view-statement'].addEventListener('click', () => {
+  const expanded = el['statement-preview'].hidden;
+  el['statement-preview'].hidden = !expanded;
+  el['view-statement'].setAttribute('aria-expanded', String(expanded));
+  el['view-statement'].textContent = expanded ? 'Hide transcript' : 'View transcript';
+});
+el['edit-statement'].addEventListener('click', () => {
+  if (!activeSession) return;
+  activeSession.capture.manualEntryOpen = true;
+  el['manual-entry'].hidden = false;
+  el['manual-transcript'].value = activeSession.transcriptArtifact?.raw_text || el['manual-transcript'].value;
+  el['manual-source-hint'].textContent = 'Saving changes creates a new edited transcript and keeps the prior source immutable.';
+  el['manual-transcript'].focus();
+});
+el['manual-transcript'].addEventListener('input', () => {
+  el['use-manual'].disabled = !el['manual-transcript'].value.trim() || activeSession?.processing.status === 'processing';
+});
+function syncTechnicianIdentity(name, id) {
+  if (!activeSession) return;
+  activeSession.jobContext = { ...activeSession.jobContext, technicianName: name.trim(), technicianId: id.trim() };
+  runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), ...activeSession.jobContext });
 }
+for (const id of ['capture-technician-name', 'capture-technician-id']) el[id].addEventListener('input', () => {
+  syncTechnicianIdentity(el['capture-technician-name'].value, el['capture-technician-id'].value);
+});
+for (const id of ['technician-name', 'technician-id']) el[id].addEventListener('input', () => {
+  syncTechnicianIdentity(el['technician-name'].value, el['technician-id'].value);
+  el['review-identity-summary'].textContent = activeSession.jobContext.technicianName && activeSession.jobContext.technicianId
+    ? `${activeSession.jobContext.technicianName} · ${activeSession.jobContext.technicianId}` : 'Technician not set';
+});
+el['v2-upload-file'].addEventListener('change', () => { const file = el['v2-upload-file'].files?.[0]; if (file) uploadSbsDocument(file); });
 
-v2El['v2-report-build'].addEventListener('click', async () => {
-  if (!v2.facts.length) return;
-  v2El['v2-report-build'].disabled = true;
-  v2SetStatus('v2-facts-status', 'v2.facts.building');
+el['use-manual'].addEventListener('click', async () => {
+  const raw = el['manual-transcript'].value.trim();
+  if (!activeSession || !raw) { el['transcription-status'].textContent = 'Enter or record a service statement first.'; return; }
+  saveTransientFromDom();
+  if (!activeSession.jobContext?.technicianName || !activeSession.jobContext?.technicianId) {
+    el['capture-identity'].open = true;
+    el['transcription-status'].textContent = 'Enter the technician name and ID for this report before continuing.';
+    el['capture-technician-name'].focus();
+    return;
+  }
+  activeSession.status = 'PROCESSING';
+  const requestToken = runtime.beginRequest(activeSession.id, 'process-statement');
+  const session = activeSession;
+  session.processing = { status: 'processing', error: null };
+  el['use-manual'].disabled = true; el['use-manual'].textContent = 'Organising report…'; el['transcription-status'].textContent = 'Organising report…';
   try {
-    const result = await api('/api/v2/reports/build', {
-      context_id: v2.contextId,
-      facts: v2.facts,
-      knowledge_hits: v2.knowledgeHits,
-    });
-    v2RenderReport(result);
-    if (result.status === 'NEEDS_CONFIRMATION') {
-      v2.reportBlocked = true;
-      v2SetStatus('v2-facts-status', 'v2.facts.hardGateBlocked');
-      v2El['v2-report-build'].disabled = true;
+    if (activeSession.scope === 'HVAC') {
+      const changedSource = currentTranscript?.artifact_id && currentTranscript.raw_text !== raw ? currentTranscript : null;
+      const result = currentTranscript?.raw_text === raw ? { data: { transcript: currentTranscript } } : await api('/api/transcripts/manual', {
+        raw_text: raw,
+        language: activeSession.capture.language === 'auto' ? (currentTranscript?.language || 'zh') : activeSession.capture.language,
+        input_mode: changedSource ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT',
+        edited_from_artifact_id: changedSource?.artifact_id || null,
+      });
+      if (!runtime.accepts(requestToken)) return;
+      acceptTranscript(result.data.transcript, changedSource ? 'Edited statement saved; original evidence preserved.' : 'Manual statement saved as immutable input.');
+      el['transcription-status'].textContent = 'Checking required information…';
+      await prepareHvacResolve();
     } else {
-      const missingCount = result.data?.report?.missing_required_fields?.length || 0;
-      v2SetStatus('v2-facts-status', missingCount ? 'v2.facts.draftMissing' : 'v2.facts.generated', {
-        version: result.data?.report?.reportVersion || 'v2',
-        count: missingCount,
-      });
+      el['transcription-status'].textContent = 'Checking required information…';
+      await processSbsStatement(raw, requestToken);
     }
-  } catch (error) {
-    v2SetStatus('v2-facts-status', 'v2.facts.buildFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-  } finally {
-    if (!v2.reportBlocked) v2El['v2-report-build'].disabled = false;
-  }
+  } catch (error) { if (runtime.accepts(requestToken)) { session.processing = { status: 'error', error: error.message }; el['transcription-status'].textContent = `Could not prepare the report (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`; } }
+  finally { if (runtime.accepts(requestToken)) { el['use-manual'].disabled = false; el['use-manual'].textContent = 'Continue'; } }
 });
+el['build-report'].addEventListener('click', prepareHvacResolve);
 
-v2El['scope-selector-buttons'].addEventListener('click', (event) => {
-  const button = event.target.closest('.scope-button');
-  if (!button) return;
-  v2SetScope(button.dataset.scopeId);
-});
-
-function v2WatchLogin() {
-  const gate = document.getElementById('auth-gate');
-  if (!gate) return;
-  new MutationObserver(() => {
-    if (gate.hidden && !v2El['v2-panel'].hidden && sessionToken) {
-      v2RefreshScopes();
-      v2RefreshUploads();
-    }
-  }).observe(gate, { attributes: true, attributeFilter: ['hidden'] });
-}
-
-function v2Init() {
-  v2UpdateScopeSelector();
-  v2WatchLogin();
-}
-
-v2Init();
-
-// =====================================================================
-// V2 · Guided demo player (additive — simulated recording, voice captions,
-// terminology fixes for mis-heard words, facts, report). No Whisper needed.
-// Uses only browser built-ins: speechSynthesis, setInterval/clearInterval,
-// and the existing api() / v2RenderFacts / v2RenderReport / v2SetStatus.
-// =====================================================================
-
-/** Demo scenarios keyed by SBS scope: dictation (with mis-heard words),
- *  terminology fixes, and the corrected text used for fact extraction. */
-const V2_DEMO_SCOPES = Object.freeze({
-  SBS_BUS: Object.freeze({
-    dictation: 'Preventive maintenance on bus MAN A ninety five. The front door would not close. Inspection found the door control modular was faulty. Replaced the door control modular. Tested the door opening and closing normal. Completion status completed.',
-    fixes: Object.freeze([
-      Object.freeze({ from: 'A ninety five', to: 'A95' }),
-      Object.freeze({ from: 'door control modular', to: 'door control module' }),
-    ]),
-    correctedText: 'Preventive maintenance on bus MAN A95. The front door would not close. Inspection found the door control module was faulty. Replaced the door control module. Tested the door opening and closing normal. Completion status completed.',
-  }),
-  SBS_RAIL: Object.freeze({
-    dictation: 'Corrective maintenance on train set C seven five one A. Reported a door fault on car three. Inspection found the train door worn. Replaced the train door. Test passed. Returned to service.',
-    fixes: Object.freeze([
-      Object.freeze({ from: 'C seven five one A', to: 'C751A' }),
-    ]),
-    correctedText: 'Corrective maintenance on train set C751A. Reported a door fault on car three. Inspection found the train door worn. Replaced the train door. Test passed. Returned to service.',
-  }),
-});
-
-const V2_DEMO_SCOPE_IDS = Object.freeze(Object.keys(V2_DEMO_SCOPES));
-
-/** Caption pacing is aligned to a ~280 ms per-word speech estimate so the
- *  subtitle text neither races ahead of nor trails the voice by much. */
-const V2_DEMO_MS_PER_WORD = 280;
-const V2_DEMO_SENTENCE_GAP_MS = 400;
-const V2_DEMO_FIX_PAUSE_MS = 800;
-
-/** Demo-specific element map (kept separate; v2Ids / v2El are untouched). */
-const v2DemoEl = {
-  play: document.getElementById('v2-demo-play'),
-  status: document.getElementById('v2-demo-status'),
-  captions: document.getElementById('v2-demo-captions'),
-  fixes: document.getElementById('v2-demo-fixes'),
-  fixList: document.getElementById('v2-demo-fix-list'),
-};
-
-/** Runtime state of the demo player. */
-const v2Demo = {
-  playing: false,
-  stopped: false,
-  captionsOnly: false,
-  timer: null,
-  pauseTimer: null,
-  sleepResolve: null,
-  utterance: null,
-};
-
-function v2DemoIdleStatus() {
-  const info = V2_SCOPE_DEFAULTS[v2.scopeId];
-  return info && info.v2 ? 'v2.demo.ready' : 'v2.demo.sbsOnly';
-}
-
-/** Reflects scope availability on the play and walkthrough buttons (disabled for HVAC). */
-function v2UpdateDemoAvailability() {
-  const demoOnly = V2_DEMO_SCOPE_IDS.includes(v2.scopeId);
-  v2DemoEl.play.disabled = !demoOnly;
-  v2DemoEl.play.title = demoOnly ? '' : t('v2.demo.sbsOnly');
-  const wt = document.getElementById('v2-walkthrough-start');
-  if (wt) {
-    wt.disabled = !demoOnly;
-    wt.title = demoOnly ? '' : t('v2.demo.walkthroughOnly');
-  }
-}
-
-function v2DemoResetStatusIfIdle() {
-  if (!v2Demo.playing) v2SetStatus('v2-demo-status', v2DemoIdleStatus());
-}
-
-/** Cancels in-flight timers / TTS without touching UI state. */
-function v2DemoCancelPlayback() {
-  if (v2Demo.timer) { clearInterval(v2Demo.timer); v2Demo.timer = null; }
-  if (v2Demo.pauseTimer) { clearTimeout(v2Demo.pauseTimer); v2Demo.pauseTimer = null; }
-  if (v2Demo.sleepResolve) { v2Demo.sleepResolve(); v2Demo.sleepResolve = null; }
-  if (v2Demo.utterance) {
-    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
-    v2Demo.utterance = null;
-  }
-}
-
-/** Stops the demo and resets its UI. Called from v2SetScope on scope change. */
-function v2StopDemo() {
-  v2DemoCancelPlayback();
-  v2Demo.playing = false;
-  v2Demo.stopped = true;
-  v2DemoEl.status.classList.remove('v2-recording');
-  v2DemoEl.captions.replaceChildren();
-  v2DemoEl.fixes.hidden = true;
-  v2DemoEl.fixList.replaceChildren();
-  v2UpdateDemoAvailability();
-  v2DemoResetStatusIfIdle();
-}
-
-/** Re-enables the play button after the demo ends (keeps final status). */
-function v2DemoFinish() {
-  v2Demo.playing = false;
-  v2UpdateDemoAvailability();
-}
-
-/** Whether the browser has speechSynthesis with at least one voice. */
-async function v2ResolveSpeechAvailability() {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
-  const synth = window.speechSynthesis;
-  if (!synth) return false;
-  const hasVoices = () => {
-    try { return (synth.getVoices?.() || []).length > 0; } catch { return false; }
-  };
-  if (hasVoices()) return true;
-  await new Promise((resolve) => {
-    const timer = setTimeout(resolve, 400);
-    try {
-      synth.addEventListener('voiceschanged', () => { clearTimeout(timer); resolve(); }, { once: true });
-    } catch {
-      clearTimeout(timer);
-      resolve();
-    }
-  });
-  return hasVoices();
-}
-
-/** Picks an en-US (or any English) TTS voice, or null. */
-function v2PickEnVoice() {
+el['confirm-corrections'].addEventListener('click', async () => {
+  if (!activeSession) return;
+  const session = activeSession;
+  const requestToken = runtime.beginRequest(session.id, 'resolve-decisions');
+  const { technicianName, technicianId } = session.jobContext || {};
+  if (!technicianName || !technicianId) { el['correction-status'].textContent = 'Return to Capture and set the technician identity for this report.'; return; }
+  el['confirm-corrections'].disabled = true;
   try {
-    const voices = window.speechSynthesis?.getVoices?.() || [];
-    return voices.find((voice) => /en[-_]US/i.test(voice.lang || ''))
-      || voices.find((voice) => /^en/i.test(voice.lang || ''))
-      || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Splits dictation into sentences (keeps trailing punctuation). */
-function v2SplitSentences(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return [];
-  const matches = raw.match(/[^.!?]+(?:[.!?]+|$)/gu) || [];
-  return matches.map((sentence) => sentence.trim()).filter(Boolean);
-}
-
-/** Sleep helper that resolves immediately when the demo is stopped. */
-function v2DemoSleep(ms) {
-  return new Promise((resolve) => {
-    v2Demo.sleepResolve = resolve;
-    v2Demo.pauseTimer = setTimeout(() => {
-      v2Demo.sleepResolve = null;
-      resolve();
-    }, ms);
-  });
-}
-
-/** Speaks one sentence while its words appear one by one in the captions. */
-function v2SpeakSentence(sentence, index) {
-  return new Promise((resolve) => {
-    const words = sentence.split(/\s+/u).filter(Boolean);
-    const line = node('p', 'v2-demo-line');
-    v2DemoEl.captions.append(line);
-    const estimatedMs = Math.max(600, words.length * V2_DEMO_MS_PER_WORD);
-    const intervalMs = Math.max(90, Math.min(300, Math.round(estimatedMs / Math.max(1, words.length))));
-    let wordIndex = 0;
-    let settled = false;
-    let timer = null;
-    let timeout = null;
-
-    const cleanup = () => {
-      if (timer) { clearInterval(timer); timer = null; }
-      if (timeout) { clearTimeout(timeout); timeout = null; }
-      if (v2Demo.utterance) v2Demo.utterance = null;
-    };
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      if (!v2Demo.stopped) {
-        while (wordIndex < words.length) appendWord();
-      }
-      resolve();
-    };
-    const appendWord = () => {
-      if (v2Demo.stopped || wordIndex >= words.length) return;
-      const span = node('span', 'v2-demo-word');
-      span.textContent = words[wordIndex];
-      const previous = line.querySelector('.v2-demo-word.current');
-      if (previous) previous.classList.remove('current');
-      span.classList.add('current');
-      line.append(span, document.createTextNode(' '));
-      wordIndex += 1;
-      v2DemoEl.captions.scrollTop = v2DemoEl.captions.scrollHeight;
-    };
-    const startCaptionTicker = () => {
-      appendWord();
-      if (index === 0) {
-        v2DemoEl.status.classList.remove('v2-recording');
-        v2SetStatus('v2-demo-status', 'v2.demo.transcribing');
-      }
-      timer = setInterval(() => {
-        if (v2Demo.stopped) { clearInterval(timer); timer = null; return; }
-        appendWord();
-        if (wordIndex >= words.length) { clearInterval(timer); timer = null; }
-      }, intervalMs);
-    };
-
-    startCaptionTicker();
-    if (v2Demo.captionsOnly) {
-      timeout = setTimeout(settle, estimatedMs);
+    const recorded = collectCurrentResolveDecision();
+    if (!recorded) return;
+    if (session.scope === 'HVAC' && session.hvacMissingPhase) {
+      if (recorded.answer.decision === 'CONFIRM') session.manualFields[recorded.item.targetField || recorded.item.fieldId] = recorded.answer.value;
+      else delete session.manualFields[recorded.item.targetField || recorded.item.fieldId];
+    }
+    if (resolveProgress(session).current) {
+      renderGenericResolve(session.unresolvedItems);
       return;
     }
-    let utterance;
-    try {
-      utterance = new SpeechSynthesisUtterance(sentence);
-      utterance.lang = 'en-US';
-      utterance.rate = 0.95;
-      const voice = v2PickEnVoice();
-      if (voice) utterance.voice = voice;
-      utterance.onend = () => settle();
-      utterance.onerror = (event) => {
-        if (event.error === 'canceled' || event.error === 'interrupted') { settle(); return; }
-        v2Demo.captionsOnly = true;
-        v2SetStatus('v2-demo-status', 'v2.demo.voiceUnavailable');
-        try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
-        settle();
-      };
-      v2Demo.utterance = utterance;
-      window.speechSynthesis?.resume?.();
-      window.speechSynthesis.speak(utterance);
-      timeout = setTimeout(settle, estimatedMs + 5000);
-    } catch {
-      v2Demo.captionsOnly = true;
-      v2SetStatus('v2-demo-status', 'v2.demo.voiceUnavailable');
-      timeout = setTimeout(settle, estimatedMs);
+    if (session.scope === 'HVAC' && session.hvacMissingPhase) {
+      invalidateConfirmationIfMaterialChanged('Resolved report information changed; validation and confirmation are required again.');
+      session.hvacMissingPhase = false;
+      session.hvacMissingResolved = true;
+      addAudit('Missing information reviewed', `${session.resolveFlow.completed} explicit decisions`);
+      await generateHvacReport();
+    } else if (session.scope === 'HVAC') {
+      const decisions = (currentNormalization.data.correction_candidates || []).map((candidate) => {
+        const item = session.unresolvedItems.find((entry) => entry.candidate?.candidate_id === candidate.candidate_id);
+        const answer = item && session.resolveAnswers[item.id];
+        if (!answer) throw new Error('Choose a decision for every proposed correction.');
+        return correctionDecisionPayload({ candidateId: candidate.candidate_id, action: answer.decision, critical: item.type === 'CRITICAL_VALUE' && answer.criticalValueConfirmed === true });
+      });
+      const result = await api('/api/corrections/confirm', { transcript_artifact_id: currentTranscript.artifact_id, candidate_bundle_hash: currentNormalization.data.candidate_bundle_hash, decisions, technician_id: technicianId, technician_name: technicianName });
+      if (!runtime.accepts(requestToken)) return;
+      currentCorrectionReceipt = result.data.correction_receipt;
+      session.correctionReceipt = currentCorrectionReceipt;
+      session.corrections = decisions;
+      session.unresolvedItems = session.unresolvedItems.map((item) => {
+        const candidateId = item.candidate?.candidate_id;
+        const decision = decisions.find((entry) => entry.candidate_id === candidateId);
+        return decision ? { ...item, answer: { decision: decision.decision, criticalValueConfirmed: decision.critical_value_confirmed === true } } : item;
+      });
+      invalidateConfirmationIfMaterialChanged('Transcript decisions changed; validation and confirmation are required again.');
+      addAudit('Transcript decisions confirmed', `${decisions.length} decisions`);
+      await generateHvacReport();
+    } else {
+      addAudit('Resolve decisions recorded', `${session.resolveFlow.completed} decisions`);
+      await buildSbsReport();
     }
-  });
-}
-
-/** Reads every sentence sequentially with a short gap between them. */
-async function v2SpeakCaptions(sentences) {
-  for (let index = 0; index < sentences.length; index += 1) {
-    if (v2Demo.stopped) return;
-    await v2SpeakSentence(sentences[index], index);
-    if (v2Demo.stopped) return;
-    await v2DemoSleep(V2_DEMO_SENTENCE_GAP_MS);
-  }
-}
-
-/** Runs the full guided demo: recording → captions → fixes → facts → report. */
-async function v2PlayDemo() {
-  if (v2Demo.playing) return;
-  if (!V2_DEMO_SCOPE_IDS.includes(v2.scopeId)) return;
-  if (v2Wt.active) v2WtStop(); // the demo player and walkthrough are exclusive
-  if (!sessionToken) {
-    requireLogin('v2.demo.loginPrompt');
-    return;
-  }
-  const demo = V2_DEMO_SCOPES[v2.scopeId];
-  v2DemoCancelPlayback();
-  v2Demo.playing = true;
-  v2Demo.stopped = false;
-  v2DemoEl.play.disabled = true;
-  v2DemoEl.captions.replaceChildren();
-  v2DemoEl.fixes.hidden = true;
-  v2DemoEl.fixList.replaceChildren();
-  v2DemoEl.status.classList.remove('v2-recording');
-
-  v2Demo.captionsOnly = !(await v2ResolveSpeechAvailability());
-  if (v2Demo.stopped) return;
-  if (v2Demo.captionsOnly) {
-    v2SetStatus('v2-demo-status', 'v2.demo.voiceUnavailable');
-    v2DemoEl.captions.append(localizedNode('p', 'v2-demo-note', 'v2.demo.voiceUnavailable'));
-  }
-
-  v2DemoEl.status.classList.add('v2-recording');
-  v2SetStatus('v2-demo-status', 'v2.demo.recording');
-
-  const sentences = v2SplitSentences(demo.dictation);
-  await v2SpeakCaptions(sentences);
-  if (v2Demo.stopped) return;
-
-  v2DemoEl.status.classList.remove('v2-recording');
-  v2SetStatus('v2-demo-status', 'v2.demo.transcriptionComplete');
-
-  // Keep the dictated (mis-heard) text visible for the technician.
-  v2El['v2-facts-text'].value = demo.dictation;
-
-  // Show the terminology fixes applied to the mis-heard words.
-  v2DemoEl.fixList.replaceChildren(...demo.fixes.map((fix) => {
-    const row = node('div', 'v2-demo-fix-row');
-    row.append(
-      node('s', 'v2-demo-fix-from', `"${fix.from}"`),
-      node('span', 'v2-demo-fix-arrow', '→'),
-      node('b', 'v2-demo-fix-to', `"${fix.to}"`),
-    );
-    return row;
-  }));
-  v2DemoEl.fixes.hidden = false;
-  v2SetStatus('v2-demo-status', 'v2.demo.fixesApplied', { count: demo.fixes.length });
-  await v2DemoSleep(V2_DEMO_FIX_PAUSE_MS);
-  if (v2Demo.stopped) return;
-
-  // Extract facts from the corrected text (deterministic V2 extractor).
-  v2SetStatus('v2-demo-status', 'v2.demo.extracting');
-  let extracted;
-  try {
-    extracted = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: demo.correctedText });
-  } catch (error) {
-    if (v2Demo.stopped) return;
-    v2.facts = [];
-    v2SetStatus('v2-demo-status', 'v2.demo.extractionFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-    v2DemoFinish();
-    return;
-  }
-  if (v2Demo.stopped) return;
-  v2.facts = Array.isArray(extracted.data?.facts) ? extracted.data.facts : [];
-  v2.reportBlocked = false;
-  v2RenderFacts(v2.facts);
-  v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
-  v2El['v2-report-build'].disabled = v2.facts.length === 0;
-  v2SetStatus('v2-demo-status', 'v2.demo.factsExtracted', { count: v2.facts.length });
-  v2El['v2-facts-table-wrap'].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-  // Build the report from the corrected facts.
-  v2SetStatus('v2-demo-status', 'v2.demo.building');
-  let report;
-  try {
-    report = await api('/api/v2/reports/build', {
-      context_id: v2.contextId,
-      facts: v2.facts,
-      knowledge_hits: v2.knowledgeHits,
-    });
-  } catch (error) {
-    if (v2Demo.stopped) return;
-    v2SetStatus('v2-demo-status', 'v2.demo.buildFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });
-    v2DemoFinish();
-    return;
-  }
-  if (v2Demo.stopped) return;
-  v2RenderReport(report);
-  if (report.status === 'NEEDS_CONFIRMATION') {
-    const classes = (report.data?.gates?.violations || []).map((violation) => violation.class).join(', ') || 'UNKNOWN';
-    v2.reportBlocked = true;
-    v2El['v2-report-build'].disabled = true;
-    v2SetStatus('v2-demo-status', 'v2.demo.blocked', { classes });
-    v2DemoFinish();
-    return;
-  }
-  v2El['v2-report-output'].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  v2SetStatus('v2-demo-status', 'v2.demo.generated', { version: report.data?.report?.reportVersion || 'v2' });
-  await v2DemoSleep(600);
-  if (v2Demo.stopped) return;
-  v2SetStatus('v2-demo-status', 'v2.demo.complete');
-  v2DemoFinish();
-}
-
-v2DemoEl.play.addEventListener('click', () => { v2PlayDemo(); });
-v2UpdateDemoAvailability();
-
-// =====================================================================
-// V2 · Guided walkthrough (step-by-step, user-driven)
-// Walks a presenter through the real product flow one click at a time:
-// choose scope → upload a document → retrieve knowledge → enter the
-// statement → extract facts → build the report. Each step highlights
-// the control to operate; the guide auto-advances once the step's
-// effect is detected (or when the user clicks Next).
-// =====================================================================
-
-const v2WtEl = {
-  bar: document.getElementById('v2-walkthrough'),
-  progress: document.getElementById('v2-wt-progress'),
-  step: document.getElementById('v2-wt-step'),
-  title: document.getElementById('v2-wt-title'),
-  desc: document.getElementById('v2-wt-desc'),
-  skip: document.getElementById('v2-wt-skip'),
-  next: document.getElementById('v2-wt-next'),
-};
-
-const v2Wt = {
-  active: false,
-  index: 0,
-  poll: null,
-  highlight: null,
-  highlightedScope: null,
-  enteredAt: 0,
-};
-
-/** Sample document text per scope (what the walkthrough uploads). */
-function v2WtSampleDoc() {
-  if (v2.scopeId === 'SBS_RAIL') {
-    return 'SBS Rail — Door maintenance bulletin\n\nAffected rolling stock: Alstom Metropolis C751A / C851E.\nThe train door (tread plate door system) requires regular inspection.\nCommon fault: train door worn after heavy cycles; replace the train door and re-test.\nCompletion: test passed, return to service.\n';
-  }
-  return 'SBS Bus — Door control module service note\n\nAffected fleet: MAN A95 (also K9).\nThe front door is driven by the door control module (DCM).\nIf the front door would not close, inspect the door control module first.\nReplace the door control module when faulty, then test door opening and closing.\nCompletion status completed. Preventive maintenance every 12 months.\n';
-}
-
-/** Sample search query per scope. */
-function v2WtQuery() {
-  return v2.scopeId === 'SBS_RAIL' ? 'train door fault' : 'front door would not close';
-}
-
-/** Sample on-site statement per scope (same text the demo transcribes). */
-function v2WtStatement() {
-  const demo = V2_DEMO_SCOPES[v2.scopeId];
-  return demo ? demo.dictation : '';
-}
-
-/** Creates a File from the sample text and feeds it to the upload input. */
-function v2WtFeedSampleFile() {
-  const input = v2El['v2-upload-file'];
-  const name = v2.scopeId === 'SBS_RAIL' ? 'SBS-Rail-Door-Bulletin.txt' : 'SBS-Bus-Door-Service-Note.txt';
-  const file = new File([v2WtSampleDoc()], name, { type: 'text/plain' });
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  input.files = dt.files;
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-  if (!v2El['v2-uploader'].value.trim()) v2El['v2-uploader'].value = 'Demo Technician';
-}
-
-/** Highlights a target element and scrolls it into view. */
-function v2WtHighlight(id) {
-  v2WtClearHighlight();
-  if (!id) return;
-  const el = typeof id === 'string' ? document.getElementById(id) : id;
-  if (!el) return;
-  el.classList.add('v2-wt-target');
-  v2Wt.highlight = el;
-  v2Wt.highlightedScope = v2.scopeId;
-  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch { /* ignore */ }
-}
-
-function v2WtClearHighlight() {
-  if (v2Wt.highlight) v2Wt.highlight.classList.remove('v2-wt-target');
-  v2Wt.highlight = null;
-}
-
-/** Whether the walkthrough is allowed (SBS scopes only, like the demo). */
-function v2WtAllowed() {
-  return Boolean(V2_DEMO_SCOPES[v2.scopeId]);
-}
-
-/** Renders the current step into the guide bar. */
-function v2WtRender() {
-  const steps = v2WtSteps();
-  const step = steps[v2Wt.index];
-  if (!step) { v2WtStop(); return; }
-  v2WtEl.progress.replaceChildren(...steps.map((s, i) => {
-    const dot = node('span', 'v2-wt-dot' + (i === v2Wt.index ? ' current' : i < v2Wt.index ? ' done' : ''));
-    dot.textContent = String(i + 1);
-    return dot;
-  }));
-  setLocalizedText(v2WtEl.step, 'common.stepOf', { current: v2Wt.index + 1, total: steps.length });
-  v2WtEl.title.textContent = step.title;
-  v2WtEl.desc.textContent = step.desc;
-  v2WtEl.next.disabled = Boolean(step.waitForUser);
-  v2WtEl.skip.hidden = false;
-  v2WtEl.bar.hidden = false;
-  v2Wt.enteredAt = Date.now();
-}
-
-/** The ordered walkthrough steps. Text is localized and scope-aware. */
-function v2WtSteps() {
-  const rail = v2.scopeId === 'SBS_RAIL';
-  const domain = rail ? 'SBS / Rail' : 'SBS / Bus';
-  return [
-    {
-      id: 'scope',
-      title: t('walkthrough.scope.title'),
-      desc: t('walkthrough.scope.description', { domain }),
-      waitForUser: true,
-      enter() { v2WtHighlight('scope-selector-buttons'); },
-      done() { return v2.scopeId === 'SBS_BUS' || v2.scopeId === 'SBS_RAIL'; },
-    },
-    {
-      id: 'upload',
-      title: t('walkthrough.upload.title'),
-      desc: t('walkthrough.upload.description'),
-      waitForUser: true,
-      enter() {
-        v2WtFeedSampleFile();
-        v2WtHighlight('v2-upload-submit');
-      },
-      done() {
-        const progress = v2El['v2-upload-progress'];
-        return Boolean(progress && progress.querySelector('.v2-step-chip.ready'));
-      },
-    },
-    {
-      id: 'retrieve',
-      title: t('walkthrough.retrieval.title'),
-      desc: t('walkthrough.retrieval.description'),
-      waitForUser: true,
-      enter() {
-        v2El['v2-retrieve-query'].value = v2WtQuery();
-        v2WtHighlight('v2-retrieve-submit');
-      },
-      done() {
-        const results = v2El['v2-retrieve-results'];
-        return Boolean(results && results.querySelector('.result-card'));
-      },
-    },
-    {
-      id: 'statement',
-      title: t('walkthrough.statement.title'),
-      desc: t('walkthrough.statement.description'),
-      waitForUser: true,
-      enter() {
-        v2El['v2-facts-text'].value = v2WtStatement();
-        v2WtHighlight('v2-facts-extract');
-      },
-      done() {
-        return v2.facts.length > 0 && !v2El['v2-facts-table-wrap'].hidden;
-      },
-    },
-    {
-      id: 'facts',
-      title: t('walkthrough.facts.title'),
-      desc: t('walkthrough.facts.description', { count: v2.facts.length }),
-      waitForUser: false,
-      enter() {
-        v2WtClearHighlight();
-        v2El['v2-facts-table-wrap'].scrollIntoView({ behavior: 'smooth', block: 'center' });
-      },
-      done() { return true; },
-    },
-    {
-      id: 'report',
-      title: t('walkthrough.report.title'),
-      desc: t('walkthrough.report.description'),
-      waitForUser: true,
-      enter() { v2WtHighlight('v2-report-build'); },
-      done() { return !v2El['v2-report-output'].hidden; },
-    },
-    {
-      id: 'done',
-      title: t('walkthrough.done.title'),
-      desc: t('walkthrough.done.description'),
-      waitForUser: false,
-      enter() {
-        v2WtClearHighlight();
-        v2El['v2-report-output'].scrollIntoView({ behavior: 'smooth', block: 'center' });
-      },
-      done() { return true; },
-    },
-  ];
-}
-
-/** Advances the walkthrough to the next step (or finishes). */
-function v2WtNext() {
-  const steps = v2WtSteps();
-  if (v2Wt.index < steps.length - 1) {
-    v2Wt.index += 1;
-    v2WtRender();
-    steps[v2Wt.index].enter?.();
-  } else {
-    v2WtStop();
-  }
-}
-
-/** Starts (or restarts) the guided walkthrough. */
-function v2WtStart() {
-  if (!v2WtAllowed()) {
-    v2SetStatus('v2-demo-status', 'v2.demo.walkthroughOnly');
-    return;
-  }
-  v2StopDemo();
-  v2Wt.active = true;
-  v2Wt.index = 0;
-  v2WtRender();
-  v2WtSteps()[0].enter?.();
-  if (!v2Wt.poll) {
-    v2Wt.poll = setInterval(() => {
-      if (!v2Wt.active) return;
-      const steps = v2WtSteps();
-      const step = steps[v2Wt.index];
-      if (!step) { v2WtStop(); return; }
-      // Action steps: Next stays disabled until the user performs the
-      // action; the guide then auto-advances. Display steps: Next is
-      // always enabled and the user clicks it to continue. Steps that
-      // are already satisfied on entry (e.g. scope chosen before the
-      // walkthrough started) still dwell ~1.3s so they stay readable.
-      const dwelled = Date.now() - v2Wt.enteredAt > 1300;
-      if (step.waitForUser) {
-        if (dwelled && step.done()) v2WtNext();
-      }
-    }, 400);
-  }
-}
-
-/** Restarts the walkthrough from the first step (used on scope change). */
-function v2WtRestart() {
-  v2WtClearHighlight();
-  v2Wt.index = 0;
-  v2Wt.active = true;
-  v2WtRender();
-  v2WtSteps()[0].enter?.();
-}
-
-/** Stops the walkthrough and restores normal UI. */
-function v2WtStop() {
-  v2Wt.active = false;
-  v2Wt.index = 0;
-  v2WtClearHighlight();
-  v2WtEl.bar.hidden = true;
-  if (v2Wt.poll) { clearInterval(v2Wt.poll); v2Wt.poll = null; }
-  v2DemoResetStatusIfIdle();
-}
-
-document.getElementById('v2-walkthrough-start').addEventListener('click', () => {
-  if (v2Wt.active) { v2WtStop(); return; }
-  v2WtStart();
+  } catch (error) { if (runtime.accepts(requestToken)) el['correction-status'].textContent = error.message; }
+  finally { if (runtime.accepts(requestToken)) el['confirm-corrections'].disabled = false; }
 });
 
-v2WtEl.next.addEventListener('click', () => v2WtNext());
-v2WtEl.skip.addEventListener('click', () => v2WtStop());
-
-function refreshLocalizedUi() {
-  uiLanguage.value = i18n.getLocale();
-  i18n.translateDom(document);
-  translateRuntimeDom(document);
-  if (currentNormalization && currentInputValidation) renderEvidence(currentNormalization, currentInputValidation);
-  if (v2.facts.length) v2RenderFacts(v2.facts);
-  if (v2.reportResult) v2RenderReport(v2.reportResult);
-  v2UpdateScopeSelector();
-  if (V2_SCOPE_DEFAULTS[v2.scopeId]?.v2) {
-    v2SetScopeHints();
-    v2UpdateStatementPlaceholder();
+el['change-technician'].addEventListener('click', () => {
+  const expanded = el['review-identity-fields'].hidden;
+  el['review-identity-fields'].hidden = !expanded;
+  el['change-technician'].setAttribute('aria-expanded', String(expanded));
+  if (expanded) el['technician-name'].focus();
+});
+el['confirm-check'].addEventListener('change', () => {
+  el['confirm-report'].disabled = !el['confirm-check'].checked || !currentValidation?.data?.can_enter_technician_review || resolveAttentionCount(activeSession) > 0;
+});
+el['confirm-report'].addEventListener('click', async () => {
+  const sessionId = activeSession?.id;
+  el['confirm-report'].disabled = true;
+  try { await confirmCurrentReport(); }
+  catch (error) { if (activeSession?.id === sessionId) { el['confirmation-status'].textContent = `Confirmation failed: ${error.message}`; el['confirm-report'].disabled = false; } }
+});
+el['save-report'].addEventListener('click', () => {
+  const session = activeSession;
+  saveOrExport('save').catch((error) => { if (activeSession?.id === session?.id) { session.complete.summary = `Save failed: ${error.message}`; el['complete-summary'].textContent = session.complete.summary; } });
+});
+el['export-report'].addEventListener('click', () => {
+  const session = activeSession;
+  saveOrExport('export').catch((error) => { if (activeSession?.id === session?.id) { session.complete.summary = `Export failed: ${error.message}`; el['complete-summary'].textContent = session.complete.summary; } });
+});
+el['copy-export'].addEventListener('click', async () => {
+  const session = activeSession;
+  const text = el['export-output'].value;
+  try {
+    await navigator.clipboard.writeText(text);
+    if (activeSession?.id === session?.id) {
+      session.complete.summary = 'Exported text copied.';
+      el['complete-summary'].textContent = session.complete.summary;
+    }
+  } catch (error) {
+    if (activeSession?.id === session?.id) {
+      session.complete.summary = `Copy failed: ${error.message}. Select the exported text and copy it manually.`;
+      el['complete-summary'].textContent = session.complete.summary;
+      el['export-output'].hidden = false;
+      el['export-output'].focus();
+      el['export-output'].select();
+    }
   }
-  v2UpdateDemoAvailability();
-  v2DemoResetStatusIfIdle();
-  if (v2Wt.active) v2WtRender();
-}
+});
 
-i18n.subscribe(refreshLocalizedUi);
-uiLanguage.addEventListener('change', () => i18n.setLocale(uiLanguage.value));
+el['scope-selector-buttons'].addEventListener('click', (event) => {
+  const button = event.target.closest('[data-scope-id]');
+  if (!button) return;
+  setKnowledgeScope(button.dataset.scopeId);
+  if (v2Wt.active) v2WtRestart();
+});
+el['v2-retrieve-submit'].addEventListener('click', async () => {
+  const queryState = updateKnowledgeSearchState();
+  if (!queryState.valid) { el['v2-retrieve-status'].textContent = 'Enter a search term to search this scope.'; return; }
+  const scopeAtStart = knowledgeScope; const generation = ++knowledgeRequestGeneration; const query = queryState.query;
+  knowledgeSearchPending = true; updateKnowledgeSearchState(); el['v2-retrieve-status'].textContent = 'Searching within the selected scope…';
+  try {
+    const result = await api('/api/v2/retrieve', { context_id: scopeMeta[scopeAtStart].contextId, query, top_k: Number(el['v2-retrieve-topk'].value) || 5, include_uploads: true });
+    if (generation !== knowledgeRequestGeneration || scopeAtStart !== knowledgeScope) return;
+    const warnings = result.data?.warnings || [];
+    el['v2-retrieve-warnings'].replaceChildren(...warnings.map((warning) => node('p', 'warning-line', warning === 'CROSS_DOMAIN_BLOCKED' ? 'Cross-domain content was blocked.' : warning)));
+    renderKnowledgeResults(result.data.results || []); el['v2-retrieve-status'].textContent = `${result.data.results?.length || 0} results.`;
+  } catch (error) {
+    if (generation === knowledgeRequestGeneration && scopeAtStart === knowledgeScope) el['v2-retrieve-status'].textContent = `Search failed: ${error.message}`;
+  } finally {
+    if (generation === knowledgeRequestGeneration && scopeAtStart === knowledgeScope) {
+      knowledgeSearchPending = false;
+      updateKnowledgeSearchState();
+    }
+  }
+});
+
+const v2Wt = { active: false, index: 0, generation: 0, sessionId: null };
+const walkthroughStatement = examples.SBS_BUS;
+function v2WtSteps() {
+  const domain = knowledgeScope === 'SBS_RAIL' ? 'SBS / Rail' : 'SBS / Bus';
+  return [
+    [t('walkthrough.scope.title'), t('walkthrough.scope.description', { domain })],
+    [t('walkthrough.upload.title'), t('walkthrough.upload.description')],
+    [t('walkthrough.retrieval.title'), t('walkthrough.retrieval.description')],
+    [t('walkthrough.statement.title'), t('walkthrough.statement.description')],
+    [t('walkthrough.facts.title'), t('walkthrough.facts.description', { count: currentFacts.length })],
+    [t('walkthrough.report.title'), t('walkthrough.report.description')],
+    [t('walkthrough.done.title'), t('walkthrough.done.description')],
+  ];
+}
+function v2WtSampleDoc() { return knowledgeScope === 'SBS_RAIL' ? 'SBS-Rail-Door-Bulletin.txt' : 'SBS-Bus-Door-Service-Note.txt'; }
+function v2WtQuery() { return knowledgeScope === 'SBS_RAIL' ? 'C751A door inspection' : 'MAN A95 door module'; }
+function v2WtTarget(selector) {
+  document.querySelector('.walkthrough-target')?.classList.remove('walkthrough-target');
+  const target = document.querySelector(selector);
+  target?.classList.add('walkthrough-target');
+  target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+function v2WtRender() {
+  const steps = v2WtSteps();
+  const [title, description] = steps[v2Wt.index];
+  el['v2-wt-step'].textContent = `STEP ${v2Wt.index + 1} OF ${steps.length}`;
+  el['v2-wt-title'].textContent = title;
+  el['v2-wt-desc'].textContent = `${description}${v2Wt.index === 1 ? ` Example: ${v2WtSampleDoc()}` : ''}${v2Wt.index === 2 ? ` Example: ${v2WtQuery()}` : ''}`;
+  el['v2-wt-progress'].style.opacity = String(.35 + (v2Wt.index + 1) / steps.length * .65);
+  el['v2-wt-next'].textContent = v2Wt.index === steps.length - 1 ? 'Finish · keep demo data' : 'Next';
+  if (v2Wt.index === 0) {
+    navigate('new-report');
+    v2WtTarget(`[data-report-type="${knowledgeScope === 'SBS_RAIL' ? 'sbs_rail_maintenance' : 'sbs_bus_maintenance'}"]`);
+  }
+  if (v2Wt.index === 1) { navigate('capture'); v2WtTarget('#sbs-source-row'); }
+  if (v2Wt.index === 2) { navigate('knowledge'); setKnowledgeScope(activeSession?.scope === 'SBS_RAIL' ? 'SBS_RAIL' : 'SBS_BUS'); el['v2-retrieve-query'].value = v2WtQuery(); v2WtTarget('#v2-retrieve-submit'); }
+  if (v2Wt.index === 3) { navigate('capture'); el['manual-transcript'].value = activeSession?.scope === 'SBS_RAIL' ? examples.SBS_RAIL : walkthroughStatement; v2WtTarget('#manual-transcript'); }
+  if (v2Wt.index === 4) v2WtTarget('#correction-list');
+  if (v2Wt.index === 5) v2WtTarget('#report-section');
+  if (v2Wt.index === 6) v2WtTarget('#confirm-section');
+}
+function v2WtOwns(generation) { return v2Wt.active && generation === v2Wt.generation && (!v2Wt.sessionId || activeSession?.id === v2Wt.sessionId); }
+function v2WtStop(reason = '') {
+  v2Wt.active = false;
+  v2Wt.generation += 1;
+  el['v2-walkthrough'].hidden = true;
+  document.querySelector('.walkthrough-target')?.classList.remove('walkthrough-target');
+  if (reason) el['v2-demo-status'].textContent = `Walkthrough ${reason}. Any demo report or upload already created remains in this local demo workspace.`;
+}
+function v2WtRestart() {
+  if (!v2Wt.active) return;
+  v2Wt.generation += 1;
+  v2Wt.index = 0;
+  v2Wt.sessionId = null;
+  v2WtRender();
+}
+function v2WtStart() {
+  if (v2Wt.active) v2WtStop();
+  v2Wt.active = true;
+  v2Wt.index = 0;
+  v2Wt.sessionId = null;
+  v2Wt.generation += 1;
+  el['v2-wt-next'].disabled = false;
+  el['v2-demo-status'].textContent = 'Guided walkthrough started. Any generated demo data will be kept until this page reloads.';
+  el['v2-walkthrough'].hidden = false;
+  v2WtRender();
+}
+async function v2WtAdvance() {
+  const generation = v2Wt.generation;
+  el['v2-wt-next'].disabled = true;
+  try {
+    if (v2Wt.index === 0) {
+      createNewReport(knowledgeScope === 'SBS_RAIL' ? 'sbs_rail_maintenance' : 'sbs_bus_maintenance', { demo: true });
+      v2Wt.sessionId = activeSession.id;
+    }
+    if (v2Wt.index === 1) {
+      const sample = new File(['Synthetic walkthrough reference: inspect the door mechanism and record the actual on-site result.'], v2WtSampleDoc(), { type: 'text/plain' });
+      await uploadSbsDocument(sample);
+      if (!v2WtOwns(generation)) return;
+    }
+    if (v2Wt.index === 2) {
+      const session = activeSession;
+      const requestToken = runtime.beginRequest(session.id, 'walkthrough-retrieve');
+      const result = await api('/api/v2/retrieve', { context_id: scopeMeta[session.scope].contextId, query: v2WtQuery(), top_k: 5, include_uploads: true });
+      if (!v2WtOwns(generation) || !runtime.accepts(requestToken)) return;
+      session.knowledgeHits = (result.data.results || []).map((item) => item.text);
+      renderKnowledgeResults(result.data.results || []);
+    }
+    if (v2Wt.index === 3) {
+      const raw = el['manual-transcript'].value.trim();
+      runtime.setTransient(activeSession.id, { statement: raw });
+      const token = runtime.beginRequest(activeSession.id, 'walkthrough-statement');
+      await processSbsStatement(raw, token);
+      if (!v2WtOwns(generation)) return;
+    }
+    if (v2Wt.index === 4 && currentView === 'resolve') {
+      for (const item of activeSession.unresolvedItems) item.answer = { decision: 'NOT_PROVIDED', value: null };
+      addAudit('Walkthrough marked missing sections as pending', 'Synthetic guided walkthrough');
+      await buildSbsReport();
+      if (!v2WtOwns(generation)) return;
+    }
+    if (!v2WtOwns(generation)) return;
+    if (v2Wt.index >= v2WtSteps().length - 1) return v2WtStop('finished');
+    v2Wt.index += 1;
+    v2WtRender();
+  } catch (error) {
+    if (v2WtOwns(generation)) el['v2-wt-desc'].textContent = `The walkthrough could not continue: ${error.message}`;
+  } finally { if (generation === v2Wt.generation) el['v2-wt-next'].disabled = false; }
+}
+el['v2-walkthrough-start'].addEventListener('click', v2WtStart);
+el['v2-wt-skip'].addEventListener('click', () => v2WtStop('stopped'));
+el['v2-wt-next'].addEventListener('click', v2WtAdvance);
+el['v2-demo-play'].addEventListener('click', async () => {
+  if (v2Wt.active) v2WtStop();
+  const runGeneration = ++demoRunGeneration;
+  el['v2-demo-play'].disabled = true;
+  el['v2-demo-fixes'].hidden = true;
+  el['v2-demo-captions'].textContent = '';
+  try {
+    const session = createReportSession({ reportType: 'sbs_bus_maintenance' });
+    session.audit = []; session.status = 'CAPTURE'; session.demo = true;
+    activeDemoRun = { generation: runGeneration, sessionId: session.id };
+    sessions.set(session.id, session); activateSession(session); addAudit('Synthetic guided demo started', 'No real customer or asset data');
+    navigate('help');
+    el['v2-demo-status'].textContent = 'Simulating an on-site recording…';
+    const misheard = 'Preventive maintenance on bus MAN A ninety five. The front door would not close. Inspection found the door control modular was faulty.';
+    for (const word of misheard.split(' ')) {
+      await new Promise((resolve) => setTimeout(resolve, 24));
+      if (runGeneration !== demoRunGeneration || activeSession?.id !== session.id) return;
+      el['v2-demo-captions'].textContent += `${word} `;
+    }
+    el['v2-demo-fix-list'].replaceChildren(node('div', 'resolve-item', 'A ninety five → A95'), node('div', 'resolve-item', 'door control modular → door control module'));
+    el['v2-demo-fixes'].hidden = false;
+    el['v2-demo-status'].textContent = 'Applying synthetic terminology decisions, then running the real extraction and report builder…';
+    el['manual-transcript'].value = examples.SBS_BUS;
+    runtime.setTransient(session.id, { statement: examples.SBS_BUS });
+    const token = runtime.beginRequest(session.id, 'demo-statement');
+    await processSbsStatement(examples.SBS_BUS, token);
+    if (runGeneration !== demoRunGeneration || activeSession?.id !== session.id) return;
+    if (currentView === 'resolve') {
+      for (const item of activeSession.unresolvedItems) item.answer = { decision: 'NOT_PROVIDED', value: null };
+      addAudit('Demo explicitly marked missing sections pending', 'Synthetic demo decision');
+      await buildSbsReport();
+      if (runGeneration !== demoRunGeneration || activeSession?.id !== session.id) return;
+    }
+    el['v2-demo-status'].textContent = 'Demo report ready for review. No technician confirmation was applied.';
+    activeDemoRun = null;
+  } catch (error) {
+    if (runGeneration === demoRunGeneration && activeSession?.demo) el['v2-demo-status'].textContent = `Demo stopped: ${error.message}`;
+  } finally {
+    if (runGeneration === demoRunGeneration) {
+      activeDemoRun = null;
+      el['v2-demo-play'].disabled = false;
+    }
+  }
+});
+
+for (const button of el.journey.querySelectorAll('button')) button.addEventListener('click', () => {
+  if (button.disabled) return;
+  if (button.dataset.step === 'review') renderReview();
+  if (button.dataset.step === 'resolve') {
+    const pending = (activeSession.unresolvedItems || []).filter((item) => !item.answer || item.answer.decision === 'NOT_PROVIDED');
+    for (const item of pending) {
+      item.answer = null;
+      delete activeSession.resolveAnswers[item.id];
+    }
+    beginResolveFlow(activeSession, pending);
+    renderGenericResolve(pending);
+  }
+  navigate(button.dataset.step);
+});
+
+renderReports();
+setKnowledgeScope('SBS_BUS');
+initializeSession();

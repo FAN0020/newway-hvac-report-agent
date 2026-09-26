@@ -154,6 +154,18 @@ test('Bus report: section ids/order/required match BUS_REPORT_SECTIONS; content 
   assert.deepEqual(byId.get('provenance').content, ['Facts receipt: receipt-bus-1', 'Provenance · upload: upload:u1.']);
 });
 
+test('SBS follow-up prose keeps existing terminal punctuation instead of doubling it', () => {
+  const report = buildBusReportSections({
+    facts: [
+      { field: 'work_performed', value: 'Replaced the door actuator.', support_status: 'CONFIRMED_BY_TECHNICIAN', source: 'technician_follow_up' },
+      { field: 'inspection_findings', value: 'Door would not close。', support_status: 'CONFIRMED_BY_TECHNICIAN', source: 'technician_follow_up' },
+    ],
+  });
+  const byId = new Map(report.sections.map((section) => [section.id, section]));
+  assert.deepEqual(byId.get('work_performed').content, ['Work performed: Replaced the door actuator.']);
+  assert.deepEqual(byId.get('inspection_findings').content, ['Inspection findings: Door would not close。']);
+});
+
 test('Bus report: missing required section renders the V1 placeholder', () => {
   const facts = [
     { field: 'asset.registration_no', value: 'SG3050Z', support_status: 'DIRECT_TRANSCRIPT', source: 'transcript' },
@@ -260,6 +272,16 @@ test('checkHardGates: INCORRECT_SAFETY_RETURN_TO_SERVICE fires only without tech
   assert.ok(badEn.violations.some((v) => v.class === 'INCORRECT_SAFETY_RETURN_TO_SERVICE'));
   const ok = checkHardGates({ scopeId: 'SBS_BUS', facts: [{ field: 'safety.return_to_service', value: '已回役', support_status: 'CONFIRMED_BY_TECHNICIAN' }] });
   assert.ok(!ok.violations.some((v) => v.class === 'INCORRECT_SAFETY_RETURN_TO_SERVICE'));
+});
+
+test('checkHardGates: a negated return-to-service statement never triggers positive confirmation', () => {
+  for (const value of ['暂未恢复运行', '未回役', 'not returned to service', 'not back in service']) {
+    const result = checkHardGates({
+      scopeId: 'OILFIELD',
+      facts: [{ field: 'safety.assertion', value, support_status: 'DIRECT_TRANSCRIPT' }],
+    });
+    assert.ok(!result.violations.some((item) => item.class === 'INCORRECT_SAFETY_RETURN_TO_SERVICE'), value);
+  }
 });
 
 test('checkHardGates: INCORRECT_COMPLETION_STATE outside the shared enum', () => {

@@ -28,6 +28,7 @@ test('splitSentences splits mixed Chinese/English on terminators', () => {
 
 test('splitSentences keeps decimal points and untruncated sentences', () => {
   assert.deepEqual(splitSentences('胎纹深度 3.5 mm'), ['胎纹深度 3.5 mm']);
+  assert.deepEqual(splitSentences('Bus MAN A95. Door fault reported.'), ['Bus MAN A95', 'Door fault reported']);
   assert.deepEqual(splitSentences('更换了一个35 µF电容'), ['更换了一个35 µF电容']);
   assert.deepEqual(splitSentences(''), []);
   assert.deepEqual(splitSentences('   '), []);
@@ -200,6 +201,18 @@ test('未回役 → out_of_service, not completed', async () => {
     registry,
   });
   assert.equal(valueOf(facts, 'completion.state'), 'out_of_service');
+});
+
+test('latest explicit completion state wins over an earlier completed repair step', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'OILFIELD',
+    rawText: '已完成补土整改，复测通过。设备暂未恢复运行。',
+    registry,
+  });
+  const states = facts.filter((fact) => fact.field === 'completion.state');
+  assert.deepEqual(states.map((fact) => fact.value), ['out_of_service']);
+  assert.ok(facts.some((fact) => fact.field === 'work_performed'));
+  assert.ok(facts.some((fact) => fact.field === 'test.result'));
 });
 
 /* ------------------------------------------------------------------ *

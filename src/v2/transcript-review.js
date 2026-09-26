@@ -61,6 +61,16 @@ const BUS_RULES = Object.freeze([
 ]);
 
 const FUTURE_ACTION_RE = /\b(?:I|we|the\s+technician)\s+(?:will|plan(?:ned)?\s+to|intend(?:ed)?\s+to)\s+(replace|place|install|repair|renew|change)\b/giu;
+const RETURN_TO_SERVICE_RE = /恢复运行|恢复服务|回役|return(?:ed)?\s+to\s+service|back\s+in\s+service/iu;
+const NEGATED_RETURN_TO_SERVICE_RE = /(?:暂时?|尚)?未\s*(?:恢复运行|恢复服务|回役)|没有\s*(?:恢复运行|恢复服务|回役)|\b(?:did\s+not|never)\s+(?:return(?:ed)?\s+to\s+service|go\s+back\s+in\s+service)|\bnot\s+(?:been\s+)?(?:return(?:ed)?\s+to\s+service|back\s+in\s+service)/iu;
+
+function positiveReturnToServiceStatement(text) {
+  return String(text ?? '')
+    .split(/[。\n！？!?]+/u)
+    .map((sentence) => sentence.trim())
+    .find((sentence) => RETURN_TO_SERVICE_RE.test(sentence)
+      && !NEGATED_RETURN_TO_SERVICE_RE.test(sentence)) || '';
+}
 
 function correctionMatches(text, rules) {
   const suggestions = [];
@@ -136,12 +146,13 @@ export function reviewV2Transcript({ scopeId, rawText } = {}) {
     }));
   }
 
+  const returnToServiceStatement = positiveReturnToServiceStatement(text);
   if ((scopeId === 'OILFIELD' || scopeId === 'POWER_GRID')
-    && /恢复运行|恢复服务|回役|return(?:ed)?\s+to\s+service|back\s+in\s+service/iu.test(text)) {
+    && returnToServiceStatement) {
     confirmationQuestions.push(Object.freeze({
       question_id: 'industrial_return_to_service_confirmation',
       field: 'safety.assertion',
-      source_text: text.match(/[^。\n]*(?:恢复运行|恢复服务|回役|return(?:ed)?\s+to\s+service|back\s+in\s+service)[^。\n]*/iu)?.[0]?.trim() || '',
+      source_text: returnToServiceStatement,
       question: 'Please confirm that the asset was authorised to return to service after the stated safety checks.',
       reason: 'Return-to-service is safety-critical and requires explicit technician confirmation.',
       critical: true,
