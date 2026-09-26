@@ -1,0 +1,32 @@
+{
+  "schema_version": "audio-ground-truth.v1",
+  "case_id": "<copy stable case_id from synthetic-cases.v1.json>",
+  "source_case_set_version": "2026-09-26.batch1",
+  "source_manifest_sha256": "<sha256 of source manifest at annotation time>",
+  "synthetic": true,
+  "seed": {
+    "standard_text": "<copy from manifest; source intent, not independently reviewed truth>",
+    "expected_facts": [],
+    "relevant_retrieval_ids": []
+  },
+  "annotation": {
+    "audio_file_sha256": null,
+    "verbatim_transcript": null,
+    "normalized_transcript": null,
+    "technical_terms": [],
+    "numbers_units": [],
+    "equipment_ids": [],
+    "facts": [],
+    "negated_or_deferred_actions": [],
+    "missing_fields": [],
+    "relevant_retrieval_ids": [],
+    "report_points": [],
+    "uncertain_spans": [],
+    "reviewer_notes": null
+  },
+  "human_review_status": "unreviewed",
+  "reviewer_id": null,
+  "reviewed_at": null,
+  "frozen_gold": false,
+  "freeze": { "approved_by": null, "approved_at": null, "annotation_sha256": null }
+}

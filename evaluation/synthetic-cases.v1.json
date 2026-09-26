@@ -1,0 +1,144 @@
+{
+  "schema_version": "synthetic-audio-eval.v1",
+  "case_set_version": "2026-09-26.batch1",
+  "label": "SYNTHETIC",
+  "gold_status": "seed_only",
+  "description": "Fictional service utterances for local audio generation and later independent annotation. Asset IDs and readings are invented.",
+  "cases": [
+    {
+      "case_id": "HVAC-NORMAL-001", "scope": "HVAC", "scenario": "normal", "synthetic": true,
+      "standard_text": "At fictional unit AC 104, I found the drain line blocked. I cleared the drain line and ran a cooling test. Cooling was normal. The job is complete.",
+      "terms": ["drain line", "cooling test"], "numbers_units": [], "equipment_ids": ["AC 104"], "voice": "Samantha", "rate_wpm": 165, "noise_profile": "clean",
+      "expected_facts": ["drain line blocked", "drain line cleared", "cooling test normal", "job complete"],
+      "expected_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_drain_clearing", "knowledge:HVAC:hvac-terms.v1.json:term_cooling_test"],
+      "relevant_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_drain_clearing", "knowledge:HVAC:hvac-terms.v1.json:term_cooling_test"],
+      "missing_fields": ["work_order", "technician_review"], "report_points": ["Record observed blockage and completed clearing separately.", "Report the test result as stated."]
+    },
+    {
+      "case_id": "HVAC-TERM-002", "scope": "HVAC", "scenario": "confusable_term", "synthetic": true,
+      "standard_text": "Fictional unit AC 105 has a thirty five microfarad run capacitor. The reading was thirty two microfarads. I inspected the capacitor but did not replace it.",
+      "terms": ["run capacitor", "microfarad"], "numbers_units": ["35 µF", "32 µF"], "equipment_ids": ["AC 105"], "voice": "Daniel", "rate_wpm": 175, "noise_profile": "mild_bandlimit",
+      "expected_facts": ["capacitor rated 35 µF", "measured 32 µF", "capacitor inspected", "capacitor not replaced"],
+      "expected_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_capacitance_uf"],
+      "relevant_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_capacitance_uf"],
+      "missing_fields": ["test_results", "completion_status"], "report_points": ["Keep rating and measured value distinct.", "Do not claim replacement."]
+    },
+    {
+      "case_id": "HVAC-MISSING-003", "scope": "HVAC", "scenario": "negation_missing", "synthetic": true,
+      "standard_text": "Fictional unit AC 106 may have a refrigerant leak. I did not top up refrigerant. No leak test was completed and the unit remains out of service.",
+      "terms": ["refrigerant", "leak test"], "numbers_units": [], "equipment_ids": ["AC 106"], "voice": "Samantha", "rate_wpm": 160, "noise_profile": "telephone",
+      "expected_facts": ["leak suspected, not confirmed", "refrigerant not topped up", "leak test not completed", "unit out of service"],
+      "expected_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_refrigerant"],
+      "relevant_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_refrigerant", "knowledge:HVAC:hvac-terms.v1.json:term_leak_detection"],
+      "missing_fields": ["refrigerant_record.quantity", "test_results.leak_test_value", "work_order"], "report_points": ["Keep suspicion distinct from confirmed leak.", "Flag absent measurement and no completed test."]
+    },
+    {
+      "case_id": "SBS-BUS-NORMAL-001", "scope": "SBS_BUS", "scenario": "normal", "synthetic": true,
+      "standard_text": "On fictional bus SG 3050 Z, a MAN A95, I inspected the front door control module, replaced it, and tested the door opening and closing. Both cycles passed. The bus was returned to service.",
+      "terms": ["MAN A95", "door control module"], "numbers_units": ["2 door cycles"], "equipment_ids": ["SG3050Z"], "voice": "Daniel", "rate_wpm": 170, "noise_profile": "clean",
+      "expected_facts": ["MAN A95 bus", "front door control module inspected and replaced", "two door cycles passed", "returned to service"],
+      "expected_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_door_control_module"],
+      "relevant_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_door_control_module"],
+      "missing_fields": ["work_order", "part_number"], "report_points": ["Distinguish observed replacement from knowledge recommendations.", "Preserve bus identity and test result."]
+    },
+    {
+      "case_id": "SBS-BUS-TERM-002", "scope": "SBS_BUS", "scenario": "confusable_term", "synthetic": true,
+      "standard_text": "On fictional bus SG 3051 Z, model M A N A ninety five, the brake pressure was six point two bar before inspection and six point four bar after adjustment. I adjusted the brake, not the steering.",
+      "terms": ["MAN A95", "brake", "steering"], "numbers_units": ["6.2 bar", "6.4 bar"], "equipment_ids": ["SG3051Z"], "voice": "Samantha", "rate_wpm": 175, "noise_profile": "mild_bandlimit",
+      "expected_facts": ["model MAN A95", "brake pressure 6.2 bar before and 6.4 bar after", "brake adjusted", "steering not adjusted"],
+      "expected_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_pressure_bar_kpa"],
+      "relevant_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_pressure_bar_kpa", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_inspection_brake"],
+      "missing_fields": ["test_result", "completion_status"], "report_points": ["Preserve before and after pressure with bar units.", "Do not claim steering work."]
+    },
+    {
+      "case_id": "SBS-BUS-MISSING-003", "scope": "SBS_BUS", "scenario": "negation_missing", "synthetic": true,
+      "standard_text": "Fictional bus SG 3052 Z has an intermittent door control fault. I inspected the module but did not replace it. No door cycle test was done. Return to service is pending.",
+      "terms": ["door control module", "return to service"], "numbers_units": [], "equipment_ids": ["SG3052Z"], "voice": "Daniel", "rate_wpm": 165, "noise_profile": "telephone",
+      "expected_facts": ["intermittent door fault", "module inspected, not replaced", "door cycle test not done", "return to service pending"],
+      "expected_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_door_control_module"],
+      "relevant_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_door_control_module", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_negation_not_replaced"],
+      "missing_fields": ["part_number", "door_cycle_test_result", "completion_approval"], "report_points": ["No invented replacement or passed test.", "State pending return, not completed handback."]
+    },
+    {
+      "case_id": "SBS-RAIL-NORMAL-001", "scope": "SBS_RAIL", "scenario": "normal", "synthetic": true,
+      "standard_text": "On fictional C seven five one A train set seven zero zero one slash seven zero zero two, I inspected car three door roller, replaced the worn roller, and completed two door cycles successfully. The train returned to service.",
+      "terms": ["C751A", "door roller"], "numbers_units": ["2 door cycles"], "equipment_ids": ["C751A 7001/7002", "car 3"], "voice": "Samantha", "rate_wpm": 165, "noise_profile": "clean",
+      "expected_facts": ["C751A train set 7001/7002, car 3", "worn door roller inspected and replaced", "two door cycles passed", "returned to service"],
+      "expected_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751a", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_subsys_door"],
+      "relevant_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751a", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_subsys_door"],
+      "missing_fields": ["access_approval", "part_number"], "report_points": ["Keep train set and car identity.", "Do not infer track access approval."]
+    },
+    {
+      "case_id": "SBS-RAIL-TERM-002", "scope": "SBS_RAIL", "scenario": "confusable_term", "synthetic": true,
+      "standard_text": "On fictional North East Line set C seven five one C eight zero zero one, I inspected the collector shoe, not the pantograph. Wear was three millimetres. No replacement was made.",
+      "terms": ["C751C", "collector shoe", "pantograph"], "numbers_units": ["3 mm"], "equipment_ids": ["C751C 8001"], "voice": "Daniel", "rate_wpm": 175, "noise_profile": "mild_bandlimit",
+      "expected_facts": ["C751C 8001 on North East Line", "collector shoe inspected", "3 mm wear", "pantograph not inspected", "no replacement"],
+      "expected_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751c", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_subsys_collector_shoe"],
+      "relevant_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751c", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_subsys_collector_shoe", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_line_nel"],
+      "missing_fields": ["wear_limit", "completion_status"], "report_points": ["Keep collector shoe distinct from pantograph.", "Do not judge pass or fail without a stated limit."]
+    },
+    {
+      "case_id": "SBS-RAIL-MISSING-003", "scope": "SBS_RAIL", "scenario": "negation_missing", "synthetic": true,
+      "standard_text": "Fictional train set C nine five one nine zero zero one has a door fault. I did not replace the door motor. Testing was deferred and the train was not returned to service.",
+      "terms": ["C951", "door motor"], "numbers_units": [], "equipment_ids": ["C951 9001"], "voice": "Samantha", "rate_wpm": 160, "noise_profile": "telephone",
+      "expected_facts": ["C951 9001 door fault", "door motor not replaced", "testing deferred", "not returned to service"],
+      "expected_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c951", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_negation_not_returned"],
+      "relevant_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c951", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_negation_not_returned"],
+      "missing_fields": ["fault_code", "test_result", "access_approval"], "report_points": ["No invented replacement or passed test.", "State out of service."]
+    },
+    {
+      "case_id": "OILFIELD-NORMAL-001", "scope": "OILFIELD", "scenario": "normal", "synthetic": true,
+      "standard_text": "At fictional crude oil pipeline section P twelve, I inspected the buried pipeline coating over forty metres. No coating damage was observed. The inspection is complete.",
+      "terms": ["crude oil pipeline", "buried pipeline", "coating"], "numbers_units": ["40 m"], "equipment_ids": ["P-12"], "voice": "Daniel", "rate_wpm": 165, "noise_profile": "clean",
+      "expected_facts": ["section P-12", "40 m coating inspected", "no coating damage observed", "inspection complete"],
+      "expected_retrieval_ids": ["knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_asset_crude_oil_pipeline", "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_inspection_pipeline_laying"],
+      "relevant_retrieval_ids": ["knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_asset_crude_oil_pipeline", "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_inspection_pipeline_laying"],
+      "missing_fields": ["inspection_date", "inspector", "standard_clause"], "report_points": ["Record inspected distance and observation.", "Do not assert compliance without stated criterion."]
+    },
+    {
+      "case_id": "OILFIELD-TERM-002", "scope": "OILFIELD", "scenario": "confusable_term", "synthetic": true,
+      "standard_text": "At fictional pipeline section P thirteen, closed transport pressure was one point five megapascal. I checked the closed transport process, not the route selection. A valve seep was observed.",
+      "terms": ["closed transport process", "route selection", "valve seep"], "numbers_units": ["1.5 MPa"], "equipment_ids": ["P-13"], "voice": "Samantha", "rate_wpm": 175, "noise_profile": "mild_bandlimit",
+      "expected_facts": ["section P-13", "closed transport pressure 1.5 MPa", "closed transport process checked", "route selection not checked", "valve seep observed"],
+      "expected_retrieval_ids": ["knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_process_closed_transport"],
+      "relevant_retrieval_ids": ["knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_process_closed_transport", "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_asset_pipeline_section"],
+      "missing_fields": ["valve_id", "seep_rate", "disposition"], "report_points": ["Preserve MPa and observed seep.", "Do not claim route selection was inspected."]
+    },
+    {
+      "case_id": "OILFIELD-MISSING-003", "scope": "OILFIELD", "scenario": "negation_missing", "synthetic": true,
+      "standard_text": "At fictional pipeline section P fourteen, H S E documents were not available. I did not complete the contractor management check. No compliance decision was made.",
+      "terms": ["HSE management", "contractor management"], "numbers_units": [], "equipment_ids": ["P-14"], "voice": "Daniel", "rate_wpm": 160, "noise_profile": "telephone",
+      "expected_facts": ["HSE documents unavailable", "contractor management check not completed", "no compliance decision"],
+      "expected_retrieval_ids": ["knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_hse_management", "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_contractor_management"],
+      "relevant_retrieval_ids": ["knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_hse_management", "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_contractor_management"],
+      "missing_fields": ["document_reference", "contractor_name", "compliance_result"], "report_points": ["Mark missing evidence.", "Do not turn an unfinished check into compliant or noncompliant."]
+    },
+    {
+      "case_id": "POWER-GRID-NORMAL-001", "scope": "POWER_GRID", "scenario": "normal", "synthetic": true,
+      "standard_text": "For fictional main transformer T two, I sampled insulating oil. Breakdown voltage was sixty two kilovolts and ambient temperature was twenty six degrees Celsius. The sample test is complete.",
+      "terms": ["main transformer", "insulating oil", "breakdown voltage"], "numbers_units": ["62 kV", "26 °C"], "equipment_ids": ["T-2"], "voice": "Samantha", "rate_wpm": 165, "noise_profile": "clean",
+      "expected_facts": ["main transformer T-2", "insulating oil sampled", "breakdown voltage 62 kV", "ambient temperature 26 °C", "sample test complete"],
+      "expected_retrieval_ids": ["knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_main_transformer", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_test_breakdown_voltage"],
+      "relevant_retrieval_ids": ["knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_main_transformer", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_test_breakdown_voltage", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_insulating_oil"],
+      "missing_fields": ["sample_id", "test_standard", "pass_fail_criterion"], "report_points": ["Record measurement with unit and environment.", "Do not infer pass or fail without criterion."]
+    },
+    {
+      "case_id": "POWER-GRID-TERM-002", "scope": "POWER_GRID", "scenario": "confusable_term", "synthetic": true,
+      "standard_text": "At fictional E V charging station C seven, I checked D C charger number four, not A C charging pile number four. The insulation resistance was two point five megaohms. No repair was performed.",
+      "terms": ["DC charger", "AC charging pile", "insulation resistance"], "numbers_units": ["2.5 MΩ"], "equipment_ids": ["C-7", "charger 4"], "voice": "Daniel", "rate_wpm": 175, "noise_profile": "mild_bandlimit",
+      "expected_facts": ["station C-7, DC charger 4 checked", "AC charging pile 4 not checked", "insulation resistance 2.5 MΩ", "no repair"],
+      "expected_retrieval_ids": ["knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_offboard_charger", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_charging_station"],
+      "relevant_retrieval_ids": ["knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_offboard_charger", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_charging_station"],
+      "missing_fields": ["test_standard", "pass_fail_criterion", "instrument_id"], "report_points": ["Keep DC charger distinct from AC charging pile.", "Do not claim repair or compliance."]
+    },
+    {
+      "case_id": "POWER-GRID-MISSING-003", "scope": "POWER_GRID", "scenario": "negation_missing", "synthetic": true,
+      "standard_text": "For fictional main transformer T three, no insulating oil sample was taken. The dielectric loss factor was not measured. The test is deferred and the transformer return decision is pending.",
+      "terms": ["insulating oil", "dielectric loss factor"], "numbers_units": [], "equipment_ids": ["T-3"], "voice": "Samantha", "rate_wpm": 160, "noise_profile": "telephone",
+      "expected_facts": ["main transformer T-3", "no oil sample taken", "dielectric loss factor not measured", "test deferred", "return decision pending"],
+      "expected_retrieval_ids": ["knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_test_dielectric_loss", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_insulating_oil"],
+      "relevant_retrieval_ids": ["knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_test_dielectric_loss", "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_insulating_oil"],
+      "missing_fields": ["sample_id", "dielectric_loss_value", "return_authorization"], "report_points": ["No invented measurement or sampled status.", "Keep disposition pending."]
+    }
+  ]
+}
