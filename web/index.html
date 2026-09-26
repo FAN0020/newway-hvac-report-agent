@@ -54,7 +54,7 @@
       </section>
 
       <section id="template-workspace" class="template-view" hidden aria-labelledby="workspace-title">
-        <div class="workspace-binding"><button class="back-link" data-template-nav="choose">← Templates</button><div><p class="eyebrow" id="workspace-company">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-description"></p></div><div class="workspace-status" aria-live="polite"><strong id="report-required-count">0 / 0 required</strong><span id="report-state">Needs information</span><span class="workspace-progress" aria-hidden="true"><i id="readiness-meter-fill"></i></span></div></div>
+        <div class="workspace-binding"><button class="back-link" data-template-nav="choose">← Choose report</button><div><p class="eyebrow" id="workspace-company">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-description"></p></div><div class="workspace-status" aria-live="polite"><strong id="report-required-count">0 / 0 required</strong><span id="report-state">Needs information</span><span class="workspace-progress" aria-hidden="true"><i id="readiness-meter-fill"></i></span></div></div>
         <div class="template-workspace-main">
           <section class="report-composer" aria-labelledby="composer-title">
             <h3 id="composer-title">Tell us what happened</h3>
@@ -64,6 +64,7 @@
             </div>
             <div class="composer-footer"><span id="workspace-recording-time" class="recording-time" hidden>Recording 0:00</span><div class="workspace-input-actions"><button id="workspace-analyze" class="text-button" type="button">Update report</button><label class="file-button text-button">Upload recording<input id="workspace-audio-upload" type="file" accept="audio/wav,.wav"></label><label class="file-button text-button">Add supporting document<input id="workspace-text-upload" type="file" accept=".txt,.md,.csv,text/plain"></label><button id="workspace-retry" class="text-button" type="button" hidden>Try again</button></div></div>
             <p id="workspace-input-status" class="live-status" role="status" aria-live="polite"></p>
+            <div id="workspace-corrections" class="workspace-corrections" hidden aria-live="polite"></div>
           </section>
           <form id="workspace-fields" class="workspace-fields"></form>
           <section class="report-confirmation">

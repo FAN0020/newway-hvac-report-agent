@@ -36,9 +36,16 @@ export function groupTemplateFields(fields = []) {
 }
 
 export function reportStatusSummary(completeness = {}, confirmed = false) {
-  const required = completeness.requiredFields?.length || 0;
-  const missing = completeness.missingFields?.length || 0;
-  const resolved = Math.max(0, required - missing);
+  const requiredFields = completeness.requiredFields || [];
+  const required = requiredFields.length;
+  const missingFields = completeness.missingFields || [];
+  const missing = missingFields.length;
+  const blockedRequired = new Set([
+    ...missingFields,
+    ...(completeness.conflicts || []),
+    ...(completeness.needsConfirmation || []),
+  ].filter((fieldId) => requiredFields.includes(fieldId)));
+  const resolved = Math.max(0, required - blockedRequired.size);
   let state = 'NEEDS_INFORMATION';
   let stateLabel = 'Needs information';
   if (confirmed) {
@@ -52,6 +59,11 @@ export function reportStatusSummary(completeness = {}, confirmed = false) {
     stateLabel = 'Ready';
   }
   return { resolved, required, countLabel: `${resolved} / ${required} required`, state, stateLabel };
+}
+
+export function controlValueForField(field = {}, value) {
+  if (field.type === 'status' && (value === null || value === undefined || value === '')) return 'NOT_CHECKED';
+  return value ?? '';
 }
 
 export function fieldStatusPresentation(fieldState, field = {}) {

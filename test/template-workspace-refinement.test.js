@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
 
-import { groupTemplateFields, reportStatusSummary } from '../web/template-workspace.js';
+import { controlValueForField, groupTemplateFields, reportStatusSummary } from '../web/template-workspace.js';
 
 test('visible product shell uses generic Field Report branding and focused navigation', async () => {
   const html = await fs.readFile('web/index.html', 'utf8');
@@ -17,6 +17,13 @@ test('visible product shell uses generic Field Report branding and focused navig
   assert.match(visibleShell, />\s*Templates\s*<\/button>/);
   assert.doesNotMatch(visibleShell, /data-template-nav="setup"[^>]*>[^<]*<span[^>]*>.*Template setup/is);
   assert.doesNotMatch(visibleShell, /Local workspace|version-bound/i);
+});
+
+test('organization context uses the catalog spelling without replacing the generic product brand', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+
+  assert.match(client, /template\.domain === 'HVAC' \? 'NEWWAY'/);
+  assert.doesNotMatch(client, /template\.domain === 'HVAC' \? 'NEWAY'/);
 });
 
 test('new report chooser is concise, filterable, and keeps implementation metadata out of technician cards', async () => {
@@ -65,6 +72,7 @@ test('report workspace makes the composer, microphone, and inline report status 
   assert.match(client, /await processWorkspaceAudio\(wav/);
   assert.match(client, /await analyzeStatement\(\{ preserveStatement: false \}\)/);
   assert.match(client, /\/api\/transcripts\/manual/);
+  assert.match(client, /value === 'NOT_CHECKED' \? 'Not checked'/);
 });
 
 test('shared field renderer groups checklist rows without template-specific branches', () => {
@@ -91,9 +99,62 @@ test('compact report status distinguishes missing, confirmation, ready, and conf
   assert.deepEqual(reportStatusSummary({ requiredFields: ['a', 'b'], missingFields: ['b'], conflicts: [], needsConfirmation: [], complete: false }), {
     resolved: 1, required: 2, countLabel: '1 / 2 required', state: 'NEEDS_INFORMATION', stateLabel: 'Needs information',
   });
-  assert.equal(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: ['a'], needsConfirmation: [], complete: false }).stateLabel, 'Needs confirmation');
+  assert.deepEqual(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: ['a'], needsConfirmation: [], complete: false }), {
+    resolved: 0, required: 1, countLabel: '0 / 1 required', state: 'NEEDS_CONFIRMATION', stateLabel: 'Needs confirmation',
+  });
+  assert.equal(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: [], needsConfirmation: ['a'], complete: false }).resolved, 0);
   assert.equal(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: [], needsConfirmation: [], complete: true }).stateLabel, 'Ready');
   assert.equal(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: [], needsConfirmation: [], complete: true }, true).stateLabel, 'Confirmed');
+});
+
+test('missing status controls show a truthful needs-information value without creating a positive result', () => {
+  assert.equal(controlValueForField({ type: 'status' }, null), 'NOT_CHECKED');
+  assert.equal(controlValueForField({ type: 'status' }, ''), 'NOT_CHECKED');
+  assert.equal(controlValueForField({ type: 'status' }, 'OK'), 'OK');
+  assert.equal(controlValueForField({ type: 'text' }, null), '');
+});
+
+test('HVAC composer uses the existing correction receipt and extraction pipeline with explicit inline decisions', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/template-app.js', 'utf8'),
+  ]);
+  const workspace = html.slice(html.indexOf('id="template-workspace"'), html.indexOf('id="template-manager"'));
+
+  assert.match(workspace, /id="workspace-corrections"[^>]*hidden/);
+  assert.match(client, /api\('\/api\/normalizations'/);
+  assert.match(client, /api\('\/api\/corrections\/confirm'/);
+  assert.match(client, /api\('\/api\/facts\/extract'/);
+  assert.match(client, /critical_value_confirmed:\s*true/);
+  assert.match(client, /Use correction/);
+  assert.match(client, /Keep original/);
+  assert.match(client, /applyTranscriptArtifact\(state\.session, transcriptResult\.transcript\)/);
+  assert.doesNotMatch(client, /correction_candidates\.map\([^)]*decision:\s*'ACCEPT'/s);
+});
+
+test('critical and conflicting field values expose an inline technician decision', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/template-app.js', 'utf8'),
+  ]);
+  const workspace = html.slice(html.indexOf('id="template-workspace"'), html.indexOf('id="template-manager"'));
+
+  assert.match(workspace, /Tell us what happened/);
+  assert.match(client, /schema-field-action/);
+  assert.match(client, /Confirm value/);
+  assert.match(client, /Use shown value/);
+  assert.match(client, /setTechnicianFact\(field, control\.value\)/);
+});
+
+test('a pending transcript decision blocks confirmation and clears stale extracted values', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  const readiness = client.slice(client.indexOf('function renderReadiness()'), client.indexOf('function openWorkspace'));
+  const analysis = client.slice(client.indexOf('async function analyzeStatement'), client.indexOf('async function processWorkspaceAudio'));
+
+  assert.match(readiness, /pendingCorrectionReview\s*=\s*Boolean\(state\.hvacCorrectionReview\)/);
+  assert.match(readiness, /Needs confirmation/);
+  assert.match(readiness, /\|\|\s*pendingCorrectionReview\s*\|\|/);
+  assert.match(analysis, /clearExtractedFacts\(\)/);
 });
 
 test('report-oriented CSS uses dense desktop columns and intentional mobile collapse', async () => {

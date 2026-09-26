@@ -486,6 +486,17 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .workspace-input-actions .file-button:has(input:disabled) { cursor: default; opacity: .45; }
 .recording-time { color: #9f3c31; font-size: .73rem; font-weight: 780; font-variant-numeric: tabular-nums; }
 .report-composer .live-status { min-height: 17px; margin: 0; font-size: .72rem; }
+.workspace-corrections { display: grid; gap: 8px; margin-top: 9px; padding: 10px 12px; border-left: 2px solid var(--orange); background: #fffaf2; }
+.workspace-corrections[hidden] { display: none; }
+.workspace-correction-intro, .workspace-correction-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.workspace-correction-intro { color: var(--ink); font-size: .72rem; }
+.workspace-correction-intro span { color: var(--muted); }
+.workspace-correction-row { padding-top: 8px; border-top: 1px solid #eadfd1; }
+.workspace-correction-copy { display: grid; gap: 2px; min-width: 0; }
+.workspace-correction-copy strong { font-size: .73rem; }
+.workspace-correction-copy small { color: var(--muted); font-size: .65rem; }
+.workspace-correction-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.workspace-correction-actions button { min-height: 30px; padding: 5px 9px; font-size: .67rem; }
 
 .workspace-fields { gap: 0; }
 .field-section { overflow: visible; border: 0; border-radius: 0; }
@@ -501,6 +512,7 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .schema-field textarea { resize: vertical; }
 .schema-field-help { color: var(--muted); font-size: .61rem; }
 .schema-field-help:empty { display: none; }
+.schema-field-action { width: fit-content; min-height: 28px; padding: 3px 0; color: var(--green-2); font-size: .66rem; }
 .schema-field.missing { background: #fffaf0; }
 .schema-field.missing .schema-field-status, .schema-field.confirmation .schema-field-status { color: #9a641f; }
 .schema-field.conflict { background: var(--red-soft); }
@@ -547,6 +559,8 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
   .template-workspace-main { padding: 13px 12px 16px; }
   .workspace-composer textarea { min-height: 96px; }
   .composer-footer { align-items: flex-start; flex-direction: column; }
+  .workspace-correction-row { align-items: stretch; flex-direction: column; }
+  .workspace-correction-actions { justify-content: flex-start; }
   .field-grid.compact { grid-template-columns: 1fr; }
   .field-grid.compact .schema-field, .field-grid.compact .schema-field:nth-child(2n), .field-grid.compact .schema-field:nth-child(4n) { border-right: 0; }
   .checklist-head { display: none; }

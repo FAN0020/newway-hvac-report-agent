@@ -1,4 +1,5 @@
 import {
+  applyTranscriptArtifact,
   bindSessionConfirmation,
   createReportSession,
   evaluateCompleteness,
@@ -7,7 +8,7 @@ import {
   registerRuntimeTemplate,
 } from './report-runtime.js';
 import { PcmWavRecorder } from './audio-recorder.js';
-import { fieldStatusPresentation, groupTemplateFields, reportStatusSummary } from './template-workspace.js';
+import { controlValueForField, fieldStatusPresentation, groupTemplateFields, reportStatusSummary } from './template-workspace.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
 
 const $ = (id) => document.getElementById(id);
@@ -16,6 +17,7 @@ const state = {
   catalogCategory: 'All', templatesLoading: true, templatesError: null, recentTemplateIds: [],
   analysisRevision: 0,
   statementArtifact: null, lastPreservedText: '', retryAudioBlob: null,
+  hvacCorrectionReview: null,
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
 };
 const mobileNavigation = window.matchMedia('(max-width: 760px)');
@@ -58,6 +60,7 @@ function element(tag, className, text) {
 
 function setWorkspaceControlsDisabled(disabled) {
   document.querySelectorAll('#workspace-fields input, #workspace-fields textarea, #workspace-fields select').forEach((control) => { control.disabled = disabled; });
+  document.querySelectorAll('#workspace-fields button, #workspace-corrections button').forEach((control) => { control.disabled = disabled; });
   for (const id of ['workspace-statement', 'workspace-microphone', 'workspace-analyze', 'workspace-audio-upload', 'workspace-text-upload', 'workspace-retry', 'workspace-confirm-check']) $(id).disabled = disabled;
 }
 
@@ -94,7 +97,7 @@ function setView(name) {
   document.querySelectorAll('[data-template-nav]').forEach((button) => button.classList.toggle('active', button.dataset.templateNav === name));
   const headings = {
     reports: ['TECHNICIAN', 'Reports'],
-    choose: ['', 'New report'], workspace: ['FIELD REPORT', 'Report workspace'],
+    choose: ['', 'New report'], workspace: ['', 'Field Report'],
     templates: ['MANAGER', 'Templates'], setup: ['MANAGER', 'Template setup'],
   };
   $('template-eyebrow').textContent = headings[name][0];
@@ -231,8 +234,8 @@ function updateFromFacts() {
     const control = document.querySelector(`[data-schema-field="${CSS.escape(field.id)}"]`);
     if (!control || document.activeElement === control) continue;
     const value = fieldValue(field.id);
-    if (field.type === 'structured') control.value = value && typeof value === 'object' ? JSON.stringify(value) : value;
-    else control.value = value;
+    if (field.type === 'structured') control.value = value && typeof value === 'object' ? JSON.stringify(value) : controlValueForField(field, value);
+    else control.value = controlValueForField(field, value);
   }
   renderReadiness();
 }
@@ -268,7 +271,7 @@ function renderSchemaField(field, { labelText = field.label, role = '' } = {}) {
   if (field.type === 'status' || allowed) {
     control = element('select');
     for (const value of allowed || ['NOT_CHECKED', 'OK', 'NOT_OK', 'N/A']) {
-      const option = element('option', '', value === 'NOT_CHECKED' ? 'Needs information' : value.replaceAll('_', ' '));
+      const option = element('option', '', value === 'NOT_CHECKED' ? 'Not checked' : value.replaceAll('_', ' '));
       option.value = value;
       control.append(option);
     }
@@ -284,7 +287,10 @@ function renderSchemaField(field, { labelText = field.label, role = '' } = {}) {
   control.addEventListener('change', () => setTechnicianFact(field, control.value));
   const help = element('small', 'schema-field-help');
   help.dataset.fieldHelp = field.id;
-  wrapper.append(label, control, help);
+  const action = element('button', 'schema-field-action text-button');
+  action.type = 'button'; action.hidden = true; action.dataset.fieldAction = field.id;
+  action.addEventListener('click', () => setTechnicianFact(field, control.value));
+  wrapper.append(label, control, help, action);
   return wrapper;
 }
 
@@ -346,12 +352,13 @@ function renderReadiness() {
   state.session.completeness = completeness;
   const confirmed = Boolean(state.session.confirmation);
   const busy = workspaceBusy.size > 0;
+  const pendingCorrectionReview = Boolean(state.hvacCorrectionReview);
   const summary = reportStatusSummary(completeness, confirmed);
   const percent = summary.required ? Math.round((summary.resolved / summary.required) * 100) : 100;
   $('readiness-meter-fill').style.width = `${percent}%`;
   $('report-required-count').textContent = summary.countLabel;
-  $('report-state').textContent = busy && !confirmed ? 'Processing' : summary.stateLabel;
-  $('report-state').dataset.state = busy && !confirmed ? 'PROCESSING' : summary.state;
+  $('report-state').textContent = busy && !confirmed ? 'Processing' : pendingCorrectionReview && !confirmed ? 'Needs confirmation' : summary.stateLabel;
+  $('report-state').dataset.state = busy && !confirmed ? 'PROCESSING' : pendingCorrectionReview && !confirmed ? 'NEEDS_CONFIRMATION' : summary.state;
   for (const field of state.activeTemplate.schema.fields) {
     const fieldState = state.session.fieldStates?.[field.id];
     const presentation = fieldStatusPresentation(fieldState, field);
@@ -361,10 +368,18 @@ function renderReadiness() {
     wrapper.classList.add(presentation.tone);
     const status = wrapper.querySelector(`[data-field-status="${CSS.escape(field.id)}"]`);
     const help = wrapper.querySelector(`[data-field-help="${CSS.escape(field.id)}"]`);
+    const action = wrapper.querySelector(`[data-field-action="${CSS.escape(field.id)}"]`);
     if (status) status.textContent = presentation.label;
     if (help) help.textContent = presentation.detail;
+    if (action) {
+      const needsDecision = ['confirmation', 'conflict'].includes(presentation.tone) && controlValueForField(field, fieldState?.value) !== 'NOT_CHECKED';
+      action.hidden = !needsDecision;
+      action.textContent = presentation.tone === 'conflict' ? 'Use shown value' : 'Confirm value';
+      action.setAttribute('aria-label', `${action.textContent}: ${field.label}`);
+      action.disabled = busy || confirmed;
+    }
   }
-  $('workspace-confirm').disabled = confirmed || busy || !completeness.complete || !$('workspace-confirm-check').checked;
+  $('workspace-confirm').disabled = confirmed || busy || pendingCorrectionReview || !completeness.complete || !$('workspace-confirm-check').checked;
   renderReports();
 }
 
@@ -380,14 +395,16 @@ function openWorkspace(templateId) {
   state.statementArtifact = null;
   state.lastPreservedText = '';
   state.retryAudioBlob = null;
+  state.hvacCorrectionReview = null;
   workspaceBusy.clear();
   $('workspace-title').textContent = template.name;
   $('workspace-description').textContent = template.description || 'Organization-defined maintenance report.';
-  $('workspace-company').textContent = template.domain === 'HVAC' ? 'NEWAY' : template.domain.startsWith('SBS_') ? 'SBS TRANSIT' : 'REPORT WORKSPACE';
+  $('workspace-company').textContent = template.domain === 'HVAC' ? 'NEWWAY' : template.domain.startsWith('SBS_') ? 'SBS TRANSIT' : 'REPORT WORKSPACE';
   $('workspace-metadata').textContent = `${template.provenance?.classification || 'user-supplied prototype'} · Template ${template.templateVersion} · Schema ${template.schema.version}`;
   $('workspace-statement').value = '';
   for (const id of ['workspace-statement', 'workspace-microphone', 'workspace-analyze', 'workspace-audio-upload', 'workspace-text-upload', 'workspace-retry']) $(id).disabled = false;
   $('workspace-input-status').textContent = '';
+  renderWorkspaceCorrections();
   $('workspace-confirm-check').checked = false;
   $('workspace-confirm-check').disabled = false;
   $('workspace-confirm-status').textContent = '';
@@ -431,7 +448,106 @@ async function preserveWorkspaceStatement(text) {
   } });
   state.statementArtifact = result.transcript;
   state.lastPreservedText = text;
+  applyTranscriptArtifact(state.session, result.transcript);
   return result.transcript;
+}
+
+function replaceExtractedFacts(facts, revision) {
+  clearExtractedFacts();
+  let accepted = 0;
+  const allowed = state.activeTemplate.schema.fields.map((field) => field.id);
+  for (const [index, fact] of (facts || []).entries()) {
+    if (allowed.some((pattern) => pattern.endsWith('.*') ? fact.field.startsWith(pattern.slice(0, -1)) : fact.field === pattern)) {
+      state.facts.set(`extracted:${revision}:${fact.field}:${index}`, fact); accepted += 1;
+    }
+  }
+  updateFromFacts();
+  return accepted;
+}
+
+function clearExtractedFacts() {
+  for (const key of state.facts.keys()) if (key.startsWith('extracted:')) state.facts.delete(key);
+}
+
+function renderWorkspaceCorrections() {
+  const container = $('workspace-corrections');
+  container.replaceChildren();
+  const review = state.hvacCorrectionReview;
+  if (!review) { container.hidden = true; return; }
+  container.hidden = false;
+  const intro = element('div', 'workspace-correction-intro');
+  intro.append(element('strong', '', 'Review transcript wording'), element('span', '', `${review.decisions.size} / ${review.candidates.length} decided`));
+  container.append(intro);
+  for (const candidate of review.candidates) {
+    const row = element('div', 'workspace-correction-row');
+    const copy = element('div', 'workspace-correction-copy');
+    copy.append(
+      element('strong', '', `“${candidate.source_span.text}” → “${candidate.candidate}”`),
+      element('small', '', candidate.status === 'NEEDS_TECHNICIAN_CONFIRMATION' ? `Critical review · ${candidate.reason}` : candidate.reason),
+    );
+    const actions = element('div', 'workspace-correction-actions');
+    const decision = review.decisions.get(candidate.candidate_id);
+    for (const [label, value] of [['Keep original', 'REJECT'], ['Use correction', 'ACCEPT']]) {
+      const button = element('button', decision === value ? 'secondary selected' : 'text-button', label);
+      button.type = 'button';
+      button.setAttribute('aria-pressed', String(decision === value));
+      button.addEventListener('click', () => chooseWorkspaceCorrection(candidate.candidate_id, value));
+      actions.append(button);
+    }
+    row.append(copy, actions); container.append(row);
+  }
+}
+
+async function extractReviewedHvacFacts(review) {
+  const decisions = review.candidates.map((candidate) => ({
+    candidate_id: candidate.candidate_id,
+    decision: review.decisions.get(candidate.candidate_id),
+    critical_value_confirmed: true,
+  }));
+  const confirmation = await api('/api/corrections/confirm', { method: 'POST', body: {
+    transcript_artifact_id: review.transcriptArtifactId,
+    candidate_bundle_hash: review.candidateBundleHash,
+    decisions,
+    technician_id: state.session.jobContext.technicianId,
+    technician_name: state.session.jobContext.technicianName,
+  } });
+  if (state.session?.id !== review.sessionId || state.analysisRevision !== review.revision) return null;
+  const extracted = await api('/api/facts/extract', { method: 'POST', body: {
+    correction_receipt_id: confirmation.correction_receipt.correction_receipt_id,
+    manual_fields: {},
+    use_llm: false,
+  } });
+  if (state.session?.id !== review.sessionId || state.analysisRevision !== review.revision) return null;
+  state.session.corrections = structuredClone(review.candidates);
+  state.session.correctionDecisions = structuredClone(decisions);
+  state.session.correctionReceipt = structuredClone(confirmation.correction_receipt);
+  state.session.transcript.normalized = confirmation.correction_receipt.final_text;
+  return replaceExtractedFacts(extracted.facts, review.revision);
+}
+
+async function chooseWorkspaceCorrection(candidateId, decision) {
+  const review = state.hvacCorrectionReview;
+  if (!review || !review.candidates.some((candidate) => candidate.candidate_id === candidateId)) return;
+  review.decisions.set(candidateId, decision);
+  renderWorkspaceCorrections();
+  if (review.decisions.size !== review.candidates.length) return;
+  setWorkspaceBusy('hvac-corrections', true);
+  document.querySelectorAll('#workspace-corrections button').forEach((button) => { button.disabled = true; });
+  $('workspace-input-status').textContent = 'Applying reviewed wording and updating the report…';
+  try {
+    const accepted = await extractReviewedHvacFacts(review);
+    if (accepted === null) return;
+    state.hvacCorrectionReview = null;
+    renderWorkspaceCorrections();
+    $('workspace-input-status').textContent = `${accepted} supported field${accepted === 1 ? '' : 's'} updated.`;
+  } catch (error) {
+    if (state.session?.id === review.sessionId) $('workspace-input-status').textContent = `Could not update the report: ${error.message}`;
+  } finally {
+    if (state.session?.id === review.sessionId) {
+      setWorkspaceBusy('hvac-corrections', false);
+      renderWorkspaceCorrections();
+    }
+  }
 }
 
 async function analyzeStatement({ preserveStatement = true } = {}) {
@@ -439,12 +555,36 @@ async function analyzeStatement({ preserveStatement = true } = {}) {
   if (!text) { $('workspace-input-status').textContent = 'Add a technician statement first.'; return; }
   const sessionId = state.session.id;
   const revision = ++state.analysisRevision;
+  state.hvacCorrectionReview = null;
+  renderWorkspaceCorrections();
   setWorkspaceBusy('analysis', true);
   $('workspace-analyze').disabled = true;
   $('workspace-input-status').textContent = preserveStatement ? 'Saving evidence and updating the report…' : 'Updating the report…';
   try {
     if (preserveStatement) await preserveWorkspaceStatement(text);
     if (state.session.id !== sessionId || state.analysisRevision !== revision) return;
+    clearExtractedFacts();
+    updateFromFacts();
+    if (state.activeTemplate.domain === 'HVAC') {
+      const normalization = await api('/api/normalizations', { method: 'POST', body: { transcript_artifact_id: state.statementArtifact.artifact_id } });
+      if (state.session.id !== sessionId || state.analysisRevision !== revision) return;
+      const candidates = normalization.correction_candidates || [];
+      const review = {
+        sessionId, revision, candidates,
+        transcriptArtifactId: state.statementArtifact.artifact_id,
+        candidateBundleHash: normalization.candidate_bundle_hash,
+        decisions: new Map(),
+      };
+      if (candidates.length) {
+        state.hvacCorrectionReview = review;
+        renderWorkspaceCorrections();
+        $('workspace-input-status').textContent = `${candidates.length} transcript detail${candidates.length === 1 ? '' : 's'} need your review before fields update.`;
+        return;
+      }
+      const accepted = await extractReviewedHvacFacts(review);
+      if (accepted !== null) $('workspace-input-status').textContent = `${accepted} supported field${accepted === 1 ? '' : 's'} updated.`;
+      return;
+    }
     if (!['SBS_BUS', 'SBS_RAIL'].includes(state.activeTemplate.domain)) {
       $('workspace-input-status').textContent = 'Statement preserved. Fill the remaining report fields directly.';
       return;
@@ -452,15 +592,7 @@ async function analyzeStatement({ preserveStatement = true } = {}) {
     const contextId = state.activeTemplate.domain === 'SBS_BUS' ? 'SBS/BUS' : 'SBS/RAIL';
     const result = await api('/api/v2/facts/extract', { method: 'POST', body: { context_id: contextId, raw_text: text } });
     if (state.session.id !== sessionId || state.analysisRevision !== revision) return;
-    for (const key of state.facts.keys()) if (key.startsWith('extracted:')) state.facts.delete(key);
-    let accepted = 0;
-    const allowed = state.activeTemplate.schema.fields.map((field) => field.id);
-    for (const [index, fact] of (result.facts || []).entries()) {
-      if (allowed.some((pattern) => pattern.endsWith('.*') ? fact.field.startsWith(pattern.slice(0, -1)) : fact.field === pattern)) {
-        state.facts.set(`extracted:${revision}:${fact.field}:${index}`, fact); accepted += 1;
-      }
-    }
-    updateFromFacts();
+    const accepted = replaceExtractedFacts(result.facts, revision);
     $('workspace-input-status').textContent = `${accepted} supported field${accepted === 1 ? '' : 's'} updated.`;
   } catch (error) {
     if (state.session?.id === sessionId) $('workspace-input-status').textContent = `Could not update the report: ${error.message}`;
@@ -488,6 +620,7 @@ async function processWorkspaceAudio(wav, label = 'Recording') {
     if (state.session?.id !== sessionId) return;
     state.statementArtifact = transcriptResult.transcript;
     state.lastPreservedText = transcriptResult.transcript.raw_text;
+    applyTranscriptArtifact(state.session, transcriptResult.transcript);
     $('workspace-statement').value = transcriptResult.transcript.raw_text;
     $('workspace-input-status').textContent = `${label} transcribed. Updating the report…`;
     await analyzeStatement({ preserveStatement: false });
