@@ -13,7 +13,7 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   CAPTURE: Object.freeze(['PROCESSING']),
   PROCESSING: Object.freeze(['CORRECTION_IF_NEEDED', 'RESOLVE']),
   CORRECTION_IF_NEEDED: Object.freeze(['RESOLVE']),
-  RESOLVE: Object.freeze(['REVIEW']),
+  RESOLVE: Object.freeze(['CAPTURE', 'REVIEW']),
   REVIEW: Object.freeze(['READY']),
   READY: Object.freeze(['CONFIRMED']),
   CONFIRMED: Object.freeze([]),
@@ -87,6 +87,7 @@ export function createReportSession(input = {}) {
     guidance_context_ids: [],
     agent_run_ids: [],
     current_agent_run_id: null,
+    confirmation_ref: null,
     recovery_phase: null,
     last_error: null,
   });
@@ -185,6 +186,7 @@ export function transitionReportSession(session, command = {}) {
     audit_event_ids: [...session.audit_event_ids, event.event_id],
     recovery_phase: toPhase === 'RECOVERABLE_ERROR' ? recoveryPhase : null,
     last_error: toPhase === 'RECOVERABLE_ERROR' ? lastError : null,
+    confirmation_ref: command.confirmation_ref || session.confirmation_ref || null,
   });
   return deepFreeze({ session: next, event });
 }

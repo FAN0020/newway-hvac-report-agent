@@ -166,6 +166,16 @@ export class ReportStore {
     return confirmation;
   }
 
+  async readConfirmation(confirmationToken) {
+    const token = safeId(confirmationToken, 'confirmation_token', /^confirm_[a-f0-9]{48}$/);
+    try {
+      return JSON.parse(await fs.readFile(path.join(this.confirmationRoot, `${token}.json`), 'utf8'));
+    } catch (error) {
+      if (error.code === 'ENOENT') throw Object.assign(new Error('Confirmation token was not found.'), { code: 'CONFIRMATION_NOT_FOUND', status: 404 });
+      throw error;
+    }
+  }
+
   reportBasePath(draft, reportHash, confirmationToken) {
     const reportId = safeId(draft?.report_id, 'report_id', /^report_[a-f0-9]{12}$/);
     const version = Number(draft?.report_version || 0);

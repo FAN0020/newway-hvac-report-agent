@@ -1,0 +1,179 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  deriveWorkspaceView,
+  fieldDisplay,
+  resolutionControl,
+} from '../web/report-workspace-view.js';
+
+const template = {
+  templateId: 'bus-defect-rectification-corrective-maintenance',
+  name: 'Bus Defect Rectification',
+  schema: { fields: [
+    { id: 'work.work_order_id', label: 'Work Order No.', section: 'Job Identity', required: true, displayOrder: 1 },
+    { id: 'asset.internal_fleet_no', label: 'Bus ID', section: 'Job Identity', required: true, displayOrder: 2 },
+    { id: 'diagnosis.root_cause', label: 'Root cause', section: 'Diagnosis', required: true, displayOrder: 20 },
+    { id: 'parts.part_number', label: 'Parts used', section: 'Rectification', displayOrder: 30 },
+    { id: 'completion.state', label: 'Return to service', section: 'Completion & Handover', required: true, critical: true, displayOrder: 40 },
+  ] },
+};
+
+const known = (fieldId, value, supportType = 'TRANSCRIPT_EVIDENCE', extractionMethod = 'deterministic-rule') => ({
+  field_id: fieldId, state: 'KNOWN_VALUE', value, unit: null,
+  selected_candidate_ids: [`candidate_${fieldId}`], active_candidate_ids: [`candidate_${fieldId}`],
+  candidates: [{
+    candidate_id: `candidate_${fieldId}`, support_type: supportType, claim: { kind: 'VALUE', value },
+    extraction: { method: extractionMethod, version: 'test' },
+    evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_1' }],
+  }],
+});
+
+const unknown = (fieldId) => ({
+  field_id: fieldId, state: 'UNKNOWN', value: null, selected_candidate_ids: [], active_candidate_ids: [], candidates: [],
+});
+
+function agent({ fields = [], queue = [], issues = [], complete = false } = {}) {
+  return {
+    report_fields: fields,
+    resolution_queue: queue,
+    validation_issues: issues,
+    completeness: {
+      complete,
+      complete_fields: fields.filter((field) => ['KNOWN_VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE'].includes(field.state)).map((field) => field.field_id),
+      missing_required_fields: fields.filter((field) => field.state === 'UNKNOWN').map((field) => field.field_id),
+      missing_optional_fields: [], uncertain_fields: [], conflicting_fields: [], invalid_fields: [], inferred_fields: [],
+      conditional_required_fields: [], critical_confirmation_fields: [], blocking_issue_ids: issues.filter((issue) => issue.blocking).map((issue) => issue.issue_id),
+    },
+  };
+}
+
+const session = (phase = 'RESOLVE', revision = 4) => ({
+  session_id: 'session_ui_1', revision, phase,
+  template_binding: { template_id: template.templateId, template_version: '1.0.0' },
+  job_context_ref: 'work-order:WO-111-1222',
+});
+
+const item = (type, answerType = 'VALUE', fieldId = 'diagnosis.root_cause') => ({
+  resolution_id: `resolution_${type.toLowerCase()}`, issue_ids: [`issue_${type.toLowerCase()}`], type,
+  field_id: fieldId, candidate_ids: [], prompt: `Resolve ${fieldId}`, reason: 'Required for this report.',
+  priority: 3, priority_class: 'REQUIRED_MISSING', answer_type: answerType, options: [], allow_other: true, status: 'OPEN',
+});
+
+function view(overrides = {}) {
+  return deriveWorkspaceView({
+    template,
+    session: session(),
+    agent_state: agent({ fields: [known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'), known('asset.internal_fleet_no', '8300-354', 'AUTHORITATIVE_SYSTEM_DATA'), unknown('diagnosis.root_cause'), { ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' }, unknown('completion.state')] }),
+    transcript: null,
+    transcript_review: null,
+    processing: null,
+    recoverable_error: null,
+    interaction: { statement: '', microphone_available: true },
+    ...overrides,
+  });
+}
+
+test('workspace field semantics remain truthful and actionable without confidence percentages', () => {
+  const cases = [
+    ['KNOWN_VALUE', 'Confirmed'], ['UNKNOWN', 'Needs information'], ['UNCERTAIN', 'Needs confirmation'],
+    ['CONFLICT', 'Resolve conflict'], ['INVALID', 'Check value'], ['INFERRED', 'Needs confirmation'],
+    ['EXPLICIT_NONE', 'None'], ['NOT_APPLICABLE', 'Not applicable'],
+  ];
+  for (const [state, label] of cases) {
+    const display = fieldDisplay({ ...unknown('field'), state, value: state === 'KNOWN_VALUE' ? 'Observed value' : null });
+    assert.equal(display.label, label);
+    assert.equal(JSON.stringify(display).includes('%'), false);
+  }
+  assert.equal(fieldDisplay({ ...known('measurement.odometer_km', 51020), unit: 'km' }).value, '51020 km');
+});
+
+test('ResolutionItem answer contracts map to structured controls before free text', () => {
+  assert.equal(resolutionControl(item('CONFLICT', 'SELECT_OR_PROVIDE')).kind, 'CHOICE_WITH_OTHER');
+  assert.equal(resolutionControl(item('SAFETY_CONFIRMATION', 'SINGLE_SELECT')).kind, 'BUTTON_GROUP');
+  assert.equal(resolutionControl(item('MISSING', 'SEMANTIC_STATE')).kind, 'BUTTON_GROUP');
+  assert.equal(resolutionControl(item('MISSING', 'NONE_OR_VALUE')).kind, 'NONE_OR_DETAIL');
+  assert.equal(resolutionControl(item('INVALID', 'CONFIRM_OR_REPLACE')).kind, 'CONFIRM_OR_REPLACE');
+  assert.equal(resolutionControl(item('MISSING', 'VALUE')).kind, 'COMPACT_INPUT');
+});
+
+const stateCases = [
+  ['loading context', { session: null, agent_state: null }, 'LOADING_CONTEXT', null],
+  ['empty capture', { session: session('CONTEXT'), agent_state: agent() }, 'CAPTURE', 'CAPTURE_STATEMENT'],
+  ['capture before queued questions', { session: session('CONTEXT'), agent_state: agent({ queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }) }, 'CAPTURE', 'CAPTURE_STATEMENT'],
+  ['typing technician statement', { interaction: { statement: 'Door would not close', microphone_available: true } }, 'CAPTURE', 'CAPTURE_STATEMENT'],
+  ['microphone ready', { interaction: { statement: '', microphone_available: true } }, 'CAPTURE', 'CAPTURE_STATEMENT'],
+  ['actively recording', { processing: 'RECORDING' }, 'RECORDING', 'STOP_RECORDING'],
+  ['recording stopped', { processing: 'PREPARING_AUDIO' }, 'PREPARING_AUDIO', null],
+  ['uploading audio', { processing: 'UPLOADING_AUDIO' }, 'UPLOADING_AUDIO', null],
+  ['processing transcription', { session: session('PROCESSING'), processing: 'TRANSCRIBING' }, 'TRANSCRIBING', null],
+  ['extracting structured information', { processing: 'EXTRACTING' }, 'EXTRACTING', null],
+  ['checking completeness', { processing: 'CHECKING_COMPLETENESS' }, 'CHECKING_COMPLETENESS', null],
+  ['successful initial extraction', { transcript: { raw_text: 'Door fault inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['material transcript correction required', { session: session('CORRECTION_IF_NEEDED'), transcript_review: { status: 'PENDING', items: [{ review_item_id: 'review_1', source_span: { quote: 'Z751A' }, proposed_text: 'C751A', reason: 'Rail terminology' }] } }, 'CORRECTION', 'DECIDE_CORRECTION'],
+  ['correction accepted', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'ACCEPT' }] }, transcript: { raw_text: 'C751A inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['correction rejected', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'REJECT' }] }, transcript: { raw_text: 'Z751A inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['required field missing', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['uncertain field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 51020), state: 'UNCERTAIN' }], queue: [item('UNCERTAIN', 'CONFIRM_OR_REPLACE', 'measurement.odometer_km')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['conflicting field', { agent_state: agent({ fields: [{ ...unknown('asset.internal_fleet_no'), state: 'CONFLICT' }], queue: [item('CONFLICT', 'SELECT_OR_PROVIDE', 'asset.internal_fleet_no')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['invalid field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 9999999), state: 'INVALID' }], queue: [item('INVALID', 'VALUE', 'measurement.odometer_km')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['conditional requirement', { agent_state: agent({ fields: [unknown('test.result')], queue: [item('CONDITIONAL_REQUIREMENT', 'VALUE', 'test.result')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['safety confirmation', { agent_state: agent({ fields: [known('completion.state', 'NOT_READY')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['explicit none', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' }] }), transcript: { raw_text: 'No parts were used.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['not applicable', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'NOT_APPLICABLE' }] }), transcript: { raw_text: 'Parts do not apply.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['partially complete report', { agent_state: agent({ fields: [known('asset.internal_fleet_no', '8300-354'), unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['multiple remaining items', { agent_state: agent({ fields: [unknown('diagnosis.root_cause'), unknown('completion.state')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state'), item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['final resolution item', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['review state', { session: session('REVIEW'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'REVIEW', 'COMPLETE_REVIEW'],
+  ['ready to confirm', { session: session('READY'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'READY', 'CONFIRM_REPORT'],
+  ['confirmed', { session: session('CONFIRMED'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }), confirmation: { confirmation_token: 'confirmed' } }, 'CONFIRMED', 'EXPORT_REPORT'],
+  ['STT recoverable failure', { session: session('RECOVERABLE_ERROR'), recoverable_error: { kind: 'STT', message: 'Recording saved.', retry_action: 'RETRY_TRANSCRIPTION' } }, 'RECOVERABLE_ERROR', 'RETRY_TRANSCRIPTION'],
+  ['upload recoverable failure', { recoverable_error: { kind: 'UPLOAD', message: 'Attachment was not added.', retry_action: 'RETRY_ATTACHMENT' } }, 'RECOVERABLE_ERROR', 'RETRY_ATTACHMENT'],
+  ['network recoverable failure', { recoverable_error: { kind: 'NETWORK', message: 'Connection interrupted.', retry_action: 'RETRY_CONNECTION' } }, 'RECOVERABLE_ERROR', 'RETRY_CONNECTION'],
+  ['stale revision response', { recoverable_error: { kind: 'STALE_REVISION', message: 'Report changed. Refreshing current state.', retry_action: 'REFRESH_SESSION' } }, 'RECOVERABLE_ERROR', 'REFRESH_SESSION'],
+  ['export after confirmation', { session: session('CONFIRMED'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }), confirmation: { confirmation_token: 'confirmed' }, interaction: { export_ready: true } }, 'CONFIRMED', 'EXPORT_REPORT'],
+];
+
+for (const [name, overrides, expectedKind, primaryId] of stateCases) {
+  test(`workspace state: ${name}`, () => {
+    const result = view(overrides);
+    assert.deepEqual(result.major_areas, ['APP_SHELL', 'JOB_HEADER', 'ACTIVE_TASK_PANEL', 'REPORT_SUMMARY']);
+    assert.equal(result.active_task.kind, expectedKind);
+    assert.equal(result.active_task.primary_action?.id || null, primaryId);
+    assert.ok((result.active_task.primary_action ? 1 : 0) <= 1);
+    assert.equal(result.active_task.primary_action?.id === 'CONFIRM_REPORT', result.session_phase === 'READY');
+    assert.equal(JSON.stringify(result).match(/confidence|chunk_id|trace_id|model|provider/giu), null);
+  });
+}
+
+test('header and report summary use only authoritative Agent state and prioritize unresolved sections', () => {
+  const result = view({
+    agent_state: agent({
+      fields: [known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'), known('asset.internal_fleet_no', 'LONG-BUS-IDENTIFIER-8300-354', 'AUTHORITATIVE_SYSTEM_DATA'), unknown('diagnosis.root_cause')],
+      queue: [item('MISSING')],
+    }),
+  });
+  assert.equal(result.job_header.title, 'Bus Defect Rectification');
+  assert.match(result.job_header.identity_line, /WO-111-1222.*LONG-BUS-IDENTIFIER-8300-354/u);
+  assert.equal(result.job_header.need_input, 1);
+  assert.equal(result.report_sections.find((section) => section.title === 'Diagnosis').expanded, true);
+  assert.equal(result.report_sections.find((section) => section.title === 'Job Identity').expanded, false);
+  assert.equal(result.report_sections.flatMap((section) => section.fields).some((field) => field.editing), false);
+});
+
+test('capture keeps report sections compact while review opens only critical or technician-touched sections', () => {
+  const fields = [
+    known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
+    known('diagnosis.root_cause', 'Not established', 'MANUAL_TECHNICIAN_INPUT', 'technician-resolution-answer'),
+    known('completion.state', 'NOT_READY', 'TECHNICIAN_CONFIRMATION'),
+  ];
+  const capture = view({
+    session: session('CONTEXT'),
+    agent_state: agent({ fields, queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }),
+  });
+  assert.equal(capture.report_sections.some((section) => section.expanded), false);
+
+  const review = view({ session: session('REVIEW'), agent_state: agent({ fields, complete: true }) });
+  assert.equal(review.report_sections.find((section) => section.title === 'Job Identity').expanded, false);
+  assert.equal(review.report_sections.find((section) => section.title === 'Diagnosis').expanded, true);
+  assert.equal(review.report_sections.find((section) => section.title === 'Completion & Handover').expanded, true);
+});

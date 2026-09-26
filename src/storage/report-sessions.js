@@ -47,6 +47,7 @@ export class ReportSessionStore {
     this.eventsRoot = path.join(this.root, 'audit-events');
     this.recordsRoot = path.join(this.root, 'records');
     this.textRoot = path.join(this.root, 'text-sources');
+    this.binaryRoot = path.join(this.root, 'binary-sources');
     this.captureRoot = path.join(this.root, 'capture-index');
     this.answerRoot = path.join(this.root, 'answer-index');
     this.locks = new Map();
@@ -211,6 +212,21 @@ export class ReportSessionStore {
     const existing = await fs.readFile(filename, 'utf8');
     if (existing !== text) throw storageError('Text source hash collision.', 'SOURCE_HASH_COLLISION', 409);
     return `authority://text/${normalized}`;
+  }
+
+  async putBinarySource(digest, buffer) {
+    const normalized = safeId(digest, 'source_digest');
+    if (!Buffer.isBuffer(buffer) || !buffer.length) {
+      throw storageError('Binary evidence is required.', 'EMPTY_BINARY_SOURCE', 400);
+    }
+    const filename = path.join(this.binaryRoot, `${normalized}.bin`);
+    await fs.mkdir(this.binaryRoot, { recursive: true });
+    await fs.writeFile(filename, buffer, { flag: 'wx', mode: 0o600 }).catch((error) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    const existing = await fs.readFile(filename);
+    if (!existing.equals(buffer)) throw storageError('Binary source hash collision.', 'SOURCE_HASH_COLLISION', 409);
+    return `authority://binary/${normalized}`;
   }
 
   async loadChain(sessionId) {

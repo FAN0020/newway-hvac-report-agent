@@ -288,6 +288,8 @@ const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|恢复运�
 
 /** Singapore bus vehicle registration as dictated by the technician. */
 const BUS_REGISTRATION_RE = /\b(?:SBS|SG)\d{1,4}[A-Z]\b/giu;
+/** Internal fleet identifier, only when explicitly introduced as a bus/fleet ID. */
+const BUS_FLEET_ID_RE = /\b(?:bus|fleet)\s*(?:id|number|no\.?)[\s:=]*(\d{4}-\d{3})\b/giu;
 
 /**
  * Infers a measurement sub-field from sentence context; falls back to the
@@ -338,6 +340,7 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const models = buildIndex(vocab.terms.filter((record) => /^term_model_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, models)) push('asset.bus_model', hit.canonical);
     for (const match of sentence.matchAll(BUS_REGISTRATION_RE)) push('asset.registration_no', match[0].toUpperCase());
+    for (const match of sentence.matchAll(BUS_FLEET_ID_RE)) push('asset.internal_fleet_no', match[1]);
   } else if (scopeId === 'SBS_RAIL') {
     const lines = buildIndex(vocab.terms.filter((record) => /^term_line_/u.test(String(record?.id ?? ''))));
     const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));

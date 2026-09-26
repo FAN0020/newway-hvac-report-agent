@@ -86,6 +86,25 @@ const authoritativeCapture = new AuthoritativeCaptureService({
   whisperProvider: whisper,
   scopeRegistryProvider: ensureV2Registry,
   uploadStore: v2UploadStore,
+  jobContextProvider: {
+    resolve: async ({ job_context_ref: reference, template_id: templateId }) => {
+      if (reference !== 'work-order:WO-111-1222' || templateId !== 'bus-defect-rectification-corrective-maintenance') return null;
+      return {
+        record_id: reference,
+        version: 'demo-work-order.v1',
+        fields: [
+          { field_id: 'work.work_order_id', value: 'WO-111-1222' },
+          { field_id: 'work.date_time', value: '2026-09-27 22:42' },
+          { field_id: 'asset.internal_fleet_no', value: '8300-354' },
+          { field_id: 'asset.registration_no', value: 'SBS6025Z' },
+          { field_id: 'asset.bus_model', value: 'MAN A95' },
+          { field_id: 'asset.depot', value: 'Hougang Depot' },
+          { field_id: 'technician.name', value: 'Alex Tan' },
+          { field_id: 'work.trigger', value: 'Passenger door would not close' },
+        ],
+      };
+    },
+  },
 });
 
 function resolveV2ContextOrThrow(contextId, registry) {
@@ -227,6 +246,52 @@ async function handleApi(request, response, url, traceId, config, services) {
   if (request.method === 'GET' && agentStateMatch) {
     const result = await captureService.getAgentState(decodeURIComponent(agentStateMatch[1]));
     writeJson(response, 200, toolEnvelope('get_report_agent_state', traceId, 'PASS', result));
+    return;
+  }
+
+  const reviewStartMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/review$/u);
+  if (request.method === 'POST' && reviewStartMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.enterReview({
+      session_id: decodeURIComponent(reviewStartMatch[1]), expected_revision: input.expected_revision,
+    });
+    writeJson(response, 200, toolEnvelope('start_report_review', traceId, 'PASS', result));
+    return;
+  }
+
+  const reviewCompleteMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/review\/complete$/u);
+  if (request.method === 'POST' && reviewCompleteMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.completeReview({
+      session_id: decodeURIComponent(reviewCompleteMatch[1]), expected_revision: input.expected_revision,
+    });
+    writeJson(response, 200, toolEnvelope('complete_report_review', traceId, 'PASS', result));
+    return;
+  }
+
+  const attachmentMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/attachments$/u);
+  if (request.method === 'POST' && attachmentMatch) {
+    const filename = String(request.headers['x-file-name'] || '').trim();
+    const purpose = String(request.headers['x-attachment-purpose'] || '').trim();
+    const result = await captureService.attachEvidence({
+      session_id: decodeURIComponent(attachmentMatch[1]), expected_revision: request.headers['x-expected-revision'],
+      filename, mime_type: request.headers['content-type'], purpose, buffer: await readRawBody(request),
+    });
+    writeJson(response, 201, toolEnvelope('attach_report_evidence', traceId, 'PASS', result));
+    return;
+  }
+
+  const sessionConfirmMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/confirmation$/u);
+  if (request.method === 'POST' && sessionConfirmMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input, { allow: ['confirmation'] });
+    const confirmation = await reports.readConfirmation(input.confirmation_token);
+    const result = await captureService.confirmSession({
+      session_id: decodeURIComponent(sessionConfirmMatch[1]), expected_revision: input.expected_revision, confirmation,
+    });
+    writeJson(response, 200, toolEnvelope('confirm_report_session', traceId, 'PASS', { ...result, confirmation }));
     return;
   }
 
@@ -1050,6 +1115,7 @@ const staticFiles = new Map([
   ['/template-catalog.js', ['template-catalog.js', 'text/javascript; charset=utf-8']],
   ['/template-selection.js', ['template-selection.js', 'text/javascript; charset=utf-8']],
   ['/template-workspace.js', ['template-workspace.js', 'text/javascript; charset=utf-8']],
+  ['/report-workspace-view.js', ['report-workspace-view.js', 'text/javascript; charset=utf-8']],
   ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],

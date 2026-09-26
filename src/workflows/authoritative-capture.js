@@ -27,6 +27,10 @@ import { mapFactsForTemplate, templateFor } from '../../web/template-catalog.js'
 const PROCESSING_VERSION = 'authoritative-capture.v1';
 const EXTRACTION_VERSION = 'deterministic-extraction.v2';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
+const ATTACHMENT_PURPOSES = new Set([
+  'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
+  'CUSTOMER_DOCUMENT', 'EXISTING_SERVICE_RECORD', 'OTHER',
+]);
 const CONTEXT_BY_SCOPE = Object.freeze({
   HVAC: 'HVAC',
   SBS_BUS: 'SBS/BUS',
@@ -342,6 +346,101 @@ export class AuthoritativeCaptureService {
     return this.persistAgentState(chain.session);
   }
 
+  async enterReview({ session_id: sessionId, expected_revision: expectedRevision } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'RESOLVE') {
+      throw workflowError('Review can begin only after report resolution.', 'REVIEW_PHASE_MISMATCH', 409);
+    }
+    const current = await this.getAgentState(sessionId);
+    if (!current.agent_state.completeness.complete || current.agent_state.resolution_queue.length) {
+      throw workflowError('The report still has blocking items to resolve.', 'REPORT_NOT_COMPLETE', 409);
+    }
+    const transitioned = await this.sessionStore.transition({
+      session_id: sessionId, expected_revision: session.revision, to_phase: 'REVIEW',
+      event_type: 'REPORT_REVIEW_STARTED', occurred_at: this.clock(),
+      details: { blocking_issue_count: 0 },
+    });
+    return this.persistAgentState(transitioned.session);
+  }
+
+  async completeReview({ session_id: sessionId, expected_revision: expectedRevision } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'REVIEW') {
+      throw workflowError('Review completion requires an active review.', 'REVIEW_PHASE_MISMATCH', 409);
+    }
+    const current = await this.getAgentState(sessionId);
+    if (!current.agent_state.completeness.complete || current.agent_state.resolution_queue.length) {
+      throw workflowError('The report changed and requires resolution.', 'REPORT_NOT_COMPLETE', 409);
+    }
+    const transitioned = await this.sessionStore.transition({
+      session_id: sessionId, expected_revision: session.revision, to_phase: 'READY',
+      event_type: 'REPORT_REVIEW_COMPLETED', occurred_at: this.clock(),
+      details: { ready_for_confirmation: true },
+    });
+    return this.persistAgentState(transitioned.session);
+  }
+
+  async confirmSession({ session_id: sessionId, expected_revision: expectedRevision, confirmation } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'READY') {
+      throw workflowError('Only a ready report can be confirmed.', 'REPORT_NOT_READY', 409);
+    }
+    if (!confirmation || confirmation.report_session_id !== session.session_id
+      || !/^confirm_[a-f0-9]{48}$/u.test(String(confirmation.confirmation_token || ''))) {
+      throw workflowError('Confirmation is not bound to this ReportSession.', 'CONFIRMATION_SESSION_MISMATCH', 409);
+    }
+    const transitioned = await this.sessionStore.transition({
+      session_id: sessionId, expected_revision: session.revision, to_phase: 'CONFIRMED',
+      event_type: 'REPORT_CONFIRMED', occurred_at: this.clock(),
+      confirmation_ref: confirmation.confirmation_token,
+      details: {
+        confirmation_token: confirmation.confirmation_token,
+        report_id: confirmation.report_id,
+        report_hash: confirmation.report_hash,
+        technician_id: confirmation.technician_id,
+      },
+    });
+    return this.persistAgentState(transitioned.session);
+  }
+
+  async attachEvidence({ session_id: sessionId, expected_revision: expectedRevision, filename, mime_type: mimeType, purpose, buffer } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    const normalizedPurpose = String(purpose || '').trim().toUpperCase();
+    if (!ATTACHMENT_PURPOSES.has(normalizedPurpose)) {
+      throw workflowError('Attachment purpose is invalid.', 'INVALID_ATTACHMENT_PURPOSE', 400);
+    }
+    const name = String(filename || '').trim();
+    if (!name || name.length > 240 || /[\\/\0]/u.test(name)) {
+      throw workflowError('Attachment filename is invalid.', 'INVALID_ATTACHMENT_FILENAME', 400);
+    }
+    if (!Buffer.isBuffer(buffer) || !buffer.length) {
+      throw workflowError('Attachment content is required.', 'EMPTY_ATTACHMENT', 400);
+    }
+    const sourceDigest = digest(buffer);
+    const storageRef = await this.sessionStore.putBinarySource(sourceDigest, buffer);
+    const evidence = createEvidence({
+      evidence_type: 'DOCUMENT', source_hash: `sha256:${sourceDigest}`, storage_ref: storageRef,
+      created_at: this.clock(),
+      metadata: {
+        filename: name, mime_type: String(mimeType || 'application/octet-stream'), purpose: normalizedPurpose,
+        uploader: 'principal:demo-technician', report_binding: reportBinding(session),
+      },
+    });
+    await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: sessionId, expected_revision: session.revision, event_type: 'EVIDENCE_ATTACHED',
+      principal_ref: 'principal:demo-technician', occurred_at: this.clock(),
+      details: { evidence_id: evidence.evidence_id, filename: name, purpose: normalizedPurpose },
+      additions: { evidence_ids: [evidence.evidence_id] },
+    });
+    const computed = await this.persistAgentState(recorded.session);
+    return { session: computed.session, evidence, agent_state: computed.agent_state };
+  }
+
   async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [] }) {
     const template = templateFor(session.template_binding.template_id);
     let facts;
@@ -360,8 +459,13 @@ export class AuthoritativeCaptureService {
     }
     const accepted = mapFactsForTemplate(template.templateId, facts).facts;
     const noParts = /\bno parts (?:were )?used\b/iu.exec(extractionText);
-    if (noParts && template.schema.fields.some((field) => field.id === 'parts.part_number')
-      && !accepted.some((fact) => fact.field === 'parts.part_number')) {
+    if (noParts && template.schema.fields.some((field) => field.id === 'parts.part_number')) {
+      const replacementRecorded = facts.some((fact) => fact.field === 'parts.replaced' && String(fact.value) === 'true');
+      if (!replacementRecorded) {
+        for (let index = accepted.length - 1; index >= 0; index -= 1) {
+          if (accepted[index].field === 'parts.part_number') accepted.splice(index, 1);
+        }
+      }
       accepted.push({
         field: 'parts.part_number',
         value: null,

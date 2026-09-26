@@ -98,6 +98,15 @@ test('BUS model MAN A95 maps to asset.bus_model and work.type', async () => {
   );
 });
 
+test('dictated BUS fleet identifier is extracted for authoritative identity conflict handling', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'Bus ID = 8300-345. The passenger door would not close.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.internal_fleet_no'), '8300-345');
+});
+
 test('every extracted fact retains the exact source sentence span from the immutable transcript', async () => {
   const rawText = 'Unrelated note. Bus MAN A95 had a door fault. Replaced the door control module.';
   const { facts } = await extractV2Facts({ contextId: 'SBS/BUS', rawText, registry });

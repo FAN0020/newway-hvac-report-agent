@@ -171,3 +171,18 @@ test('explicit no-parts narration becomes EXPLICIT_NONE rather than UNKNOWN', as
   assert.equal(field.state, 'EXPLICIT_NONE');
   assert.ok(field.selected_candidate_ids.length > 0);
 });
+
+test('explicit no-parts narration wins over a component mentioned elsewhere in the same statement', async (t) => {
+  const { makeService } = await fixture(t, 'no-parts-with-component-mention');
+  const service = makeService();
+  const created = await createBusSession(service, 'NO-PARTS-COMPONENT');
+  const captured = await captureAndReview(service, {
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'Door controller connector was loose. Reseated and secured the connector. No parts were used.',
+  });
+  const field = captured.agent_state.report_fields.find((entry) => entry.field_id === 'parts.part_number');
+  assert.equal(field.state, 'EXPLICIT_NONE');
+  assert.equal(field.value, null);
+  assert.equal(field.candidates.some((candidate) => candidate.claim.kind === 'VALUE'), false);
+});

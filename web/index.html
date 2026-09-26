@@ -53,27 +53,37 @@
         </section>
       </section>
 
-      <section id="template-workspace" class="template-view" hidden aria-labelledby="workspace-title">
-        <div class="workspace-binding"><button class="back-link" data-template-nav="choose">← Choose report</button><div><p class="eyebrow" id="workspace-company">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-description"></p></div><div class="workspace-status" aria-live="polite"><strong id="report-required-count">0 / 0 required</strong><span id="report-state">Needs information</span><span class="workspace-progress" aria-hidden="true"><i id="readiness-meter-fill"></i></span></div></div>
-        <div class="template-workspace-main">
-          <section class="report-composer" aria-labelledby="composer-title">
-            <h3 id="composer-title">Tell us what happened</h3>
-            <div class="workspace-composer">
-              <textarea id="workspace-statement" rows="3" placeholder="Describe the work, findings, tests, and handover status."></textarea>
-              <button id="workspace-microphone" class="composer-microphone" type="button" aria-label="Start recording" aria-pressed="false"><span aria-hidden="true">●</span><b id="workspace-microphone-label">Record</b></button>
-            </div>
-            <div class="composer-footer"><span id="workspace-recording-time" class="recording-time" hidden>Recording 0:00</span><div class="workspace-input-actions"><button id="workspace-analyze" class="text-button" type="button">Update report</button><label class="file-button text-button">Upload recording<input id="workspace-audio-upload" type="file" accept="audio/wav,.wav"></label><label class="file-button text-button">Add supporting document<input id="workspace-text-upload" type="file" accept=".txt,.md,.csv,text/plain"></label><button id="workspace-retry" class="text-button" type="button" hidden>Try again</button></div></div>
-            <p id="workspace-input-status" class="live-status" role="status" aria-live="polite"></p>
-            <div id="workspace-corrections" class="workspace-corrections" hidden aria-live="polite"></div>
+      <section id="template-workspace" class="template-view report-workspace" hidden aria-labelledby="workspace-title">
+        <header id="workspace-job-header" class="job-header" data-workspace-area="JOB_HEADER">
+          <button class="back-link" data-template-nav="choose">← Reports</button>
+          <div class="job-header-copy"><p class="eyebrow" id="workspace-company">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-identity"></p></div>
+          <button id="workspace-progress" class="job-progress" type="button" aria-expanded="false" aria-controls="workspace-progress-detail"><strong id="report-complete-count">0 / 0 complete</strong><span id="report-need-input">Loading…</span></button>
+          <div id="workspace-progress-detail" class="progress-popover" hidden></div>
+        </header>
+
+        <div class="workspace-flow">
+          <section id="workspace-active-task" class="active-task-panel" data-workspace-area="ACTIVE_TASK_PANEL" aria-labelledby="active-task-title" aria-live="polite">
+            <div class="task-loading"><span class="task-spinner" aria-hidden="true"></span><h3 id="active-task-title">Loading job…</h3></div>
           </section>
-          <form id="workspace-fields" class="workspace-fields"></form>
-          <section class="report-confirmation">
-            <label class="confirm-check"><input id="workspace-confirm-check" type="checkbox"> I reviewed the evidence and every value in this report.</label>
-            <button id="workspace-confirm" class="primary" disabled>Confirm report</button>
-            <p id="workspace-confirm-status" class="live-status" role="status"></p>
+
+          <section id="workspace-report-summary" class="report-summary" data-workspace-area="REPORT_SUMMARY" aria-labelledby="report-summary-title">
+            <div class="report-summary-heading"><div><p class="eyebrow">REPORT SUMMARY</p><h3 id="report-summary-title">Report details</h3></div><button id="workspace-full-report" class="text-button" type="button">Expand all</button></div>
+            <div id="workspace-sections" class="report-accordions"></div>
           </section>
-          <details class="workspace-details"><summary>Template details &amp; evidence</summary><p id="workspace-metadata"></p><p id="workspace-context"></p><div id="workspace-context-sources"></div></details>
         </div>
+
+        <input id="workspace-audio-upload" type="file" accept="audio/wav,.wav" hidden>
+        <input id="workspace-evidence-upload" type="file" hidden>
+        <dialog id="workspace-evidence-dialog" class="evidence-dialog" aria-labelledby="workspace-evidence-title">
+          <div class="dialog-head"><h3 id="workspace-evidence-title">Field source</h3><button id="workspace-evidence-close" class="icon-button" type="button" aria-label="Close source details">×</button></div>
+          <div id="workspace-evidence-content"></div>
+        </dialog>
+        <dialog id="workspace-attachment-dialog" class="evidence-dialog" aria-labelledby="workspace-attachment-title">
+          <form method="dialog"><div class="dialog-head"><h3 id="workspace-attachment-title">Attach evidence</h3><button class="icon-button" value="cancel" aria-label="Close attachment dialog">×</button></div>
+            <label class="dialog-field">What does this show?<select id="workspace-attachment-purpose"><option value="BEFORE_WORK_PHOTO">Before-work photo</option><option value="AFTER_WORK_PHOTO">After-work photo</option><option value="MEASUREMENT">Measurement</option><option value="PARTS_EVIDENCE">Parts evidence</option><option value="CUSTOMER_DOCUMENT">Customer document</option><option value="EXISTING_SERVICE_RECORD">Existing service record</option><option value="OTHER">Other</option></select></label>
+            <div class="dialog-actions"><button class="secondary" value="cancel">Cancel</button><button id="workspace-attachment-choose" class="primary" value="default">Choose file</button></div>
+          </form>
+        </dialog>
       </section>
 
       <section id="template-manager" class="template-view" hidden aria-labelledby="manager-title">

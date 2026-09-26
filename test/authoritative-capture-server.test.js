@@ -118,6 +118,35 @@ test('HTTP text capture persists an authoritative template-bound evidence chain'
   assert.ok(loaded.body.data.audit_events.length >= 4);
 });
 
+test('HTTP workspace lifecycle keeps attachments non-authoritative and rejects premature review', async (t) => {
+  const { request } = await fixture(t, 'workspace-lifecycle');
+  const created = await createBusSession(request, 'WORKSPACE');
+  const sessionId = created.body.data.session.session_id;
+  const attached = await request(`/api/report-sessions/${sessionId}/attachments`, {
+    method: 'POST', body: Buffer.from('after-work image bytes'), headers: {
+      'content-type': 'image/jpeg', 'x-file-name': 'after-work.jpg',
+      'x-attachment-purpose': 'AFTER_WORK_PHOTO', 'x-expected-revision': '0',
+    },
+  });
+  assert.equal(attached.status, 201);
+  assert.equal(attached.body.data.evidence.evidence_type, 'DOCUMENT');
+  assert.equal(attached.body.data.evidence.metadata.purpose, 'AFTER_WORK_PHOTO');
+
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: attached.body.data.session.revision,
+    text: 'Bus MAN A95 had a door fault.',
+  } });
+  const review = await request(`/api/report-sessions/${sessionId}/review`, { method: 'POST', body: {
+    expected_revision: captured.body.data.session.revision,
+  } });
+  assert.equal(review.status, 409);
+  assert.equal(review.body.error_code, 'REPORT_NOT_COMPLETE');
+
+  const chain = await request(`/api/report-sessions/${sessionId}`);
+  assert.equal(chain.body.data.evidence.some((entry) => entry.evidence_id === attached.body.data.evidence.evidence_id), true);
+  assert.equal(chain.body.data.field_candidates.some((entry) => entry.source_ref === attached.body.data.evidence.evidence_id), false);
+});
+
 test('HTTP exposes authoritative Agent state and accepts only server-owned structured resolutions', async (t) => {
   const { request } = await fixture(t, 'agent-resolution');
   const created = await createBusSession(request, 'AGENT');
