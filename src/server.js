@@ -777,6 +777,7 @@ const staticFiles = new Map([
   ['/locales/overrides.js', ['locales/overrides.js', 'text/javascript; charset=utf-8']],
   ['/report-runtime.js', ['report-runtime.js', 'text/javascript; charset=utf-8']],
   ['/template-catalog.js', ['template-catalog.js', 'text/javascript; charset=utf-8']],
+  ['/template-selection.js', ['template-selection.js', 'text/javascript; charset=utf-8']],
   ['/template-workspace.js', ['template-workspace.js', 'text/javascript; charset=utf-8']],
   ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],

@@ -92,6 +92,16 @@ The primary identity is the domain-neutral **Field Report** brand. Newway and SB
 
 The browser visual matrix includes desktop and 390 px mobile layouts, empty/partial/ready/confirmed report states, recording and processing feedback, real extraction-produced critical and conflict states, manager Templates and Template Setup, keyboard focus, and a clean browser console. Recording/processing screenshots use a browser media-device stub for repeatable visual-state inspection; recorder encoding and error paths remain covered by automated tests, while a physical microphone was not exercised in this run.
 
+## Template Selection refinement (2026-09-26)
+
+The technician chooser projects a deliberately small, human-facing view from the canonical template contract: display name, short description, organization, operational category, report family, and search aliases. Versions, provenance, schema ids, context ids, and renderer ids remain available in the manager and audit surfaces but are not repeated on technician cards. Only published templates whose presentation policy allows technician use are listed.
+
+The default chooser is `New report → Choose a report → Search reports`, followed by optional All, Bus, Rail, and HVAC filters. Search covers the display name, organization, domain, family, description, and aliases. The catalog uses compact two-column rows on desktop and one-column rows on mobile. Loading, unavailable, empty-catalog, no-results, and clear-search states are explicit. Reports navigation remains hidden until this browser actually has a report session.
+
+Recent reports are not seeded or inferred. The chooser records only templates actually opened in the current browser tab, keeps at most three unique ids in `sessionStorage`, and hides the section when no valid recent id exists. The report session continues to bind the exact template, schema, renderer, and context versions from the full canonical record; the technician projection never becomes runtime authority.
+
+Selection behavior is covered at the eight-template baseline and with a 100-template synthetic catalog. Browser evidence for chooser, search/no-results, recent use, representative Bus/Rail workspaces, READY/CONFIRMED, manager setup, and 390 px mobile is stored under `output/playwright/` and remains excluded from source control.
+
 ## Known limitations and deferred work
 
 - Arbitrary DOCX/PDF layout reconstruction and schema extraction are deliberately not claimed. Source files are preserved and schema definition is manual.

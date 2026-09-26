@@ -44,6 +44,15 @@ test('manual schema, text context, test and publish form one immutable version c
   assert.equal(published.schema.version, '1.0.0');
   assert.equal(published.contextCorpus.version, '1.0.0');
   assert.equal(published.contextCorpus.jobFactPolicy, 'CONTEXT_MUST_NOT_ASSERT_JOB_FACTS');
+  assert.deepEqual(published.presentation, {
+    displayName: 'Depot Daily Check',
+    shortDescription: 'Organization-defined maintenance report.',
+    organizationLabel: 'Organization',
+    operationalCategory: 'Other',
+    reportFamily: 'Custom report',
+    searchAliases: [],
+    technicianVisible: true,
+  });
   assert.equal((await store.listPublished()).length, 1);
   await assert.rejects(() => store.saveSchema(draft.id, { fields: [] }), /published|immutable/iu);
 });

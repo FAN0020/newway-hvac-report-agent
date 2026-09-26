@@ -8,10 +8,12 @@ import {
 } from './report-runtime.js';
 import { PcmWavRecorder } from './audio-recorder.js';
 import { fieldStatusPresentation, groupTemplateFields, reportStatusSummary } from './template-workspace.js';
+import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
 
 const $ = (id) => document.getElementById(id);
 const state = {
   token: '', templates: [], activeTemplate: null, session: null, facts: new Map(),
+  catalogCategory: 'All', templatesLoading: true, templatesError: null, recentTemplateIds: [],
   analysisRevision: 0,
   statementArtifact: null, lastPreservedText: '', retryAudioBlob: null,
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
@@ -22,6 +24,21 @@ let recordingStartedAt = 0;
 let recordingElapsedTimer = null;
 let recordingStopTimer = null;
 const workspaceBusy = new Set();
+const RECENT_TEMPLATES_KEY = 'field-report.recent-template-ids';
+
+function loadRecentTemplateIds() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(RECENT_TEMPLATES_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((item) => typeof item === 'string').slice(0, 3) : [];
+  } catch { return []; }
+}
+
+function recordRecentTemplate(templateId) {
+  state.recentTemplateIds = [templateId, ...state.recentTemplateIds.filter((id) => id !== templateId)].slice(0, 3);
+  try { sessionStorage.setItem(RECENT_TEMPLATES_KEY, JSON.stringify(state.recentTemplateIds)); } catch { /* Recents remain session-memory only. */ }
+}
+
+state.recentTemplateIds = loadRecentTemplateIds();
 
 function syncMobileNavigation(open = document.querySelector('.template-sidebar').classList.contains('open')) {
   const sidebar = document.querySelector('.template-sidebar');
@@ -77,38 +94,93 @@ function setView(name) {
   document.querySelectorAll('[data-template-nav]').forEach((button) => button.classList.toggle('active', button.dataset.templateNav === name));
   const headings = {
     reports: ['TECHNICIAN', 'Reports'],
-    choose: ['TECHNICIAN WORKSPACE', 'Choose a template'], workspace: ['FIELD REPORT', 'Report workspace'],
+    choose: ['', 'New report'], workspace: ['FIELD REPORT', 'Report workspace'],
     templates: ['MANAGER', 'Templates'], setup: ['MANAGER', 'Template setup'],
   };
   $('template-eyebrow').textContent = headings[name][0];
+  $('template-eyebrow').hidden = !headings[name][0];
   $('template-page-title').textContent = headings[name][1];
   if (name === 'reports') renderReports();
+  if (name === 'choose') renderCatalog();
   syncMobileNavigation(false);
 }
 
-function iconFor(template) {
-  if (template.domain === 'HVAC') return '❉';
-  if (template.domain === 'SBS_BUS') return '▰';
-  return '▥';
+function catalogButton(template) {
+  const button = element('button', 'catalog-card');
+  button.type = 'button';
+  button.dataset.templateId = template.templateId;
+  const category = element('span', 'catalog-category', template.category);
+  const copy = element('span', 'catalog-card-copy');
+  copy.append(
+    element('strong', '', template.displayName),
+    element('span', 'catalog-description', template.description),
+    element('small', 'catalog-context', `${template.organizationLabel} · ${template.reportFamily}`),
+  );
+  const arrow = element('span', 'catalog-arrow', '→');
+  arrow.setAttribute('aria-hidden', 'true');
+  button.append(category, copy, arrow);
+  button.addEventListener('click', () => openWorkspace(template.templateId));
+  return button;
 }
 
-function renderCatalog(filter = '') {
-  const query = filter.trim().toLowerCase();
+function renderCatalog(filter = $('template-search').value) {
+  const query = filter.trim();
   const container = $('template-catalog');
   container.replaceChildren();
-  const matches = state.templates.filter((template) => `${template.name} ${template.description || ''}`.toLowerCase().includes(query));
-  for (const template of matches) {
-    const button = element('button', 'catalog-card');
-    button.type = 'button';
-    const icon = element('span', 'catalog-card-icon', iconFor(template));
-    const title = element('strong', '', template.name);
-    const description = element('p', '', template.description || 'Organization-defined maintenance report.');
-    const organization = element('small', 'catalog-context', template.domain === 'HVAC' ? 'Newway' : template.domain.startsWith('SBS_') ? 'SBS Transit' : 'Organization');
-    button.append(icon, title, description, organization);
-    button.addEventListener('click', () => openWorkspace(template.templateId));
-    container.append(button);
+  const count = $('template-catalog-count');
+  const heading = $('template-catalog-title');
+  const recentSection = $('template-recent');
+  recentSection.hidden = true;
+
+  if (state.templatesLoading) {
+    count.textContent = 'Loading…';
+    container.append(element('div', 'catalog-state', 'Loading reports…'));
+    return;
   }
-  if (!matches.length) container.append(element('p', 'template-panel', 'No templates match this search.'));
+  if (state.templatesError) {
+    count.textContent = 'Unavailable';
+    const unavailable = element('div', 'catalog-state');
+    unavailable.append(element('strong', '', 'Reports are unavailable'), element('p', '', state.templatesError));
+    const retry = element('button', 'secondary', 'Try again');
+    retry.type = 'button'; retry.addEventListener('click', init); unavailable.append(retry); container.append(unavailable);
+    return;
+  }
+
+  const available = selectTechnicianTemplates(state.templates);
+  const matches = selectTechnicianTemplates(state.templates, { query, category: state.catalogCategory });
+  heading.textContent = query ? 'Search results' : state.catalogCategory === 'All' ? 'All reports' : `${state.catalogCategory} reports`;
+  count.textContent = `${matches.length} ${matches.length === 1 ? 'report' : 'reports'}`;
+
+  if (!query && state.catalogCategory === 'All') {
+    const recent = recentTechnicianTemplates(state.templates, state.recentTemplateIds);
+    const recentList = $('template-recent-list');
+    recentList.replaceChildren(...recent.map(catalogButton));
+    recentSection.hidden = recent.length === 0;
+  }
+
+  if (available.length === 0) {
+    const empty = element('div', 'catalog-state');
+    empty.append(element('strong', '', 'No reports available'), element('p', '', 'Ask a manager to publish a report template.'));
+    container.append(empty);
+    return;
+  }
+  if (matches.length === 0) {
+    const empty = element('div', 'catalog-state');
+    empty.append(element('strong', '', `No reports match${query ? ` “${query}”` : ' this filter'}.`), element('p', '', 'Try another name, organization, or report type.'));
+    const clear = element('button', 'secondary', 'Clear search and filters');
+    clear.type = 'button';
+    clear.addEventListener('click', () => {
+      $('template-search').value = '';
+      state.catalogCategory = 'All';
+      document.querySelectorAll('[data-template-category]').forEach((button) => {
+        const active = button.dataset.templateCategory === 'All';
+        button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
+      });
+      $('template-search').focus(); renderCatalog('');
+    });
+    empty.append(clear); container.append(empty); return;
+  }
+  container.append(...matches.map(catalogButton));
 }
 
 function renderReports() {
@@ -297,8 +369,10 @@ function renderReadiness() {
 }
 
 function openWorkspace(templateId) {
-  const template = state.templates.find((item) => item.templateId === templateId);
+  const template = state.templates.find((item) => item.templateId === templateId && item.status === 'PUBLISHED' && item.presentation?.technicianVisible !== false);
   if (!template) return;
+  recordRecentTemplate(templateId);
+  $('template-reports-nav').hidden = false;
   state.activeTemplate = template;
   state.session = createReportSession({ templateId, jobContext: { technicianId: 'LOCAL-TECH', technicianName: 'Local technician' } });
   state.facts = new Map();
@@ -576,23 +650,26 @@ async function testSetup() {
 async function publishSetup() {
   try {
     const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/publish`, { method: 'POST', body: {} });
-    registerRuntimeTemplate(data.template); state.templates.push(data.template); renderCatalog($('template-search').value); renderManager();
+    registerRuntimeTemplate(data.template); state.templates.push(data.template); renderCatalog(); renderManager();
     $('setup-test-status').className = 'setup-status success'; $('setup-test-status').textContent = `Published ${data.template.name} v${data.template.templateVersion}. The source, schema, context, renderer, and adapter are now immutable.`;
     $('setup-publish').disabled = true; setSetupStep(5);
   } catch (error) { $('setup-test-status').textContent = `Publish blocked: ${error.message}`; }
 }
 
 async function init() {
+  state.templatesLoading = true; state.templatesError = null; renderCatalog();
   try {
     const bootstrap = await fetch('/session-bootstrap', { method: 'POST' }).then((response) => response.json());
     state.token = bootstrap.token;
     const result = await api('/api/templates');
     state.templates = result.templates;
     for (const template of state.templates) registerRuntimeTemplate(template);
-    renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local · version-bound';
+    state.templatesLoading = false;
+    renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local';
   } catch (error) {
+    state.templatesLoading = false; state.templatesError = error.message;
     $('template-runtime-status').textContent = 'Connection unavailable';
-    $('template-catalog').append(element('p', 'template-panel', `Templates could not be loaded: ${error.message}`));
+    renderCatalog();
   }
 }
 
@@ -600,6 +677,14 @@ document.querySelectorAll('[data-template-nav]').forEach((button) => button.addE
 $('template-mobile-menu').addEventListener('click', () => syncMobileNavigation(!document.querySelector('.template-sidebar').classList.contains('open')));
 mobileNavigation.addEventListener('change', () => syncMobileNavigation(false));
 $('template-search').addEventListener('input', (event) => renderCatalog(event.target.value));
+document.querySelectorAll('[data-template-category]').forEach((button) => button.addEventListener('click', () => {
+  state.catalogCategory = button.dataset.templateCategory;
+  document.querySelectorAll('[data-template-category]').forEach((candidate) => {
+    const active = candidate === button;
+    candidate.classList.toggle('active', active); candidate.setAttribute('aria-pressed', String(active));
+  });
+  renderCatalog();
+}));
 $('workspace-analyze').addEventListener('click', () => analyzeStatement());
 $('workspace-microphone').addEventListener('click', () => (workspaceRecorder ? stopWorkspaceRecording() : startWorkspaceRecording()));
 $('workspace-retry').addEventListener('click', () => { if (state.retryAudioBlob) processWorkspaceAudio(state.retryAudioBlob, 'Recording'); });

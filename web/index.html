@@ -14,21 +14,20 @@
       <button class="template-brand" data-template-nav="choose" aria-label="Field Report home"><span>FR</span><strong>Field Report<small>Maintenance reporting</small></strong></button>
       <nav aria-label="Technician">
         <p>Technician</p>
-        <button class="template-nav" data-template-nav="reports"><span>▦</span> Reports</button>
+        <button id="template-reports-nav" class="template-nav" data-template-nav="reports" hidden><span>▦</span> Reports</button>
         <button class="template-nav active" data-template-nav="choose"><span>＋</span> New report</button>
       </nav>
       <nav aria-label="Manager">
         <p>Manager</p>
         <button class="template-nav" data-template-nav="templates"><span>▦</span> Templates</button>
       </nav>
-      <div class="template-sidebar-note"><strong>Local workspace</strong></div>
     </aside>
 
     <main class="template-main">
       <header class="template-topbar">
         <button id="template-mobile-menu" class="icon-button" aria-label="Open navigation">☰</button>
-        <div><p class="eyebrow" id="template-eyebrow">TECHNICIAN WORKSPACE</p><h1 id="template-page-title">Choose a template</h1></div>
-        <div class="template-trust"><span></span><strong id="template-runtime-status">Connecting locally…</strong></div>
+        <div><p class="eyebrow" id="template-eyebrow"></p><h1 id="template-page-title">New report</h1></div>
+        <div class="template-trust"><span></span><strong id="template-runtime-status">Connecting…</strong></div>
       </header>
 
       <section id="template-reports" class="template-view" hidden aria-labelledby="template-reports-title">
@@ -37,8 +36,21 @@
       </section>
 
       <section id="template-choose" class="template-view active" aria-labelledby="choose-title">
-        <div class="template-hero"><div><p class="eyebrow">NEW REPORT</p><h2 id="choose-title">Choose the form you need</h2><p>Each report stays bound to the selected template, schema, context, and renderer version.</p></div><label class="template-search"><span>⌕</span><input id="template-search" type="search" placeholder="Search templates" aria-label="Search templates"></label></div>
-        <div id="template-catalog" class="template-catalog" aria-live="polite"></div>
+        <div class="template-selection-head"><h2 id="choose-title">Choose a report</h2><label class="template-search"><span aria-hidden="true">⌕</span><input id="template-search" type="search" placeholder="Search reports" aria-label="Search reports"></label></div>
+        <div class="template-filters" role="group" aria-label="Filter reports by category">
+          <button type="button" class="template-filter active" data-template-category="All" aria-pressed="true">All</button>
+          <button type="button" class="template-filter" data-template-category="Bus" aria-pressed="false">Bus</button>
+          <button type="button" class="template-filter" data-template-category="Rail" aria-pressed="false">Rail</button>
+          <button type="button" class="template-filter" data-template-category="HVAC" aria-pressed="false">HVAC</button>
+        </div>
+        <section id="template-recent" class="template-catalog-section" hidden aria-labelledby="template-recent-title">
+          <h3 id="template-recent-title">Recent</h3>
+          <div id="template-recent-list" class="template-catalog compact"></div>
+        </section>
+        <section class="template-catalog-section" aria-labelledby="template-catalog-title">
+          <div class="catalog-section-heading"><h3 id="template-catalog-title">All reports</h3><span id="template-catalog-count" aria-live="polite">Loading…</span></div>
+          <div id="template-catalog" class="template-catalog" aria-live="polite"><div class="catalog-state"><strong>Loading reports…</strong></div></div>
+        </section>
       </section>
 
       <section id="template-workspace" class="template-view" hidden aria-labelledby="workspace-title">

@@ -16,6 +16,27 @@ test('visible product shell uses generic Field Report branding and focused navig
   assert.match(visibleShell, />\s*New report\s*<\/button>/);
   assert.match(visibleShell, />\s*Templates\s*<\/button>/);
   assert.doesNotMatch(visibleShell, /data-template-nav="setup"[^>]*>[^<]*<span[^>]*>.*Template setup/is);
+  assert.doesNotMatch(visibleShell, /Local workspace|version-bound/i);
+});
+
+test('new report chooser is concise, filterable, and keeps implementation metadata out of technician cards', async () => {
+  const [html, client] = await Promise.all([
+    fs.readFile('web/index.html', 'utf8'),
+    fs.readFile('web/template-app.js', 'utf8'),
+  ]);
+  const chooser = html.slice(html.indexOf('id="template-choose"'), html.indexOf('id="template-workspace"'));
+
+  assert.match(chooser, /<h2 id="choose-title">Choose a report<\/h2>/);
+  assert.match(chooser, /placeholder="Search reports"/);
+  for (const category of ['All', 'Bus', 'Rail', 'HVAC']) assert.match(chooser, new RegExp(`data-template-category="${category}"`));
+  assert.match(chooser, /id="template-recent"[^>]*hidden/);
+  assert.match(chooser, /Loading reports/);
+  assert.doesNotMatch(chooser, /schema|context|renderer|provenance|prototype|version/i);
+  assert.match(client, /selectTechnicianTemplates/);
+  assert.match(client, /sessionStorage\.setItem\(RECENT_TEMPLATES_KEY/);
+  assert.match(client, /No reports available/);
+  assert.match(client, /No reports match/);
+  assert.match(client, /Reports are unavailable/);
 });
 
 test('report workspace makes the composer, microphone, and inline report status primary', async () => {

@@ -159,6 +159,8 @@ export class TemplateStore {
     const version = '1.0.0';
     const published = {
       templateId: draft.templateId, name: draft.name, status: 'PUBLISHED', templateVersion: version,
+      description: 'Organization-defined maintenance report.', domain: 'CUSTOM',
+      presentation: { displayName: draft.name, shortDescription: 'Organization-defined maintenance report.', organizationLabel: 'Organization', operationalCategory: 'Other', reportFamily: 'Custom report', searchAliases: [], technicianVisible: true },
       provenance: draft.provenance, sourceArtifact: draft.source,
       schema: { id: `${draft.templateId}-schema`, version, fields: draft.schemaReview.fields, missingnessPolicy: 'REQUIRED_FIELDS_REMAIN_UNRESOLVED_UNTIL_EVIDENCE_OR_TECHNICIAN_INPUT', positiveStatusPolicy: 'NEVER_INFER_FROM_SILENCE' },
       contextCorpus: { id: `${draft.templateId}-context`, version, retrievalBoundary: 'TEMPLATE_VERSION_ONLY', jobFactPolicy: 'CONTEXT_MUST_NOT_ASSERT_JOB_FACTS', sources: draft.context.documents },

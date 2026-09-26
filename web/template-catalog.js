@@ -81,8 +81,9 @@ const PUBLIC_SOURCES = Object.freeze({
   ]),
 });
 
-function makeTemplate({ templateId, name, domain, provenance, fields, contextSources, description, sourceFilename, sourceSha256 }) {
+function makeTemplate({ templateId, name, domain, provenance, fields, contextSources, description, sourceFilename, sourceSha256, organizationLabel, reportFamily, searchAliases = [] }) {
   const version = '1.0.0';
+  const operationalCategory = domain === 'HVAC' ? 'HVAC' : domain === 'SBS_BUS' ? 'Bus' : 'Rail';
   return Object.freeze({
     templateId,
     name,
@@ -90,6 +91,15 @@ function makeTemplate({ templateId, name, domain, provenance, fields, contextSou
     domain,
     status: 'PUBLISHED',
     templateVersion: version,
+    presentation: Object.freeze({
+      displayName: name,
+      shortDescription: description,
+      organizationLabel,
+      operationalCategory,
+      reportFamily,
+      searchAliases: Object.freeze(searchAliases),
+      technicianVisible: true,
+    }),
     provenance: Object.freeze({ classification: provenance, official: false, notice: 'Prototype template — not an official SBS Transit form.' }),
     sourceArtifact: Object.freeze({
       kind: domain === 'HVAC' ? 'repository-template' : 'research-pack-prototype',
@@ -205,14 +215,14 @@ const RAIL_HANDOVER_FIELDS = [
 ];
 
 const TEMPLATES = Object.freeze([
-  makeTemplate({ templateId: 'hvac-service-report', name: 'HVAC Service Report', domain: 'HVAC', provenance: 'user-supplied prototype', description: 'Existing HVAC service report using the shared template runtime.', fields: HVAC_FIELDS, contextSources: [], sourceFilename: 'hvac-service-report.v1.json', sourceSha256: 'c16394579e5bfbabab8f52e071b8ca20669a73179c1e595a5fd413556133d561' }),
-  makeTemplate({ templateId: 'bus-preventive-maintenance-inspection', name: 'Bus Preventive Maintenance / Inspection', domain: 'SBS_BUS', provenance: 'research-derived prototype', description: 'Preventive bus inspection with evidence-backed checklist states.', fields: BUS_PM_FIELDS, contextSources: PUBLIC_SOURCES.bus, sourceFilename: 'Bus_General_PM_Prototype.docx', sourceSha256: '86c0935105295f40e35827c4b8ded8411119c447f04e8b8189d79ec9f954c3d7' }),
-  makeTemplate({ templateId: 'bus-defect-rectification-corrective-maintenance', name: 'Bus Defect Rectification / Corrective Maintenance', domain: 'SBS_BUS', provenance: 'research-derived prototype', description: 'Diagnosis, rectification and safe handover of a reported bus defect.', fields: BUS_DEFECT_FIELDS, contextSources: PUBLIC_SOURCES.bus, sourceFilename: 'Bus_Defect_Rectification_Prototype.docx', sourceSha256: 'faf6a2aff28c1b71f91955064bc4eda2ceadfdecb2737458af131d9b0567e50d' }),
-  makeTemplate({ templateId: 'bus-passenger-door-safety-equipment-inspection', name: 'Bus Passenger Door / Safety Equipment Inspection', domain: 'SBS_BUS', provenance: 'research-derived prototype', description: 'Passenger-door and safety-equipment inspection.', fields: BUS_DOOR_FIELDS, contextSources: PUBLIC_SOURCES.bus, sourceFilename: 'Bus_Door_Safety_Inspection_Prototype.docx', sourceSha256: '77e41dd5f2ceed3d68f7d43a77652272519a5c907a5cf0f6e20afa9573a2d03b' }),
-  makeTemplate({ templateId: 'rail-track-inspection-maintenance', name: 'Rail Track Inspection / Maintenance', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Track inspection, exact-location findings and handover.', fields: RAIL_TRACK_FIELDS, contextSources: PUBLIC_SOURCES.rail, sourceFilename: 'Rail_Track_Inspection_Prototype.docx', sourceSha256: '10439bb96bb1446c2ad66b982f8b5ba32659bce096b2327dbb26adbd60e320e0' }),
-  makeTemplate({ templateId: 'plain-rail-preventive-inspection', name: 'Plain Rail Preventive Inspection', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Preventive inspection for plain rail and access controls.', fields: PLAIN_RAIL_FIELDS, contextSources: PUBLIC_SOURCES.rail, sourceFilename: 'Rail_Plain_Rail_PM_Prototype.docx', sourceSha256: '37fda7ed71e6afc989d50dc65ba2c0fa465b292bfba98e4a2e126dbb4da16303' }),
-  makeTemplate({ templateId: 'conductor-third-rail-preventive-inspection', name: 'Conductor / Third-Rail Preventive Inspection', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Conductor-rail condition and safety inspection.', fields: CONDUCTOR_FIELDS, contextSources: [...PUBLIC_SOURCES.rail, ...PUBLIC_SOURCES.conductor], sourceFilename: 'Rail_Conductor_Rail_Inspection_Prototype.docx', sourceSha256: '81635770b0a38526b797829f2736a8321a1d50d97a6d4b478bd8632647235f0e' }),
-  makeTemplate({ templateId: 'rail-maintenance-completion-handover', name: 'Rail Maintenance Completion / Handover', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Maintenance completion, accountability and return-to-service handover.', fields: RAIL_HANDOVER_FIELDS, contextSources: PUBLIC_SOURCES.rail, sourceFilename: 'Rail_Maintenance_Handover_Prototype.docx', sourceSha256: '1c6c3e4e91ef37fdb9e391d7329a3b29ee3829bf46f5fd225c611e382436307c' }),
+  makeTemplate({ templateId: 'hvac-service-report', name: 'HVAC Service Report', domain: 'HVAC', provenance: 'user-supplied prototype', description: 'Service findings, work, tests, and completion for HVAC equipment.', organizationLabel: 'Newway', reportFamily: 'HVAC service', searchAliases: ['air conditioning', 'cooling', 'ventilation'], fields: HVAC_FIELDS, contextSources: [], sourceFilename: 'hvac-service-report.v1.json', sourceSha256: 'c16394579e5bfbabab8f52e071b8ca20669a73179c1e595a5fd413556133d561' }),
+  makeTemplate({ templateId: 'bus-preventive-maintenance-inspection', name: 'Bus Preventive Maintenance / Inspection', domain: 'SBS_BUS', provenance: 'research-derived prototype', description: 'Preventive bus inspection with evidence-backed checklist states.', organizationLabel: 'SBS Transit', reportFamily: 'Preventive maintenance', searchAliases: ['bus PM', 'scheduled inspection'], fields: BUS_PM_FIELDS, contextSources: PUBLIC_SOURCES.bus, sourceFilename: 'Bus_General_PM_Prototype.docx', sourceSha256: '86c0935105295f40e35827c4b8ded8411119c447f04e8b8189d79ec9f954c3d7' }),
+  makeTemplate({ templateId: 'bus-defect-rectification-corrective-maintenance', name: 'Bus Defect Rectification / Corrective Maintenance', domain: 'SBS_BUS', provenance: 'research-derived prototype', description: 'Diagnosis, rectification, and safe handover of a reported bus defect.', organizationLabel: 'SBS Transit', reportFamily: 'Corrective maintenance', searchAliases: ['bus repair', 'fault rectification'], fields: BUS_DEFECT_FIELDS, contextSources: PUBLIC_SOURCES.bus, sourceFilename: 'Bus_Defect_Rectification_Prototype.docx', sourceSha256: 'faf6a2aff28c1b71f91955064bc4eda2ceadfdecb2737458af131d9b0567e50d' }),
+  makeTemplate({ templateId: 'bus-passenger-door-safety-equipment-inspection', name: 'Bus Passenger Door / Safety Equipment Inspection', domain: 'SBS_BUS', provenance: 'research-derived prototype', description: 'Passenger-door and safety-equipment inspection.', organizationLabel: 'SBS Transit', reportFamily: 'Door and safety inspection', searchAliases: ['bus door', 'emergency equipment', 'passenger safety'], fields: BUS_DOOR_FIELDS, contextSources: PUBLIC_SOURCES.bus, sourceFilename: 'Bus_Door_Safety_Inspection_Prototype.docx', sourceSha256: '77e41dd5f2ceed3d68f7d43a77652272519a5c907a5cf0f6e20afa9573a2d03b' }),
+  makeTemplate({ templateId: 'rail-track-inspection-maintenance', name: 'Rail Track Inspection / Maintenance', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Track inspection, exact-location findings, and handover.', organizationLabel: 'SBS Transit', reportFamily: 'Track inspection', searchAliases: ['railway track', 'track maintenance'], fields: RAIL_TRACK_FIELDS, contextSources: PUBLIC_SOURCES.rail, sourceFilename: 'Rail_Track_Inspection_Prototype.docx', sourceSha256: '10439bb96bb1446c2ad66b982f8b5ba32659bce096b2327dbb26adbd60e320e0' }),
+  makeTemplate({ templateId: 'plain-rail-preventive-inspection', name: 'Plain Rail Preventive Inspection', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Preventive inspection for plain rail and access controls.', organizationLabel: 'SBS Transit', reportFamily: 'Plain rail inspection', searchAliases: ['running rail', 'rail PM'], fields: PLAIN_RAIL_FIELDS, contextSources: PUBLIC_SOURCES.rail, sourceFilename: 'Rail_Plain_Rail_PM_Prototype.docx', sourceSha256: '37fda7ed71e6afc989d50dc65ba2c0fa465b292bfba98e4a2e126dbb4da16303' }),
+  makeTemplate({ templateId: 'conductor-third-rail-preventive-inspection', name: 'Conductor / Third-Rail Preventive Inspection', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Conductor-rail condition and safety inspection.', organizationLabel: 'SBS Transit', reportFamily: 'Conductor rail inspection', searchAliases: ['third rail', 'power rail'], fields: CONDUCTOR_FIELDS, contextSources: [...PUBLIC_SOURCES.rail, ...PUBLIC_SOURCES.conductor], sourceFilename: 'Rail_Conductor_Rail_Inspection_Prototype.docx', sourceSha256: '81635770b0a38526b797829f2736a8321a1d50d97a6d4b478bd8632647235f0e' }),
+  makeTemplate({ templateId: 'rail-maintenance-completion-handover', name: 'Rail Maintenance Completion / Handover', domain: 'SBS_RAIL', provenance: 'research-derived prototype', description: 'Maintenance completion, accountability, and return-to-service handover.', organizationLabel: 'SBS Transit', reportFamily: 'Maintenance handover', searchAliases: ['return to service', 'OCC handover', 'work completion'], fields: RAIL_HANDOVER_FIELDS, contextSources: PUBLIC_SOURCES.rail, sourceFilename: 'Rail_Maintenance_Handover_Prototype.docx', sourceSha256: '1c6c3e4e91ef37fdb9e391d7329a3b29ee3829bf46f5fd225c611e382436307c' }),
 ]);
 
 const BY_ID = new Map(TEMPLATES.map((item) => [item.templateId, item]));
