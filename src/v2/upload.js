@@ -433,7 +433,8 @@ export async function ingestDocument({ scopeId, filename, buffer, mimeType, meta
 
   const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer ?? []);
   const digest = sha256Hex(bytes);
-  const uploadId = `upload_${sha256Hex(`${scope}\n${digest}`).slice(0, 24)}`;
+  const reportSessionId = bounded(metadata.report_session_id, 160);
+  const uploadId = `upload_${sha256Hex(`${scope}\n${reportSessionId}\n${digest}`).slice(0, 24)}`;
   const uploadedAt = new Date().toISOString();
   const steps = [];
   const errors = [];
@@ -456,7 +457,9 @@ export async function ingestDocument({ scopeId, filename, buffer, mimeType, meta
       source: bounded(metadata.source, 300),
       uploader: bounded(metadata.uploader, 200),
       scenario: bounded(metadata.scenario, 200),
+      ...(reportSessionId ? { report_session_id: reportSessionId } : {}),
     },
+    document_version: `sha256:${digest}`,
     errors: [],
     steps: [],
   };

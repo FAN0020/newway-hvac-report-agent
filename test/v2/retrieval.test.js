@@ -188,6 +188,37 @@ test('includeUploads=false excludes upload chunks from results', async (t) => {
   assert.ok(withoutUploads.results.every((r) => r.source !== 'upload'));
 });
 
+test('authoritative retrieval can only consult the upload ids bound to its ReportSession', async (t) => {
+  const { registry, knowledgeRoot, store } = await makeContext(t);
+  const first = await ingestDocument({
+    scopeId: 'SBS_BUS',
+    filename: 'session-a.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Session Alpha proprietary ZX-47 door procedure.', 'utf8'),
+    metadata: { ...METADATA, report_session_id: 'session_alpha' },
+    store,
+  });
+  const second = await ingestDocument({
+    scopeId: 'SBS_BUS',
+    filename: 'session-b.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Session Beta proprietary ZX-47 door procedure.', 'utf8'),
+    metadata: { ...METADATA, report_session_id: 'session_beta' },
+    store,
+  });
+  const retriever = createRetriever({ registry, knowledgeRoot, uploadStore: store });
+
+  const out = await retriever({
+    contextId: 'SBS/BUS',
+    query: 'proprietary ZX-47 door procedure',
+    permittedUploadIds: [first.upload_id],
+  });
+
+  assert.ok(out.results.some((item) => item.doc_id === first.upload_id));
+  assert.ok(out.results.every((item) => item.source !== 'upload' || item.doc_id === first.upload_id));
+  assert.ok(out.results.every((item) => item.doc_id !== second.upload_id));
+});
+
 test('results carry provenance and doc/chunk identifiers', async (t) => {
   const { registry, knowledgeRoot, store } = await makeContext(t);
   const retriever = createRetriever({ registry, knowledgeRoot, uploadStore: store });

@@ -70,8 +70,8 @@ test('report workspace makes the composer, microphone, and inline report status 
   assert.match(client, /async function startWorkspaceRecording/);
   assert.match(client, /async function stopWorkspaceRecording/);
   assert.match(client, /await processWorkspaceAudio\(wav/);
-  assert.match(client, /await analyzeStatement\(\{ preserveStatement: false \}\)/);
-  assert.match(client, /\/api\/transcripts\/manual/);
+  assert.match(client, /\/capture\/audio/);
+  assert.match(client, /applyAuthoritativeCapture\(result, sessionId, revision\)/);
   assert.match(client, /value === 'NOT_CHECKED' \? 'Not checked'/);
 });
 
@@ -114,7 +114,7 @@ test('missing status controls show a truthful needs-information value without cr
   assert.equal(controlValueForField({ type: 'text' }, null), '');
 });
 
-test('HVAC composer uses the existing correction receipt and extraction pipeline with explicit inline decisions', async () => {
+test('HVAC composer uses the authoritative transcript review pipeline with explicit inline decisions', async () => {
   const [html, client] = await Promise.all([
     fs.readFile('web/index.html', 'utf8'),
     fs.readFile('web/template-app.js', 'utf8'),
@@ -122,13 +122,12 @@ test('HVAC composer uses the existing correction receipt and extraction pipeline
   const workspace = html.slice(html.indexOf('id="template-workspace"'), html.indexOf('id="template-manager"'));
 
   assert.match(workspace, /id="workspace-corrections"[^>]*hidden/);
-  assert.match(client, /api\('\/api\/normalizations'/);
-  assert.match(client, /api\('\/api\/corrections\/confirm'/);
-  assert.match(client, /api\('\/api\/facts\/extract'/);
-  assert.match(client, /critical_value_confirmed:\s*true/);
+  assert.match(client, /\/transcript-reviews\//);
+  assert.match(client, /review_item_id:\s*candidate\.candidate_id/);
+  assert.match(client, /expected_revision:\s*state\.authoritySession\.revision/);
   assert.match(client, /Use correction/);
   assert.match(client, /Keep original/);
-  assert.match(client, /applyTranscriptArtifact\(state\.session, transcriptResult\.transcript\)/);
+  assert.match(client, /applyTranscriptArtifact\(state\.session, \{ \.\.\.result\.transcript/);
   assert.doesNotMatch(client, /correction_candidates\.map\([^)]*decision:\s*'ACCEPT'/s);
 });
 
@@ -149,12 +148,12 @@ test('critical and conflicting field values expose an inline technician decision
 test('a pending transcript decision blocks confirmation and clears stale extracted values', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   const readiness = client.slice(client.indexOf('function renderReadiness()'), client.indexOf('function openWorkspace'));
-  const analysis = client.slice(client.indexOf('async function analyzeStatement'), client.indexOf('async function processWorkspaceAudio'));
+  const captureApplication = client.slice(client.indexOf('function applyAuthoritativeCapture'), client.indexOf('function clearExtractedFacts'));
 
   assert.match(readiness, /pendingCorrectionReview\s*=\s*Boolean\(state\.hvacCorrectionReview\)/);
   assert.match(readiness, /Needs confirmation/);
   assert.match(readiness, /\|\|\s*pendingCorrectionReview\s*\|\|/);
-  assert.match(analysis, /clearExtractedFacts\(\)/);
+  assert.match(captureApplication, /clearExtractedFacts\(\)/);
 });
 
 test('report-oriented CSS uses dense desktop columns and intentional mobile collapse', async () => {
@@ -183,4 +182,19 @@ test('in-flight evidence and confirmation cannot race the exact-version lock', a
   assert.match(readiness, /workspace-confirm'\)\.disabled = .*busy/s);
   assert.match(confirmation, /setWorkspaceControlsDisabled\(true\)/);
   assert.match(confirmation, /catch[\s\S]*setWorkspaceControlsDisabled\(false\)/);
+});
+
+test('visible workspace delegates capture, extraction, field answers, and report facts to ReportSession backend', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /api\('\/api\/report-sessions'/);
+  assert.match(client, /\/capture\/text/);
+  assert.match(client, /\/capture\/audio/);
+  assert.match(client, /\/transcript-reviews\//);
+  assert.match(client, /\/fields\//);
+  assert.match(client, /\/candidates\//);
+  assert.doesNotMatch(client, /api\('\/api\/v2\/facts\/extract'/);
+  assert.doesNotMatch(client, /api\('\/api\/facts\/extract'/);
+  assert.doesNotMatch(client, /knowledge_hits/);
+  const confirmation = client.slice(client.indexOf('async function confirmWorkspace()'), client.indexOf('function setSetupStep'));
+  assert.doesNotMatch(confirmation, /facts:\s*factsFromStructuredState/);
 });

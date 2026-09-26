@@ -259,6 +259,7 @@ const STANDARD_REFERENCE_RE = /\b(?:GB(?:\/T)?|NB\/T|Q\/GDW)\s*\d+(?:\.\d+)?(?:-
 const INSPECTION_ITEM_RE = /检查|检测|试验|测试|巡检|inspection|test|击穿电压|介质损耗|体积电阻率|管道敷设|线路选择|输油工艺/iu;
 const INDUSTRIAL_RESULT_RE = /符合|不符合|合格|不合格|正常|异常|通过|不通过|pass(?:ed)?|fail(?:ed)?|compliant|non[- ]?compliant/iu;
 const OBSERVATION_RE = /实际情况|现场|发现|观察|测得|显示|observed|found|measured|inspection/iu;
+const SPECIFICATION_ONLY_RE = /手册|规范|规格|标准|要求|阈值|上限|下限|manual|spec(?:ification)?|standard|required?|threshold|limit/iu;
 const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔离)|(?:已完成|完成)(?:了)?[^。；;，,]{0,12}(?:更换|修复|紧固|清理|整改|处理|隔离)|replaced|repaired|secured|cleaned|rectified|isolated/iu;
 
 /** Test-indicator + result words (drives test.result). */
@@ -412,6 +413,16 @@ function factsFromSentence(sentence, scopeId, vocab) {
 
   // --- measurement.* --------------------------------------------------
   for (const measure of sentence.matchAll(MEASUREMENT_RE)) {
+    const before = sentence.slice(0, measure.index);
+    const after = sentence.slice(measure.index + measure[0].length);
+    const specificationBefore = SPECIFICATION_ONLY_RE.test(before) && !OBSERVATION_RE.test(before);
+    const specificationMarker = after.search(SPECIFICATION_ONLY_RE);
+    const intervening = specificationMarker < 0 ? '' : after.slice(0, specificationMarker);
+    MEASUREMENT_RE.lastIndex = 0;
+    const interveningHasMeasurement = MEASUREMENT_RE.test(intervening);
+    MEASUREMENT_RE.lastIndex = 0;
+    const specificationAfter = specificationMarker >= 0 && !interveningHasMeasurement;
+    if (specificationBefore || specificationAfter) continue;
     const unit = normalizeMeasurementUnit(measure[2]);
     out.push({ field: measurementField(sentence, unit), value: measure[1], unit });
   }

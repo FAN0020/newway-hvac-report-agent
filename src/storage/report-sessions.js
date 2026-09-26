@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   createAuditEvent,
+  appendReportSessionEvent,
   createReportSession,
   deepFreeze,
   deserializeReportSession,
@@ -135,6 +136,30 @@ export class ReportSessionStore {
         transcript_review_ids: append('transcript_review_ids'),
         evidence_span_ids: append('evidence_span_ids'),
         field_candidate_ids: append('field_candidate_ids'),
+        guidance_upload_ids: append('guidance_upload_ids'),
+        guidance_context_ids: append('guidance_context_ids'),
+      });
+      await this.writeEvent(result.event);
+      await this.writeSession(session);
+      return deepFreeze({ session, event: result.event });
+    });
+  }
+
+  async recordEvent(command) {
+    return this.withLock(command.session_id, async () => {
+      const current = await this.load(command.session_id);
+      const result = appendReportSessionEvent(current, command);
+      const additions = command.additions || {};
+      const append = (key) => [...new Set([...(result.session[key] || []), ...(additions[key] || [])])];
+      const session = deepFreeze({
+        ...result.session,
+        evidence_ids: append('evidence_ids'),
+        transcript_ids: append('transcript_ids'),
+        transcript_review_ids: append('transcript_review_ids'),
+        evidence_span_ids: append('evidence_span_ids'),
+        field_candidate_ids: append('field_candidate_ids'),
+        guidance_upload_ids: append('guidance_upload_ids'),
+        guidance_context_ids: append('guidance_context_ids'),
       });
       await this.writeEvent(result.event);
       await this.writeSession(session);
@@ -194,6 +219,8 @@ export class ReportSessionStore {
       transcript_reviews: await loadMany('transcript-reviews', session.transcript_review_ids),
       evidence_spans: await loadMany('evidence-spans', session.evidence_span_ids),
       field_candidates: await loadMany('field-candidates', session.field_candidate_ids),
+      guidance_uploads: await loadMany('guidance-uploads', session.guidance_upload_ids),
+      guidance_contexts: await loadMany('guidance-contexts', session.guidance_context_ids),
     });
   }
 

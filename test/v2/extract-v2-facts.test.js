@@ -139,6 +139,15 @@ test('BUS measurement sentence yields measurement fact with unit', async () => {
   assert.equal(measurement.critical, true);
 });
 
+test('a specification threshold is guidance context, not an observed job measurement', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'The manual specification requires brake pressure of 800 kPa.',
+    registry,
+  });
+  assert.ok(!facts.some((fact) => fact.field.startsWith('measurement.')));
+});
+
 /* ------------------------------------------------------------------ *
  * RAIL text (task scenario)
  * ------------------------------------------------------------------ */
@@ -208,6 +217,28 @@ test('手册建议更换 → no parts.replaced (recommendation ≠ occurred acti
   });
   assert.ok(!hasField(facts, 'parts.replaced'), 'recommendation must not yield parts.replaced');
   assert.equal(valueOf(facts, 'parts.part_number'), '运行电容');
+});
+
+test('English negated, recommended, and future replacement statements never become performed work', async () => {
+  for (const rawText of [
+    'The technician did not replace the door control module.',
+    'The manual recommends replacing the door control module.',
+    'The technician will replace the door control module tomorrow.',
+  ]) {
+    const { facts } = await extractV2Facts({ contextId: 'SBS/BUS', rawText, registry });
+    assert.ok(!hasField(facts, 'parts.replaced'), rawText);
+    assert.ok(!hasField(facts, 'work_performed'), rawText);
+  }
+});
+
+test('English negative return-to-service is never converted to a positive completion state', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'C751A was not returned to service.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'completion.state'), 'out_of_service');
+  assert.notEqual(valueOf(facts, 'completion.state'), 'completed');
 });
 
 test('未回役 → out_of_service, not completed', async () => {
@@ -313,7 +344,7 @@ test('OILFIELD spoken transcript preserves metre values, completed remediation, 
   assert.deepEqual(standards, ['GB50253-2014']);
   assert.deepEqual(
     facts.filter((fact) => fact.field.startsWith('measurement.')).map((fact) => [fact.value, fact.unit]),
-    [['0.7', 'm'], ['0.8', 'm'], ['0.85', 'm']],
+    [['0.7', 'm'], ['0.85', 'm']],
   );
   assert.ok(hasField(facts, 'work_performed'));
 });

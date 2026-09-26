@@ -69,12 +69,6 @@ const templates = new TemplateStore({ root: path.join(dataRoot, 'templates') });
 const whisper = new WhisperProvider({ runtimeRoot, tempRoot });
 const ollama = new OllamaProvider();
 const reportSessions = new ReportSessionStore({ root: path.join(dataRoot, 'report-session-authority') });
-const authoritativeCapture = new AuthoritativeCaptureService({
-  artifactStore: artifacts,
-  sessionStore: reportSessions,
-  whisperProvider: whisper,
-});
-
 // V2 wiring: one upload store and one lazily-loaded scope registry shared by
 // every /api/v2/* route. Uploads land under data/v2-uploads (auto-mkdir in
 // createUploadStore.put; directory is gitignored except for .gitkeep).
@@ -84,6 +78,14 @@ function ensureV2Registry() {
   v2RegistryPromise ??= loadScopeRegistry();
   return v2RegistryPromise;
 }
+
+const authoritativeCapture = new AuthoritativeCaptureService({
+  artifactStore: artifacts,
+  sessionStore: reportSessions,
+  whisperProvider: whisper,
+  scopeRegistryProvider: ensureV2Registry,
+  uploadStore: v2UploadStore,
+});
 
 function resolveV2ContextOrThrow(contextId, registry) {
   try {
@@ -139,6 +141,9 @@ const UNTRUSTED_CAPTURE_FIELDS = new Set([
   'session_id', 'revision', 'evidence_id', 'transcript_id', 'provenance', 'evidence_refs',
   'field_state', 'field_states', 'support_type', 'support_status', 'confirmed_by_technician',
   'confirmation', 'confirmation_receipt', 'server_receipt', 'reviewer_principal_ref', 'corrected_text',
+  'facts', 'knowledge_hit', 'knowledge_hits', 'guidance_context', 'guidance_context_id',
+  'guidance_context_ids', 'guidance', 'retrieval_results', 'retrieval_score', 'chunk_id',
+  'scope_id', 'context_id', 'scope', 'context_binding', 'template_binding',
 ]);
 
 function rejectUntrustedAuthority(input, { allow = [] } = {}) {
@@ -150,6 +155,43 @@ function rejectUntrustedAuthority(input, { allow = [] } = {}) {
       code: 'UNTRUSTED_CAPTURE_INPUT', status: 400,
     });
   }
+}
+
+function factsFromAuthoritativeCandidates(chain) {
+  const byField = new Map();
+  for (const candidate of chain.field_candidates || []) {
+    if (candidate.assessment === 'INVALID' || candidate.support_type === 'RAG_GUIDANCE') continue;
+    if (!byField.has(candidate.field_id)) byField.set(candidate.field_id, []);
+    byField.get(candidate.field_id).push(candidate);
+  }
+  return [...byField.entries()].flatMap(([field, candidates]) => {
+    const lastResolutionIndex = candidates.findLastIndex((item) => (
+      item.support_type === 'TECHNICIAN_CONFIRMATION' || item.extraction?.method === 'technician-field-answer'
+    ));
+    const active = lastResolutionIndex >= 0
+      ? [candidates[lastResolutionIndex]]
+      : candidates.filter((item) => item.assessment === 'VALID');
+    const distinctClaims = new Set(active.map((item) => JSON.stringify(item.claim)));
+    const selected = distinctClaims.size === 1 ? active.at(-1) : null;
+    if (!selected || selected.claim?.kind !== 'VALUE') return [];
+    const composite = selected.claim.value && typeof selected.claim.value === 'object' && !Array.isArray(selected.claim.value)
+      ? selected.claim.value
+      : { value: selected.claim.value, ...(selected.unit ? { unit: selected.unit } : {}) };
+    return [{
+      fact_id: selected.candidate_id,
+      field,
+      value: composite.value,
+      ...(composite.unit ? { unit: composite.unit } : {}),
+      support_status: selected.support_type === 'TECHNICIAN_CONFIRMATION'
+        ? 'CONFIRMED_BY_TECHNICIAN'
+        : selected.assessment === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_TRANSCRIPT',
+      source: `report-session:${chain.session.session_id}`,
+      source_refs: selected.evidence_refs.map((reference) => reference.span_id
+        ? `${reference.evidence_id}#${reference.span_id}`
+        : reference.evidence_id),
+      critical: selected.risk_class === 'CRITICAL',
+    }];
+  });
 }
 
 async function handleApi(request, response, url, traceId, config, services) {
@@ -166,6 +208,71 @@ async function handleApi(request, response, url, traceId, config, services) {
   if (request.method === 'GET' && sessionMatch) {
     const chain = await captureService.sessionStore.loadChain(decodeURIComponent(sessionMatch[1]));
     writeJson(response, 200, toolEnvelope('get_report_session', traceId, 'PASS', chain));
+    return;
+  }
+
+  const guidanceUploadMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/guidance\/uploads$/u);
+  if (request.method === 'POST' && guidanceUploadMatch) {
+    if (request.headers['x-scope-id'] || request.headers['x-context-id']
+      || request.headers['x-uploader'] || request.headers['x-report-session-id']) {
+      throw Object.assign(new Error('Guidance upload scope and provenance are derived from the ReportSession.'), {
+        code: 'UNTRUSTED_GUIDANCE_UPLOAD_INPUT', status: 400,
+      });
+    }
+    const filename = String(request.headers['x-file-name'] || '').trim();
+    if (!filename) {
+      throw Object.assign(new Error('X-File-Name header is required for guidance uploads.'), { code: 'FILE_NAME_REQUIRED', status: 400 });
+    }
+    const result = await captureService.ingestGuidanceUpload({
+      session_id: decodeURIComponent(guidanceUploadMatch[1]),
+      expected_revision: request.headers['x-expected-revision'],
+      filename,
+      mime_type: request.headers['content-type'],
+      buffer: await readRawBody(request),
+    });
+    writeJson(response, 201, toolEnvelope('ingest_report_guidance', traceId, 'PASS', result));
+    return;
+  }
+
+  const guidanceViewMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/guidance$/u);
+  if (request.method === 'GET' && guidanceViewMatch) {
+    const chain = await captureService.sessionStore.loadChain(decodeURIComponent(guidanceViewMatch[1]));
+    const guidance = chain.guidance_contexts.map((context) => ({
+      guidance_context_id: context.guidance_context_id,
+      applicable_modules: context.applicable_modules,
+      follow_up_questions: context.follow_up_questions,
+      passages: context.passages.map((passage) => ({
+        source_type: passage.source_type,
+        text: passage.text,
+      })),
+    }));
+    writeJson(response, 200, toolEnvelope('view_report_guidance', traceId, 'PASS', { guidance }));
+    return;
+  }
+
+  const fieldAnswerMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/fields\/([^/]+)\/answer$/u);
+  if (request.method === 'POST' && fieldAnswerMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.submitFieldAnswer({
+      ...input,
+      session_id: decodeURIComponent(fieldAnswerMatch[1]),
+      field_id: decodeURIComponent(fieldAnswerMatch[2]),
+    });
+    writeJson(response, 201, toolEnvelope('record_report_field_answer', traceId, 'PASS', result));
+    return;
+  }
+
+  const candidateConfirmMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/candidates\/([^/]+)\/confirm$/u);
+  if (request.method === 'POST' && candidateConfirmMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.confirmFieldCandidate({
+      ...input,
+      session_id: decodeURIComponent(candidateConfirmMatch[1]),
+      candidate_id: decodeURIComponent(candidateConfirmMatch[2]),
+    });
+    writeJson(response, 200, toolEnvelope('confirm_report_field_candidate', traceId, 'PASS', result));
     return;
   }
 
@@ -265,7 +372,22 @@ async function handleApi(request, response, url, traceId, config, services) {
       selectedTemplate = (await templates.listPublished()).find((item) => item.templateId === templateId);
     }
     if (!selectedTemplate) throw Object.assign(new Error('Template version was not found.'), { code: 'TEMPLATE_NOT_FOUND', status: 404 });
-    const facts = Array.isArray(input.facts) ? input.facts : [];
+    const reportSessionId = String(input.report_session_id || `server_${traceId}`).slice(0, 160);
+    let facts;
+    if (reportSessionId.startsWith('session_')) {
+      const chain = await captureService.sessionStore.loadChain(reportSessionId);
+      if (chain.session.template_binding.template_id !== templateId) {
+        throw Object.assign(new Error('ReportSession is bound to another template.'), { code: 'REPORT_SESSION_TEMPLATE_MISMATCH', status: 409 });
+      }
+      if (Object.hasOwn(input, 'facts')) {
+        throw Object.assign(new Error('Authoritative report facts are derived from the persisted ReportSession.'), {
+          code: 'UNTRUSTED_REPORT_FACTS', status: 400,
+        });
+      }
+      facts = factsFromAuthoritativeCandidates(chain);
+    } else {
+      facts = Array.isArray(input.facts) ? input.facts : [];
+    }
     const definitions = selectedTemplate.schema.fields;
     const matches = (pattern, candidate) => pattern.endsWith('.*') ? candidate.startsWith(pattern.slice(0, -1)) : pattern === candidate;
     const accepted = facts.filter((fact) => definitions.some((definition) => matches(definition.id, String(fact.field || ''))));
@@ -303,7 +425,6 @@ async function handleApi(request, response, url, traceId, config, services) {
         return { field: definition.id, label: definition.label, value: fact?.value ?? null, status: fact ? 'SUPPORTED' : 'MISSING' };
       }),
     }));
-    const reportSessionId = String(input.report_session_id || `server_${traceId}`).slice(0, 160);
     const stateSnapshot = { session_id: reportSessionId, schema_id: selectedTemplate.schema.id, schema_version: selectedTemplate.schema.version, fields: Object.fromEntries([...state].map(([key, fact]) => [key, fact.value])), unsupported_fields: unsupported.map((fact) => fact.field) };
     const draft = {
       report_id: `report_${hashValue({ templateId, reportSessionId, accepted }).slice(7, 19)}`,

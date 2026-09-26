@@ -158,12 +158,27 @@ export function createGuidanceContext(input = {}) {
     const score = Number(passage?.score);
     if (!Number.isFinite(score)) throw new ContractValidationError(`passages[${index}].score must be finite.`, code);
     return {
-      source_id: requiredString(passage.source_id, `passages[${index}].source_id`, code),
+      source_type: enumValue(passage.source_type, ['knowledge', 'upload'], `passages[${index}].source_type`, code),
+      scope_id: requiredString(passage.scope_id, `passages[${index}].scope_id`, code),
+      document_id: requiredString(passage.document_id, `passages[${index}].document_id`, code),
       chunk_id: requiredString(passage.chunk_id, `passages[${index}].chunk_id`, code),
+      document_version: requiredString(passage.document_version, `passages[${index}].document_version`, code),
       text: requiredString(passage.text, `passages[${index}].text`, code),
       score,
+      provenance: copy(passage.provenance || {}),
     };
   });
+  const followUpQuestions = (input.follow_up_questions || []).map((question, index) => ({
+    section_id: requiredString(question.section_id, `follow_up_questions[${index}].section_id`, code),
+    field: requiredString(question.field, `follow_up_questions[${index}].field`, code),
+    question: requiredString(question.question, `follow_up_questions[${index}].question`, code),
+    answer_source: enumValue(
+      question.answer_source,
+      ['technician_confirmation'],
+      `follow_up_questions[${index}].answer_source`,
+      code,
+    ),
+  }));
   const body = {
     contract: 'GuidanceContext',
     contract_version: '1',
@@ -171,8 +186,14 @@ export function createGuidanceContext(input = {}) {
     context_id: requiredString(input.context_id, 'context_id', code),
     scope_id: requiredString(input.scope_id, 'scope_id', code),
     context_version: requiredString(input.context_version, 'context_version', code),
+    query: requiredString(input.query, 'query', code),
+    retrieval_method: enumValue(input.retrieval_method, ['LEXICAL_DETERMINISTIC'], 'retrieval_method', code),
+    retrieval_version: requiredString(input.retrieval_version, 'retrieval_version', code),
+    permitted_corpora: stringArray(input.permitted_corpora || [], 'permitted_corpora', { code }),
     retrieved_at: requiredTimestamp(input.retrieved_at, 'retrieved_at', code),
     passages,
+    applicable_modules: stringArray(input.applicable_modules || [], 'applicable_modules', { code }),
+    follow_up_questions: followUpQuestions,
     support_type: 'RAG_GUIDANCE',
     eligible_as_job_evidence: false,
   };

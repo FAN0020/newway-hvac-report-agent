@@ -83,9 +83,36 @@ export function createReportSession(input = {}) {
     transcript_review_ids: [],
     evidence_span_ids: [],
     field_candidate_ids: [],
+    guidance_upload_ids: [],
+    guidance_context_ids: [],
     recovery_phase: null,
     last_error: null,
   });
+}
+
+export function appendReportSessionEvent(session, command = {}) {
+  if (!session || session.contract !== 'ReportSession' || session.authority !== 'SERVER') {
+    throw new ContractValidationError('A server-authoritative ReportSession is required.', 'INVALID_REPORT_SESSION');
+  }
+  assertExpectedRevision(session, command.expected_revision);
+  const occurredAt = requiredTimestamp(command.occurred_at, 'occurred_at', 'INVALID_SESSION_EVENT');
+  const eventType = requiredString(command.event_type, 'event_type', 'INVALID_SESSION_EVENT');
+  const nextRevision = session.revision + 1;
+  const event = createAuditEvent({
+    session_id: session.session_id,
+    revision: nextRevision,
+    event_type: eventType,
+    principal_ref: command.principal_ref,
+    occurred_at: occurredAt,
+    payload: copy(command.details || {}),
+  });
+  const next = deepFreeze({
+    ...copy(session),
+    revision: nextRevision,
+    updated_at: occurredAt,
+    audit_event_ids: [...session.audit_event_ids, event.event_id],
+  });
+  return deepFreeze({ session: next, event });
 }
 
 export function assertExpectedRevision(session, expectedRevision) {

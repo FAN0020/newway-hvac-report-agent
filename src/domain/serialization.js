@@ -51,7 +51,15 @@ function validatePersistedSession(session) {
   if (!Array.isArray(session.audit_event_ids) || session.audit_event_ids.length > session.revision + 1) {
     throw new ContractValidationError('audit_event_ids cannot exceed the creation event plus the session revision.', code);
   }
-  for (const key of ['evidence_ids', 'transcript_ids', 'transcript_review_ids', 'evidence_span_ids', 'field_candidate_ids']) {
+  for (const key of [
+    'evidence_ids',
+    'transcript_ids',
+    'transcript_review_ids',
+    'evidence_span_ids',
+    'field_candidate_ids',
+    'guidance_upload_ids',
+    'guidance_context_ids',
+  ]) {
     if (!Array.isArray(session[key])) throw new ContractValidationError(`${key} must be an array.`, code);
   }
   requiredString(session.template_binding?.template_id, 'template_binding.template_id', code);
@@ -70,8 +78,13 @@ function validatePersistedSession(session) {
 export function deserializeReportSession(serialized, { trusted_persistence_hash: trustedHash } = {}) {
   const parsed = parse(serialized);
   requireTrustedHash(parsed, trustedHash);
-  validatePersistedSession(parsed);
-  return deepFreeze(parsed);
+  const migrated = {
+    ...parsed,
+    guidance_upload_ids: parsed.guidance_upload_ids || [],
+    guidance_context_ids: parsed.guidance_context_ids || [],
+  };
+  validatePersistedSession(migrated);
+  return deepFreeze(migrated);
 }
 
 export function deserializeReportSnapshot(serialized, { trusted_persistence_hash: trustedHash } = {}) {

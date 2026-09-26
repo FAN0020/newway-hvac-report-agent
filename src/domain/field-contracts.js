@@ -12,6 +12,28 @@ import {
 
 const CLAIM_KINDS = Object.freeze(['VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE']);
 const CANDIDATE_ASSESSMENTS = Object.freeze(['VALID', 'UNCERTAIN', 'INVALID']);
+const RISK_CLASSES = Object.freeze(['STANDARD', 'CRITICAL']);
+const CONFIDENCE_CLASSES = Object.freeze(['DIRECT_EVIDENCE', 'UNCERTAIN', 'INFERRED', 'CONFIRMED']);
+
+function candidateBinding(input, name, keys, code) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new ContractValidationError(`${name} is required.`, code);
+  }
+  return Object.fromEntries(keys.map((key) => [
+    key,
+    requiredString(input[key], `${name}.${key}`, code),
+  ]));
+}
+
+function rejectGuidanceReferences(references, sourceRef) {
+  if (references.some((reference) => reference.evidence_id.startsWith('guidance_'))
+    || String(sourceRef || '').startsWith('guidance_')) {
+    throw new ContractValidationError(
+      'GuidanceContext cannot be relabelled or serialized as job evidence.',
+      'GUIDANCE_NOT_JOB_EVIDENCE',
+    );
+  }
+}
 
 function normalizeClaim(input, code) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -33,19 +55,36 @@ function normalizeClaim(input, code) {
 function candidateBody(input, supportType, confirmation = {}) {
   const code = 'INVALID_FIELD_CANDIDATE';
   const references = evidenceRefs(input.evidence_refs || [], 'evidence_refs', code);
+  const claim = normalizeClaim(input.claim, code);
   if (supportType !== 'AI_INFERENCE' && references.length === 0) {
     throw new ContractValidationError(`${supportType} requires at least one immutable evidence reference.`, code);
   }
+  const sourceRef = input.source_ref ? requiredString(input.source_ref, 'source_ref', code) : null;
+  rejectGuidanceReferences(references, sourceRef);
   return {
     contract: 'FieldCandidate',
     contract_version: '1',
     session_id: requiredString(input.session_id, 'session_id', code),
     field_id: requiredString(input.field_id, 'field_id', code),
-    claim: normalizeClaim(input.claim, code),
+    claim,
+    unit: input.unit === undefined || input.unit === null
+      ? (claim.kind === 'VALUE' && claim.value && typeof claim.value === 'object' && claim.value.unit
+          ? requiredString(claim.value.unit, 'claim.value.unit', code)
+          : null)
+      : requiredString(input.unit, 'unit', code),
     support_type: supportType,
     assessment: enumValue(input.assessment || 'VALID', CANDIDATE_ASSESSMENTS, 'assessment', code),
     evidence_refs: references,
-    source_ref: input.source_ref ? requiredString(input.source_ref, 'source_ref', code) : null,
+    source_ref: sourceRef,
+    extraction: candidateBinding(input.extraction, 'extraction', ['method', 'version'], code),
+    risk_class: enumValue(input.risk_class, RISK_CLASSES, 'risk_class', code),
+    confidence_class: enumValue(input.confidence_class, CONFIDENCE_CLASSES, 'confidence_class', code),
+    source_context: candidateBinding(
+      input.source_context,
+      'source_context',
+      ['domain', 'context_id', 'context_version', 'scope_id'],
+      code,
+    ),
     ...confirmation,
   };
 }
@@ -105,6 +144,10 @@ export function createReportField(input = {}) {
     if (candidate.session_id !== sessionId) {
       throw new ContractValidationError(`candidates[${index}] belongs to another ReportSession.`, 'CROSS_SESSION_CANDIDATE');
     }
+    rejectGuidanceReferences(candidate.evidence_refs || [], candidate.source_ref);
+    if (candidate.support_type === 'RAG_GUIDANCE') {
+      throw new ContractValidationError('GuidanceContext cannot become a ReportField candidate.', 'GUIDANCE_NOT_JOB_EVIDENCE');
+    }
     return copy(candidate);
   });
   let state = 'UNKNOWN';
@@ -142,4 +185,9 @@ export function createReportField(input = {}) {
   });
 }
 
-export const fieldContractEnums = deepFreeze({ CLAIM_KINDS, CANDIDATE_ASSESSMENTS });
+export const fieldContractEnums = deepFreeze({
+  CLAIM_KINDS,
+  CANDIDATE_ASSESSMENTS,
+  RISK_CLASSES,
+  CONFIDENCE_CLASSES,
+});

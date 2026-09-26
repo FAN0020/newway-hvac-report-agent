@@ -35,6 +35,7 @@ export {
   InvalidTransitionError,
   StaleRevisionError,
   assertExpectedRevision,
+  appendReportSessionEvent,
   createReportSession,
   reportSessionTransitions,
   transitionReportSession,

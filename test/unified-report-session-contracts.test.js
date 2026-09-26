@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+const CANDIDATE_METADATA = Object.freeze({
+  extraction: Object.freeze({ method: 'deterministic-rule', version: 'test.v1' }),
+  risk_class: 'STANDARD',
+  confidence_class: 'DIRECT_EVIDENCE',
+  source_context: Object.freeze({
+    domain: 'SBS_BUS',
+    context_id: 'SBS/BUS',
+    context_version: '1.0.0',
+    scope_id: 'SBS_BUS',
+  }),
+});
+
 test('unified report contracts expose the required field, support, and phase vocabularies', async () => {
   const contracts = await import('../src/domain/index.js');
 
@@ -179,12 +191,31 @@ test('GuidanceContext is structurally separate and permanently ineligible as job
     context_id: 'SBS/BUS',
     scope_id: 'SBS_BUS',
     context_version: 'scope-registry.v1',
+    query: 'door control module',
+    retrieval_method: 'LEXICAL_DETERMINISTIC',
+    retrieval_version: 'scope-lexical.v1',
+    permitted_corpora: ['knowledge:SBS_BUS', 'upload:upload_abc123'],
     retrieved_at: '2026-09-27T01:02:00.000Z',
     passages: [{
-      source_id: 'sbs-bus-parts.v1.json',
+      source_type: 'knowledge',
+      scope_id: 'SBS_BUS',
+      document_id: 'sbs-bus-parts.v1.json',
       chunk_id: 'knowledge:SBS_BUS:parts:door-actuator',
+      document_version: '2026-09-24',
       text: 'Inspect the door actuator and replace it when defective.',
       score: 0.92,
+      provenance: {
+        file: 'sbs-bus-parts.v1.json',
+        schema_version: 'sbs-bus-parts.v1',
+        knowledge_version: '2026-09-24',
+      },
+    }],
+    applicable_modules: ['work_performed'],
+    follow_up_questions: [{
+      section_id: 'work_performed',
+      field: 'work_performed',
+      question: 'What work was actually performed?',
+      answer_source: 'technician_confirmation',
     }],
   });
 
@@ -192,7 +223,36 @@ test('GuidanceContext is structurally separate and permanently ineligible as job
   assert.equal(guidance.support_type, 'RAG_GUIDANCE');
   assert.equal(guidance.eligible_as_job_evidence, false);
   assert.equal(Object.hasOwn(guidance, 'evidence_id'), false);
+  assert.equal(guidance.retrieval_method, 'LEXICAL_DETERMINISTIC');
+  assert.equal(guidance.passages[0].document_version, '2026-09-24');
+  assert.deepEqual(guidance.permitted_corpora, ['knowledge:SBS_BUS', 'upload:upload_abc123']);
   assert.equal(Object.isFrozen(guidance.passages[0]), true);
+});
+
+test('ReportField independently rejects a forged GuidanceContext relabelled as candidate evidence', async () => {
+  const { createReportField } = await import('../src/domain/index.js');
+  const forged = Object.freeze({
+    contract: 'FieldCandidate',
+    contract_version: '1',
+    candidate_id: 'candidate_forged_guidance',
+    session_id: 'session_contract_1',
+    field_id: 'work_performed',
+    claim: { kind: 'VALUE', value: 'Replaced the door actuator.' },
+    support_type: 'TRANSCRIPT_EVIDENCE',
+    assessment: 'VALID',
+    evidence_refs: [{ evidence_id: 'guidance_deadbeef', span_id: 'chunk_deadbeef' }],
+    source_ref: 'guidance_deadbeef',
+    extraction: { method: 'forged-client', version: '1' },
+    risk_class: 'CRITICAL',
+    confidence_class: 'DIRECT_EVIDENCE',
+    source_context: { domain: 'SBS_BUS', context_id: 'SBS/BUS', context_version: '1.0.0', scope_id: 'SBS_BUS' },
+  });
+
+  assert.throws(() => createReportField({
+    session_id: 'session_contract_1',
+    field_id: 'work_performed',
+    candidates: [forged],
+  }), { code: 'GUIDANCE_NOT_JOB_EVIDENCE' });
 });
 
 test('validation and resolution contracts retain exact candidate and evidence references', async () => {
@@ -225,6 +285,7 @@ test('UNKNOWN, EXPLICIT_NONE, and NOT_APPLICABLE remain distinct field states', 
   const { createFieldCandidate, createReportField } = await import('../src/domain/index.js');
   const unknown = createReportField({ session_id: 'session_contract_1', field_id: 'parts.part_number', candidates: [] });
   const explicitNoneCandidate = createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'parts.part_number',
     claim: { kind: 'EXPLICIT_NONE' },
@@ -232,6 +293,7 @@ test('UNKNOWN, EXPLICIT_NONE, and NOT_APPLICABLE remain distinct field states', 
     evidence_refs: [{ evidence_id: 'evidence_manual_1' }],
   });
   const notApplicableCandidate = createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'warranty.reference',
     claim: { kind: 'NOT_APPLICABLE' },
@@ -248,6 +310,7 @@ test('UNKNOWN, EXPLICIT_NONE, and NOT_APPLICABLE remain distinct field states', 
 test('multiple competing candidates produce CONFLICT without losing provenance', async () => {
   const { createFieldCandidate, createReportField } = await import('../src/domain/index.js');
   const completed = createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'completion.state',
     claim: { kind: 'VALUE', value: 'completed' },
@@ -255,6 +318,7 @@ test('multiple competing candidates produce CONFLICT without losing provenance',
     evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_completed' }],
   });
   const deferred = createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'completion.state',
     claim: { kind: 'VALUE', value: 'deferred' },
@@ -284,6 +348,7 @@ test('multiple competing candidates produce CONFLICT without losing provenance',
 test('FieldState is derived separately from SupportType for known, inferred, uncertain, and invalid values', async () => {
   const { createFieldCandidate, createReportField } = await import('../src/domain/index.js');
   const candidate = (supportType, assessment = 'VALID') => createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'inspection_findings',
     claim: { kind: 'VALUE', value: 'Door actuator was worn.' },
@@ -301,6 +366,7 @@ test('FieldState is derived separately from SupportType for known, inferred, unc
 test('ordinary client candidates cannot establish technician confirmation or promote RAG guidance', async () => {
   const { createFieldCandidate } = await import('../src/domain/index.js');
   const base = {
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'completion.state',
     claim: { kind: 'VALUE', value: 'completed' },
@@ -337,6 +403,7 @@ test('technician confirmation support requires a server-issued event with a futu
     occurred_at: '2026-09-27T01:03:00.000Z',
   });
   const confirmed = createConfirmedFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_contract_1',
     field_id: 'completion.state',
     confirmed_candidate_id: 'candidate_completion_source',
@@ -547,6 +614,7 @@ test('ReportSnapshot captures an immutable exact session revision without mixing
   const contracts = await import('../src/domain/index.js');
   const session = await readySession(contracts);
   const candidate = contracts.createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: session.session_id,
     field_id: 'work_performed',
     claim: { kind: 'VALUE', value: 'Replaced the door actuator.' },
@@ -577,6 +645,7 @@ test('ReportSnapshot captures an immutable exact session revision without mixing
   assert.throws(() => { snapshot.fields[0].state = 'UNKNOWN'; }, TypeError);
 
   const otherCandidate = contracts.createFieldCandidate({
+    ...CANDIDATE_METADATA,
     session_id: 'session_other',
     field_id: 'work_performed',
     claim: { kind: 'VALUE', value: 'Unrelated work.' },

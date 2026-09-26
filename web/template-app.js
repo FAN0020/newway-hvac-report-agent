@@ -3,7 +3,6 @@ import {
   bindSessionConfirmation,
   createReportSession,
   evaluateCompleteness,
-  factsFromStructuredState,
   mapFactsToStructuredState,
   registerRuntimeTemplate,
 } from './report-runtime.js';
@@ -16,7 +15,7 @@ const state = {
   token: '', templates: [], activeTemplate: null, session: null, facts: new Map(),
   catalogCategory: 'All', templatesLoading: true, templatesError: null, recentTemplateIds: [],
   analysisRevision: 0,
-  statementArtifact: null, lastPreservedText: '', retryAudioBlob: null,
+  authoritySession: null, authoritySessionPromise: null, authorityMutation: Promise.resolve(), retryEvidenceId: null,
   hvacCorrectionReview: null,
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
 };
@@ -224,6 +223,59 @@ function renderManager() {
 
 function currentFacts() { return [...state.facts.values()]; }
 
+async function ensureAuthoritativeSession() {
+  if (state.authoritySession) return state.authoritySession;
+  if (!state.authoritySessionPromise) throw new Error('ReportSession is not available. Reopen this report.');
+  const result = await state.authoritySessionPromise;
+  if (!result?.session) throw result?.error || new Error('ReportSession could not be created.');
+  state.authoritySession = result.session;
+  return state.authoritySession;
+}
+
+async function mutateAuthority(operation) {
+  const pending = state.authorityMutation.then(operation);
+  state.authorityMutation = pending.catch(() => {});
+  return pending;
+}
+
+function factFromCandidate(candidate) {
+  if (!candidate || candidate.claim?.kind !== 'VALUE') return null;
+  const composite = candidate.claim.value && typeof candidate.claim.value === 'object' && !Array.isArray(candidate.claim.value)
+    ? candidate.claim.value
+    : { value: candidate.claim.value, ...(candidate.unit ? { unit: candidate.unit } : {}) };
+  return {
+    fact_id: candidate.candidate_id,
+    candidate_id: candidate.candidate_id,
+    field: candidate.field_id,
+    value: composite.value,
+    ...(composite.unit ? { unit: composite.unit } : {}),
+    support_status: candidate.support_type === 'TECHNICIAN_CONFIRMATION'
+      ? 'CONFIRMED_BY_TECHNICIAN'
+      : candidate.assessment === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_TRANSCRIPT',
+    source: `report-session:${candidate.session_id}`,
+    source_refs: candidate.evidence_refs.map((reference) => reference.span_id
+      ? `${reference.evidence_id}#${reference.span_id}`
+      : reference.evidence_id),
+    critical: candidate.risk_class === 'CRITICAL',
+  };
+}
+
+function applyCandidateFacts(candidates, revision, { replaceAll = true } = {}) {
+  if (replaceAll) clearExtractedFacts();
+  let accepted = 0;
+  const allowed = state.activeTemplate.schema.fields.map((field) => field.id);
+  for (const [index, candidate] of (candidates || []).entries()) {
+    const fact = factFromCandidate(candidate);
+    if (!fact) continue;
+    if (allowed.some((pattern) => pattern.endsWith('.*') ? fact.field.startsWith(pattern.slice(0, -1)) : fact.field === pattern)) {
+      state.facts.set(`extracted:${revision}:${fact.field}:${index}`, fact);
+      accepted += 1;
+    }
+  }
+  updateFromFacts();
+  return accepted;
+}
+
 function fieldValue(fieldId) {
   return state.session?.structuredState?.[fieldId] ?? '';
 }
@@ -240,18 +292,51 @@ function updateFromFacts() {
   renderReadiness();
 }
 
-function setTechnicianFact(field, value) {
+async function setTechnicianFact(field, value) {
   const normalized = typeof value === 'string' ? value.trim() : value;
-  for (const [key, fact] of state.facts) if (fact.field === field.id) state.facts.delete(key);
-  if (normalized !== '' && normalized !== 'NOT_CHECKED') state.facts.set(`manual:${field.id}`, {
-    fact_id: `manual_${field.id.replace(/[^A-Za-z0-9_-]/gu, '_')}`,
-    field: field.id,
-    value: field.type === 'number' ? Number(normalized) : normalized,
-    support_status: 'CONFIRMED_BY_TECHNICIAN',
-    source: 'manual_field',
-    source_refs: [`manual-field:${field.id}`],
-  });
-  updateFromFacts();
+  try {
+    const result = await mutateAuthority(async () => {
+      const authority = await ensureAuthoritativeSession();
+      const answered = await api(`/api/report-sessions/${encodeURIComponent(authority.session_id)}/fields/${encodeURIComponent(field.id)}/answer`, {
+        method: 'POST',
+        body: {
+          expected_revision: authority.revision,
+          value: field.type === 'number' && normalized !== '' ? Number(normalized) : normalized,
+        },
+      });
+      state.authoritySession = answered.session;
+      return answered;
+    });
+    state.authoritySession = result.session;
+    for (const [key, fact] of state.facts) if (fact.field === field.id) state.facts.delete(key);
+    const fact = factFromCandidate(result.candidate);
+    if (fact) state.facts.set(`manual:${field.id}`, fact);
+    updateFromFacts();
+  } catch (error) {
+    $('workspace-input-status').textContent = `Could not save ${field.label}: ${error.message}`;
+    updateFromFacts();
+  }
+}
+
+async function confirmTechnicianFact(field) {
+  const source = [...state.facts.values()].reverse().find((fact) => fact.field === field.id && fact.candidate_id);
+  if (!source) return;
+  try {
+    const result = await mutateAuthority(async () => {
+      const authority = await ensureAuthoritativeSession();
+      const confirmed = await api(`/api/report-sessions/${encodeURIComponent(authority.session_id)}/candidates/${encodeURIComponent(source.candidate_id)}/confirm`, {
+        method: 'POST', body: { expected_revision: authority.revision },
+      });
+      state.authoritySession = confirmed.session;
+      return confirmed;
+    });
+    state.authoritySession = result.session;
+    for (const [key, fact] of state.facts) if (fact.field === field.id) state.facts.delete(key);
+    state.facts.set(`confirmed:${field.id}`, factFromCandidate(result.candidate));
+    updateFromFacts();
+  } catch (error) {
+    $('workspace-input-status').textContent = `Could not confirm ${field.label}: ${error.message}`;
+  }
 }
 
 function renderSchemaField(field, { labelText = field.label, role = '' } = {}) {
@@ -289,7 +374,7 @@ function renderSchemaField(field, { labelText = field.label, role = '' } = {}) {
   help.dataset.fieldHelp = field.id;
   const action = element('button', 'schema-field-action text-button');
   action.type = 'button'; action.hidden = true; action.dataset.fieldAction = field.id;
-  action.addEventListener('click', () => setTechnicianFact(field, control.value));
+  action.addEventListener('click', () => confirmTechnicianFact(field));
   wrapper.append(label, control, help, action);
   return wrapper;
 }
@@ -390,11 +475,23 @@ function openWorkspace(templateId) {
   $('template-reports-nav').hidden = false;
   state.activeTemplate = template;
   state.session = createReportSession({ templateId, jobContext: { technicianId: 'LOCAL-TECH', technicianName: 'Local technician' } });
+  const localSessionId = state.session.id;
+  state.authoritySession = null;
+  state.authorityMutation = Promise.resolve();
+  state.authoritySessionPromise = api('/api/report-sessions', { method: 'POST', body: {
+    template_id: template.templateId,
+    template_version: template.templateVersion,
+    job_context_ref: `browser-session:${localSessionId}`,
+  } }).then((result) => {
+    if (state.session?.id === localSessionId) state.authoritySession = result.session;
+    return result;
+  }).catch((error) => {
+    if (state.session?.id === localSessionId) $('workspace-input-status').textContent = `Could not start the report session: ${error.message}`;
+    return { session: null, error };
+  });
   state.facts = new Map();
   state.analysisRevision = 0;
-  state.statementArtifact = null;
-  state.lastPreservedText = '';
-  state.retryAudioBlob = null;
+  state.retryEvidenceId = null;
   state.hvacCorrectionReview = null;
   workspaceBusy.clear();
   $('workspace-title').textContent = template.name;
@@ -437,31 +534,45 @@ function resetMicrophoneUi() {
   $('workspace-recording-time').hidden = true;
 }
 
-async function preserveWorkspaceStatement(text) {
-  if (text === state.lastPreservedText) return state.statementArtifact;
-  const editedFrom = state.statementArtifact?.artifact_id || null;
-  const result = await api('/api/transcripts/manual', { method: 'POST', body: {
-    raw_text: text,
-    language: 'auto',
-    input_mode: editedFrom ? 'EDITED_TRANSCRIPT' : 'MANUAL_TRANSCRIPT',
-    edited_from_artifact_id: editedFrom,
-  } });
-  state.statementArtifact = result.transcript;
-  state.lastPreservedText = text;
-  applyTranscriptArtifact(state.session, result.transcript);
-  return result.transcript;
-}
-
-function replaceExtractedFacts(facts, revision) {
-  clearExtractedFacts();
-  let accepted = 0;
-  const allowed = state.activeTemplate.schema.fields.map((field) => field.id);
-  for (const [index, fact] of (facts || []).entries()) {
-    if (allowed.some((pattern) => pattern.endsWith('.*') ? fact.field.startsWith(pattern.slice(0, -1)) : fact.field === pattern)) {
-      state.facts.set(`extracted:${revision}:${fact.field}:${index}`, fact); accepted += 1;
-    }
+function applyAuthoritativeCapture(result, sessionId, revision) {
+  state.authoritySession = result.session;
+  $('workspace-text-upload').disabled = true;
+  if (result.transcript) {
+    applyTranscriptArtifact(state.session, { ...result.transcript, artifact_id: result.transcript.transcript_id });
+    $('workspace-statement').value = result.transcript.raw_text;
   }
+  clearExtractedFacts();
   updateFromFacts();
+  if (result.failure) {
+    state.retryEvidenceId = result.evidence?.evidence_id || null;
+    $('workspace-retry').hidden = false;
+    $('workspace-input-status').textContent = `Audio preserved, but transcription failed: ${result.failure.message}`;
+    return 0;
+  }
+  state.retryEvidenceId = null;
+  $('workspace-retry').hidden = true;
+  if (result.review) {
+    state.hvacCorrectionReview = {
+      authoritative: true,
+      sessionId,
+      revision,
+      reviewId: result.review.review_id,
+      serverRevision: result.session.revision,
+      candidates: result.review.items.map((item) => ({
+        candidate_id: item.review_item_id,
+        source_span: { ...item.source_span, text: item.source_span.quote },
+        candidate: item.proposed_text || item.source_span.quote,
+        status: item.material ? 'NEEDS_TECHNICIAN_CONFIRMATION' : 'OPTIONAL',
+        reason: item.reason,
+      })),
+      decisions: new Map(),
+    };
+    renderWorkspaceCorrections();
+    $('workspace-input-status').textContent = `${result.review.items.length} transcript detail${result.review.items.length === 1 ? '' : 's'} need your review before fields update.`;
+    return 0;
+  }
+  const accepted = applyCandidateFacts(result.candidates, revision);
+  $('workspace-input-status').textContent = `${accepted} supported field${accepted === 1 ? '' : 's'} updated.`;
   return accepted;
 }
 
@@ -500,29 +611,22 @@ function renderWorkspaceCorrections() {
 
 async function extractReviewedHvacFacts(review) {
   const decisions = review.candidates.map((candidate) => ({
-    candidate_id: candidate.candidate_id,
+    review_item_id: candidate.candidate_id,
     decision: review.decisions.get(candidate.candidate_id),
-    critical_value_confirmed: true,
   }));
-  const confirmation = await api('/api/corrections/confirm', { method: 'POST', body: {
-    transcript_artifact_id: review.transcriptArtifactId,
-    candidate_bundle_hash: review.candidateBundleHash,
-    decisions,
-    technician_id: state.session.jobContext.technicianId,
-    technician_name: state.session.jobContext.technicianName,
-  } });
+  const result = await mutateAuthority(async () => {
+    const decided = await api(
+      `/api/report-sessions/${encodeURIComponent(state.authoritySession.session_id)}/transcript-reviews/${encodeURIComponent(review.reviewId)}/decide`,
+      { method: 'POST', body: { expected_revision: state.authoritySession.revision, decisions } },
+    );
+    state.authoritySession = decided.session;
+    return decided;
+  });
   if (state.session?.id !== review.sessionId || state.analysisRevision !== review.revision) return null;
-  const extracted = await api('/api/facts/extract', { method: 'POST', body: {
-    correction_receipt_id: confirmation.correction_receipt.correction_receipt_id,
-    manual_fields: {},
-    use_llm: false,
-  } });
-  if (state.session?.id !== review.sessionId || state.analysisRevision !== review.revision) return null;
+  state.authoritySession = result.session;
   state.session.corrections = structuredClone(review.candidates);
   state.session.correctionDecisions = structuredClone(decisions);
-  state.session.correctionReceipt = structuredClone(confirmation.correction_receipt);
-  state.session.transcript.normalized = confirmation.correction_receipt.final_text;
-  return replaceExtractedFacts(extracted.facts, review.revision);
+  return applyCandidateFacts(result.candidates, review.revision);
 }
 
 async function chooseWorkspaceCorrection(candidateId, decision) {
@@ -550,7 +654,7 @@ async function chooseWorkspaceCorrection(candidateId, decision) {
   }
 }
 
-async function analyzeStatement({ preserveStatement = true } = {}) {
+async function analyzeStatement() {
   const text = $('workspace-statement').value.trim();
   if (!text) { $('workspace-input-status').textContent = 'Add a technician statement first.'; return; }
   const sessionId = state.session.id;
@@ -559,41 +663,18 @@ async function analyzeStatement({ preserveStatement = true } = {}) {
   renderWorkspaceCorrections();
   setWorkspaceBusy('analysis', true);
   $('workspace-analyze').disabled = true;
-  $('workspace-input-status').textContent = preserveStatement ? 'Saving evidence and updating the report…' : 'Updating the report…';
+  $('workspace-input-status').textContent = 'Saving evidence and updating the report…';
   try {
-    if (preserveStatement) await preserveWorkspaceStatement(text);
+    const result = await mutateAuthority(async () => {
+      const authority = await ensureAuthoritativeSession();
+      const captured = await api(`/api/report-sessions/${encodeURIComponent(authority.session_id)}/capture/text`, {
+        method: 'POST', body: { expected_revision: authority.revision, text, language: 'auto' },
+      });
+      state.authoritySession = captured.session;
+      return captured;
+    });
     if (state.session.id !== sessionId || state.analysisRevision !== revision) return;
-    clearExtractedFacts();
-    updateFromFacts();
-    if (state.activeTemplate.domain === 'HVAC') {
-      const normalization = await api('/api/normalizations', { method: 'POST', body: { transcript_artifact_id: state.statementArtifact.artifact_id } });
-      if (state.session.id !== sessionId || state.analysisRevision !== revision) return;
-      const candidates = normalization.correction_candidates || [];
-      const review = {
-        sessionId, revision, candidates,
-        transcriptArtifactId: state.statementArtifact.artifact_id,
-        candidateBundleHash: normalization.candidate_bundle_hash,
-        decisions: new Map(),
-      };
-      if (candidates.length) {
-        state.hvacCorrectionReview = review;
-        renderWorkspaceCorrections();
-        $('workspace-input-status').textContent = `${candidates.length} transcript detail${candidates.length === 1 ? '' : 's'} need your review before fields update.`;
-        return;
-      }
-      const accepted = await extractReviewedHvacFacts(review);
-      if (accepted !== null) $('workspace-input-status').textContent = `${accepted} supported field${accepted === 1 ? '' : 's'} updated.`;
-      return;
-    }
-    if (!['SBS_BUS', 'SBS_RAIL'].includes(state.activeTemplate.domain)) {
-      $('workspace-input-status').textContent = 'Statement preserved. Fill the remaining report fields directly.';
-      return;
-    }
-    const contextId = state.activeTemplate.domain === 'SBS_BUS' ? 'SBS/BUS' : 'SBS/RAIL';
-    const result = await api('/api/v2/facts/extract', { method: 'POST', body: { context_id: contextId, raw_text: text } });
-    if (state.session.id !== sessionId || state.analysisRevision !== revision) return;
-    const accepted = replaceExtractedFacts(result.facts, revision);
-    $('workspace-input-status').textContent = `${accepted} supported field${accepted === 1 ? '' : 's'} updated.`;
+    applyAuthoritativeCapture(result, sessionId, revision);
   } catch (error) {
     if (state.session?.id === sessionId) $('workspace-input-status').textContent = `Could not update the report: ${error.message}`;
   } finally {
@@ -608,22 +689,29 @@ async function processWorkspaceAudio(wav, label = 'Recording') {
   const sessionId = state.session?.id;
   if (!sessionId) return;
   setWorkspaceBusy('audio', true);
-  state.retryAudioBlob = wav;
   $('workspace-retry').hidden = true;
   $('workspace-input-status').textContent = 'Transcribing locally…';
   $('workspace-microphone').disabled = true;
   try {
-    const audio = await api('/api/audio', { method: 'POST', headers: { 'content-type': 'audio/wav' }, body: wav });
-    const transcriptResult = await api('/api/transcriptions', { method: 'POST', body: {
-      audio_id: audio.audio_id, model: 'base', language: 'auto', attempt: 1,
-    } });
+    const revision = ++state.analysisRevision;
+    const result = await mutateAuthority(async () => {
+      const authority = await ensureAuthoritativeSession();
+      const captured = await api(`/api/report-sessions/${encodeURIComponent(authority.session_id)}/capture/audio`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'audio/wav',
+          'x-expected-revision': String(authority.revision),
+          'x-stt-model': 'base',
+          'x-stt-language': 'auto',
+        },
+        body: wav,
+      });
+      state.authoritySession = captured.session;
+      return captured;
+    });
     if (state.session?.id !== sessionId) return;
-    state.statementArtifact = transcriptResult.transcript;
-    state.lastPreservedText = transcriptResult.transcript.raw_text;
-    applyTranscriptArtifact(state.session, transcriptResult.transcript);
-    $('workspace-statement').value = transcriptResult.transcript.raw_text;
-    $('workspace-input-status').textContent = `${label} transcribed. Updating the report…`;
-    await analyzeStatement({ preserveStatement: false });
+    if (!result.failure) $('workspace-input-status').textContent = `${label} transcribed. Updating the report…`;
+    applyAuthoritativeCapture(result, sessionId, revision);
   } catch (error) {
     if (state.session?.id === sessionId) {
       $('workspace-input-status').textContent = `Audio preserved, but transcription failed: ${error.message}`;
@@ -634,6 +722,30 @@ async function processWorkspaceAudio(wav, label = 'Recording') {
       if (!workspaceRecorder) $('workspace-microphone').disabled = false;
       setWorkspaceBusy('audio', false);
     }
+  }
+}
+
+async function retryWorkspaceTranscription() {
+  if (!state.retryEvidenceId || !state.session) return;
+  const sessionId = state.session.id;
+  setWorkspaceBusy('audio-retry', true);
+  $('workspace-input-status').textContent = 'Retrying transcription from preserved audio…';
+  try {
+    const revision = ++state.analysisRevision;
+    const result = await mutateAuthority(async () => {
+      const authority = await ensureAuthoritativeSession();
+      const retried = await api(`/api/report-sessions/${encodeURIComponent(authority.session_id)}/transcription/retry`, {
+        method: 'POST',
+        body: { expected_revision: authority.revision, evidence_id: state.retryEvidenceId },
+      });
+      state.authoritySession = retried.session;
+      return retried;
+    });
+    if (state.session?.id === sessionId) applyAuthoritativeCapture(result, sessionId, revision);
+  } catch (error) {
+    if (state.session?.id === sessionId) $('workspace-input-status').textContent = `Transcription retry failed: ${error.message}`;
+  } finally {
+    if (state.session?.id === sessionId) setWorkspaceBusy('audio-retry', false);
   }
 }
 
@@ -692,8 +804,9 @@ async function confirmWorkspace() {
   $('workspace-confirm').disabled = true; $('workspace-confirm-status').textContent = 'Validating exact template and evidence bindings…';
   setWorkspaceControlsDisabled(true);
   try {
+    const authority = await ensureAuthoritativeSession();
     const built = await api('/api/template-reports/build', { method: 'POST', body: {
-      template_id: state.activeTemplate.templateId, report_session_id: state.session.id, facts: factsFromStructuredState(state.session),
+      template_id: state.activeTemplate.templateId, report_session_id: authority.session_id,
     } });
     const confirmed = await api('/api/v2/reports/confirm', { method: 'POST', body: {
       draft: built.draft, validator_run_id: built.validation_receipt.validator_run_id,
@@ -820,13 +933,32 @@ document.querySelectorAll('[data-template-category]').forEach((button) => button
 }));
 $('workspace-analyze').addEventListener('click', () => analyzeStatement());
 $('workspace-microphone').addEventListener('click', () => (workspaceRecorder ? stopWorkspaceRecording() : startWorkspaceRecording()));
-$('workspace-retry').addEventListener('click', () => { if (state.retryAudioBlob) processWorkspaceAudio(state.retryAudioBlob, 'Recording'); });
+$('workspace-retry').addEventListener('click', retryWorkspaceTranscription);
 $('workspace-text-upload').addEventListener('change', async (event) => {
   const file = event.target.files[0];
   if (!file) return;
-  $('workspace-statement').value = await file.text();
-  $('workspace-input-status').textContent = `${file.name} added. Updating the report…`;
-  try { await analyzeStatement(); } finally { event.target.value = ''; }
+  $('workspace-input-status').textContent = `Adding ${file.name} as scoped guidance…`;
+  try {
+    const uploaded = await mutateAuthority(async () => {
+      const authority = await ensureAuthoritativeSession();
+      const result = await api(`/api/report-sessions/${encodeURIComponent(authority.session_id)}/guidance/uploads`, {
+        method: 'POST',
+        headers: {
+          'content-type': file.type || 'text/plain',
+          'x-file-name': file.name,
+          'x-expected-revision': String(authority.revision),
+        },
+        body: file,
+      });
+      state.authoritySession = result.session;
+      return result;
+    });
+    $('workspace-input-status').textContent = `${uploaded.upload.filename} added as guidance. It cannot establish job facts.`;
+  } catch (error) {
+    $('workspace-input-status').textContent = `Could not add guidance: ${error.message}`;
+  } finally {
+    event.target.value = '';
+  }
 });
 $('workspace-audio-upload').addEventListener('change', async (event) => {
   const file = event.target.files[0];

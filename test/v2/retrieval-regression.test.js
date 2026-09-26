@@ -196,3 +196,16 @@ test('exact Rail asset identifier outranks a nearby stock family', async () => {
   assert.match(out.results[0].text, /C751A/iu);
   assert.doesNotMatch(out.results[0].text, /C851E/iu);
 });
+
+test('RAIL retrieval cannot return POWER_GRID-only knowledge', async () => {
+  const registry = await loadScopeRegistry();
+  const retriever = createRetriever({ registry });
+  const out = await retriever({
+    contextId: 'SBS/RAIL',
+    query: 'insulating oil dielectric breakdown voltage transformer',
+    topK: 10,
+  });
+  assert.ok(out.results.every((item) => item.scope_id !== 'POWER_GRID'));
+  assert.ok(out.results.every((item) => item.scope_id === 'SBS_RAIL'));
+  assert.ok(out.warnings.includes(CROSS_DOMAIN_BLOCKED));
+});

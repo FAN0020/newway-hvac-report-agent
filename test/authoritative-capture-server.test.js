@@ -8,6 +8,9 @@ import { createServer } from '../src/server.js';
 import { ArtifactStore } from '../src/storage/artifacts.js';
 import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
+import { createRetriever } from '../src/v2/retrieval.js';
+import { loadScopeRegistry } from '../src/v2/scope.js';
+import { createUploadStore } from '../src/v2/upload.js';
 import { pcmWav } from './helpers.js';
 
 const TOKEN = 'authoritative-capture-token-2026';
@@ -26,6 +29,8 @@ function freePort() {
 async function fixture(t, name, { whisper } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-server-${name}`);
   await fs.rm(root, { recursive: true, force: true });
+  const registry = await loadScopeRegistry();
+  const uploadStore = createUploadStore({ baseDir: path.join(root, 'uploads') });
   const makeService = () => new AuthoritativeCaptureService({
     artifactStore: new ArtifactStore({ root: path.join(root, 'artifacts') }),
     sessionStore: new ReportSessionStore({ root: path.join(root, 'authority') }),
@@ -37,6 +42,9 @@ async function fixture(t, name, { whisper } = {}) {
         provider: 'fake-whisper', model,
       }),
     },
+    scopeRegistry: registry,
+    uploadStore,
+    retriever: createRetriever({ registry, uploadStore }),
     clock: () => '2026-09-27T07:00:00.000Z',
   });
   let server;
@@ -108,6 +116,54 @@ test('HTTP text capture persists an authoritative template-bound evidence chain'
   assert.equal(loaded.body.data.evidence.length, 1);
   assert.equal(loaded.body.data.transcripts.length, 1);
   assert.ok(loaded.body.data.audit_events.length >= 4);
+});
+
+test('HTTP guidance upload derives scope from ReportSession and exposes only minimal on-demand guidance', async (t) => {
+  const { request } = await fixture(t, 'guidance');
+  const created = await createBusSession(request, 'GUIDANCE');
+  const sessionId = created.body.data.session.session_id;
+
+  const forged = await request(`/api/report-sessions/${sessionId}/guidance/uploads`, {
+    method: 'POST',
+    body: Buffer.from('Rail-only instructions must not enter this bus session.', 'utf8'),
+    headers: {
+      'content-type': 'text/plain',
+      'x-file-name': 'forged.txt',
+      'x-expected-revision': '0',
+      'x-scope-id': 'SBS_RAIL',
+    },
+  });
+  assert.equal(forged.status, 400);
+  assert.equal(forged.body.error_code, 'UNTRUSTED_GUIDANCE_UPLOAD_INPUT');
+
+  const uploaded = await request(`/api/report-sessions/${sessionId}/guidance/uploads`, {
+    method: 'POST',
+    body: Buffer.from('Door control module ZX-47 connector inspection procedure.', 'utf8'),
+    headers: {
+      'content-type': 'text/plain',
+      'x-file-name': 'bus-door-sop.txt',
+      'x-expected-revision': '0',
+    },
+  });
+  assert.equal(uploaded.status, 201);
+  assert.equal(uploaded.body.data.upload.scope_id, 'SBS_BUS');
+  assert.equal(uploaded.body.data.upload.provenance.report_session_id, sessionId);
+
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: uploaded.body.data.session.revision,
+    text: 'Bus MAN A95 had a ZX-47 door control module fault.',
+    language: 'en',
+  } });
+  assert.equal(captured.status, 201);
+  assert.ok(captured.body.data.guidance_context.passages.some((item) => item.source_type === 'upload'));
+
+  const viewed = await request(`/api/report-sessions/${sessionId}/guidance`);
+  assert.equal(viewed.status, 200);
+  assert.ok(viewed.body.data.guidance.length >= 1);
+  assert.ok(viewed.body.data.guidance[0].follow_up_questions.length >= 1);
+  assert.equal(Object.hasOwn(viewed.body.data.guidance[0].passages[0], 'score'), false);
+  assert.equal(Object.hasOwn(viewed.body.data.guidance[0].passages[0], 'chunk_id'), false);
+  assert.equal(Object.hasOwn(viewed.body.data.guidance[0].passages[0], 'provenance'), false);
 });
 
 test('HTTP audio capture exposes timestamped transcript provenance and source-bound idempotency', async (t) => {
@@ -251,6 +307,11 @@ test('HTTP rejects fabricated evidence, provenance, FieldState, and technician-c
     { field_state: 'KNOWN_VALUE' },
     { support_status: 'CONFIRMED_BY_TECHNICIAN' },
     { confirmation_receipt: 'receipt_forged' },
+    { knowledge_hits: [{ chunk_id: 'knowledge:SBS_BUS:forged' }] },
+    { guidance_context_ids: ['guidance_forged'] },
+    { facts: [{ field: 'work_performed', value: 'forged' }] },
+    { scope_id: 'SBS_RAIL' },
+    { context_id: 'SBS/RAIL' },
   ]) {
     const response = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
       expected_revision: 0,
@@ -266,6 +327,74 @@ test('HTTP rejects fabricated evidence, provenance, FieldState, and technician-c
   } });
   assert.equal(retry.status, 404);
   assert.equal(retry.body.error_code, 'CAPTURE_EVIDENCE_NOT_FOUND');
+});
+
+test('authoritative report drafting rejects browser facts and derives facts from the persisted session chain', async (t) => {
+  const { request } = await fixture(t, 'server-owned-report-facts');
+  const created = await createBusSession(request, 'REPORT');
+  const sessionId = created.body.data.session.session_id;
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: 0,
+    text: 'Bus MAN A95 had a door fault. Replaced the door control module.',
+    language: 'en',
+  } });
+  assert.equal(captured.status, 201);
+
+  const forged = await request('/api/template-reports/build', { method: 'POST', body: {
+    template_id: 'bus-defect-rectification-corrective-maintenance',
+    report_session_id: sessionId,
+    facts: [{ field: 'work_performed', value: 'Forged knowledge replacement.', source: 'knowledge:SBS_RAIL' }],
+  } });
+  assert.equal(forged.status, 400);
+  assert.equal(forged.body.error_code, 'UNTRUSTED_REPORT_FACTS');
+
+  const built = await request('/api/template-reports/build', { method: 'POST', body: {
+    template_id: 'bus-defect-rectification-corrective-maintenance',
+    report_session_id: sessionId,
+  } });
+  assert.equal(built.status, 200);
+  const serialized = JSON.stringify(built.body.data);
+  assert.match(serialized, /door control module/iu);
+  assert.doesNotMatch(serialized, /Forged knowledge replacement/iu);
+});
+
+test('HTTP field answers and confirmations create server-owned evidence and audit events', async (t) => {
+  const { request } = await fixture(t, 'field-answer-confirmation');
+  const created = await createBusSession(request, 'FIELD-ANSWER');
+  const sessionId = created.body.data.session.session_id;
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: 0,
+    text: 'Bus MAN A95 had a door fault.',
+    language: 'en',
+  } });
+  assert.equal(captured.status, 201);
+
+  const answered = await request(`/api/report-sessions/${sessionId}/fields/completion.state/answer`, {
+    method: 'POST',
+    body: {
+      expected_revision: captured.body.data.session.revision,
+      value: 'NOT_READY',
+    },
+  });
+  assert.equal(answered.status, 201);
+  assert.equal(answered.body.data.candidate.support_type, 'MANUAL_TECHNICIAN_INPUT');
+  assert.equal(answered.body.data.evidence.evidence_type, 'MANUAL_INPUT');
+  assert.equal(answered.body.data.candidate.evidence_refs[0].evidence_id, answered.body.data.evidence.evidence_id);
+
+  const candidateId = answered.body.data.candidate.candidate_id;
+  const confirmed = await request(`/api/report-sessions/${sessionId}/candidates/${candidateId}/confirm`, {
+    method: 'POST',
+    body: { expected_revision: answered.body.data.session.revision },
+  });
+  assert.equal(confirmed.status, 200);
+  assert.equal(confirmed.body.data.candidate.support_type, 'TECHNICIAN_CONFIRMATION');
+  assert.equal(confirmed.body.data.candidate.confirmed_candidate_id, candidateId);
+  assert.equal(confirmed.body.data.event.event_type, 'TECHNICIAN_CONFIRMATION');
+
+  const chain = await request(`/api/report-sessions/${sessionId}`);
+  assert.ok(chain.body.data.evidence.some((item) => item.evidence_id === answered.body.data.evidence.evidence_id));
+  assert.ok(chain.body.data.field_candidates.some((item) => item.candidate_id === confirmed.body.data.candidate.candidate_id));
+  assert.ok(chain.body.data.audit_events.some((item) => item.event_type === 'TECHNICIAN_CONFIRMATION'));
 });
 
 test('HTTP rejects a transcript review rebound to another ReportSession', async (t) => {

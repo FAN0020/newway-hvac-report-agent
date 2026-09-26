@@ -2,9 +2,9 @@
 
 ## Scope
 
-This backend owns the report lifecycle from `CONTEXT` through `CAPTURE`, `PROCESSING`, optional `CORRECTION_IF_NEEDED`, and creation of structured field candidates in `RESOLVE`.
+This backend owns the report lifecycle from `CONTEXT` through `CAPTURE`, `PROCESSING`, optional `CORRECTION_IF_NEEDED`, and creation/resolution of structured field candidates in `RESOLVE`. It also owns scoped guidance ingestion and retrieval.
 
-It does not merge competing candidates, complete review, confirm a report, generate a final report, or change the browser UI. The pre-existing report-generation paths remain available for compatibility but are not authoritative substitutes for this session chain.
+The visible browser now uses this chain for capture, extraction, field answers, confirmation events, and server-derived report facts. Final `ReportSnapshot` creation and the remaining `REVIEW -> READY -> CONFIRMED` cutover are still separate work. Compatibility report endpoints remain available for older tests/demos but are not authoritative substitutes for this session chain.
 
 ## Architecture
 
@@ -14,6 +14,8 @@ The implementation has four layers:
 2. `src/workflows/authoritative-capture.js` orchestrates exact report binding, persistence-first capture, transcription, correction review, and candidate extraction.
 3. `src/storage/report-sessions.js` persists server-owned sessions, audit events, immutable evidence records, transcripts, reviews, evidence spans, candidates, text sources, and capture-idempotency indexes.
 4. `src/domain/*` validates immutable contracts, legal phase transitions, revisions, exact transcript spans, and trusted persistence reloads.
+
+The RAG integration and migration audit are documented in `docs/AUTHORITATIVE_RAG_GUIDANCE_INTEGRATION.md`.
 
 The authoritative chain is:
 
@@ -25,6 +27,8 @@ ReportSession
           -> TranscriptReview[] (only when material review is required)
           -> EvidenceSpan[]
               -> FieldCandidate[]
+  -> GuidanceUpload[] (session-bound reference corpus)
+  -> GuidanceContext[] (never evidence)
 ```
 
 Every downstream record is bound to the same server-owned session, exact template/version, context/version, and scope. Structured candidates point to exact spans in the immutable raw transcript.
@@ -41,6 +45,10 @@ The backend creates sessions in `CONTEXT` at revision 0. Each accepted transitio
 | `PROCESSING -> CORRECTION_IF_NEEDED` | `TRANSCRIPT_REVIEW_REQUESTED` | Material terminology needs a technician decision. |
 | `PROCESSING -> RESOLVE` | `STRUCTURED_CANDIDATES_CREATED` | Harmless transcript processing produced structured candidates. |
 | `CORRECTION_IF_NEEDED -> RESOLVE` | `TRANSCRIPT_REVIEW_DECIDED` | The server recorded complete technician decisions and produced candidates. |
+| same phase | `GUIDANCE_UPLOAD_INGESTED` | A server-scoped reference document was parsed and bound to this session. |
+| same phase | `GUIDANCE_RETRIEVED` | Server-selected lexical retrieval and provenance were persisted as non-evidence guidance. |
+| `RESOLVE` | `FIELD_CANDIDATE_RECORDED` | A technician field answer was persisted as evidence and a candidate. |
+| `RESOLVE` | `TECHNICIAN_CONFIRMATION` | The server bound a technician principal to one existing candidate. |
 | processing failure | `RECOVERABLE_ERROR_RECORDED` | Raw evidence remains durable and the failed phase is retained. |
 | retry | `SESSION_RECOVERED` | The session returns only to its recorded failed phase. |
 
@@ -250,21 +258,21 @@ The tests use a deterministic injected transcription provider to verify provider
 
 ## Verification evidence
 
-- `npm run check`: syntax checks passed and all 364 repository tests passed.
+- `npm run check`: syntax checks passed and all 377 repository tests passed; the scoped-RAG subsets are recorded in `docs/AUTHORITATIVE_RAG_GUIDANCE_INTEGRATION.md`.
 - `npm run stt:smoke`: the checksum-verified `whisper.cpp` b4938 runtime and Base model reported ready and transcribed the official English sample successfully.
 - `git diff --check`: no whitespace errors.
 
-## Prompt 4 / cutover work remaining
+## Current cutover status
 
-The next integration phase should:
+The visible browser now routes text/audio capture, transcript review, technician field answers, candidate confirmation, guidance upload/viewing, and server-derived report drafting through the authoritative ReportSession endpoints. The scoped deterministic RAG integration and its trust boundary are documented in `docs/AUTHORITATIVE_RAG_GUIDANCE_INTEGRATION.md`.
 
-1. Route browser text/audio capture exclusively through these authoritative endpoints.
-2. Remove browser authority to create confirmed candidates, confirmation receipts, evidence IDs, provenance, or final field state.
-3. Feed the persisted structured candidates into one shared resolution/review/final-report pipeline for HVAC and SBS domains.
-4. Implement candidate conflict/merge policy, human review, final confirmation, snapshotting, and export against an exact session revision.
-5. Decide how custom published templates provide server-side extraction adapters; this implementation resolves predefined catalog templates only.
-6. Replace the demo technician principal with authenticated server identity.
-7. Move file persistence to transactional storage before multi-process deployment.
-8. Run the real Whisper smoke test in a prepared local runtime and measure domain transcription quality separately from backend correctness.
+Remaining cutover work is narrower:
 
-RAG guidance, OCR, final report drafting, final conflict resolution, and UI changes are intentionally outside this implementation.
+1. Implement final `ReportSnapshot` creation and the `RESOLVE -> REVIEW -> READY -> CONFIRMED` lifecycle against an exact session revision.
+2. Decide how custom manager-published templates provide server-side extraction adapters; predefined catalog templates are currently authoritative.
+3. Extend the lifecycle explicitly before allowing multiple independent primary captures in one session.
+4. Replace the demo technician principal with authenticated server identity.
+5. Move file persistence to transactional storage before multi-process deployment.
+6. Measure domain transcription quality separately from backend correctness.
+
+OCR, embeddings/vector search, semantic retrieval, generative report prose, automatic diagnosis, predictive maintenance, and a RAG-card UI remain intentionally out of scope.

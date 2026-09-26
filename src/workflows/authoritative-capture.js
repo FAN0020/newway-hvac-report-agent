@@ -3,7 +3,10 @@ import {
   assertExpectedRevision,
   createEvidence,
   createEvidenceSpan,
+  createConfirmedFieldCandidate,
   createFieldCandidate,
+  createGuidanceContext,
+  createTechnicianConfirmationEvent,
   createTranscriptArtifact,
   createTranscriptReview,
   hashContract,
@@ -12,9 +15,16 @@ import { extractServiceFacts } from '../tools/extract-service-facts.js';
 import { extractV2Facts } from '../tools/extract-v2-facts.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
 import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
+import { buildFollowUpQuestions } from '../v2/guided-reporting.js';
+import { planV2Report } from '../v2/report-builder.js';
+import { allowedScopes, resolveContext } from '../v2/scope.js';
+import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
+import { createRetriever } from '../v2/retrieval.js';
 import { mapFactsForTemplate, templateFor } from '../../web/template-catalog.js';
 
 const PROCESSING_VERSION = 'authoritative-capture.v1';
+const EXTRACTION_VERSION = 'deterministic-extraction.v2';
+const RETRIEVAL_VERSION = 'scope-lexical.v1';
 const CONTEXT_BY_SCOPE = Object.freeze({
   HVAC: 'HVAC',
   SBS_BUS: 'SBS/BUS',
@@ -120,14 +130,89 @@ function correctedTextProjection(rawText, items, decisions) {
 }
 
 export class AuthoritativeCaptureService {
-  constructor({ artifactStore, sessionStore, whisperProvider, clock = () => new Date().toISOString() } = {}) {
+  constructor({
+    artifactStore,
+    sessionStore,
+    whisperProvider,
+    scopeRegistry,
+    scopeRegistryProvider,
+    uploadStore,
+    retriever,
+    clock = () => new Date().toISOString(),
+  } = {}) {
     if (!artifactStore || !sessionStore || !whisperProvider?.transcribe) {
       throw new TypeError('Artifact, ReportSession, and Whisper services are required.');
     }
     this.artifactStore = artifactStore;
     this.sessionStore = sessionStore;
     this.whisperProvider = whisperProvider;
+    this.scopeRegistry = scopeRegistry || null;
+    this.scopeRegistryProvider = scopeRegistryProvider || null;
+    this.uploadStore = uploadStore || null;
+    this.retriever = retriever || null;
     this.clock = clock;
+  }
+
+  async guidanceDependencies() {
+    const registry = this.scopeRegistry || (this.scopeRegistryProvider ? await this.scopeRegistryProvider() : null);
+    if (!registry) return null;
+    return {
+      registry,
+      retriever: this.retriever || createRetriever({ registry, uploadStore: this.uploadStore }),
+    };
+  }
+
+  async ingestGuidanceUpload({ session_id: sessionId, expected_revision: expectedRevision, filename, mime_type: mimeType, buffer } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'CONTEXT') {
+      throw workflowError('Guidance uploads are only accepted before capture begins.', 'GUIDANCE_UPLOAD_PHASE_CLOSED', 409);
+    }
+    const dependencies = await this.guidanceDependencies();
+    if (!dependencies || !this.uploadStore) {
+      throw workflowError('Guidance ingestion is not configured.', 'GUIDANCE_INGESTION_UNAVAILABLE', 503);
+    }
+    const resolved = resolveContext(session.context_binding.context_id, dependencies.registry);
+    if (resolved.scopeId !== session.context_binding.scope_id) {
+      throw workflowError('ReportSession scope does not match the scope registry.', 'REPORT_SESSION_SCOPE_MISMATCH', 409);
+    }
+    if (!resolved.uploadAllowed) {
+      throw workflowError('This ReportSession scope does not allow guidance uploads.', 'UPLOAD_NOT_ALLOWED', 409);
+    }
+    const upload = await ingestDocument({
+      scopeId: session.context_binding.scope_id,
+      filename,
+      buffer,
+      mimeType,
+      metadata: {
+        uploader: 'principal:demo-technician',
+        source: 'report-session-guidance-upload',
+        scenario: 'authoritative-report-session',
+        report_session_id: session.session_id,
+      },
+      store: this.uploadStore,
+    });
+    if (upload.status !== UPLOAD_STATUS.READY) {
+      throw workflowError(
+        upload.errors?.[0]?.message || 'Guidance upload could not be indexed.',
+        upload.errors?.[0]?.code || 'GUIDANCE_UPLOAD_FAILED',
+        422,
+      );
+    }
+    await this.sessionStore.putRecord('guidance-uploads', upload.upload_id, upload);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      event_type: 'GUIDANCE_UPLOAD_INGESTED',
+      occurred_at: this.clock(),
+      details: {
+        upload_id: upload.upload_id,
+        scope_id: upload.scope_id,
+        document_version: upload.document_version,
+      },
+      additions: { guidance_upload_ids: [upload.upload_id] },
+    });
+    return { session: recorded.session, upload };
   }
 
   async createSession({ template_id: templateId, template_version: templateVersion, job_context_ref: jobContextRef } = {}) {
@@ -187,17 +272,227 @@ export class AuthoritativeCaptureService {
         session_id: session.session_id,
         field_id: fact.field,
         claim: { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: fact.value, unit: fact.unit } },
+        unit: fact.unit,
         support_type: supportType,
         assessment: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'VALID',
         evidence_refs: [{ evidence_id: transcript.transcript_id, span_id: span.span_id }],
         source_ref: transcript.transcript_id,
+        extraction: { method: 'deterministic-rule', version: EXTRACTION_VERSION },
+        risk_class: fact.critical ? 'CRITICAL' : 'STANDARD',
+        confidence_class: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
+        source_context: {
+          domain: session.context_binding.scope_id,
+          context_id: session.context_binding.context_id,
+          context_version: session.context_binding.context_version,
+          scope_id: session.context_binding.scope_id,
+        },
       });
       await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
       await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
       spans.push(span);
       candidates.push(candidate);
     }
-    return { spans, candidates };
+    return { spans, candidates, facts: accepted };
+  }
+
+  async retrieveGuidance({ session, transcript, facts, query = transcript.raw_text }) {
+    const dependencies = await this.guidanceDependencies();
+    if (!dependencies) return { session, guidanceContext: null };
+    const retrieval = await dependencies.retriever({
+      contextId: session.context_binding.context_id,
+      query,
+      topK: 3,
+      includeUploads: true,
+      permittedUploadIds: session.guidance_upload_ids,
+    });
+    const permittedKnowledge = allowedScopes(session.context_binding.context_id, dependencies.registry)
+      .filter((scopeId) => !scopeId.startsWith('USER_UPLOADED:'))
+      .filter((scopeId) => (dependencies.registry.knowledge_files?.[scopeId] || []).length > 0)
+      .map((scopeId) => `knowledge:${scopeId}`);
+    const permittedCorpora = [
+      ...permittedKnowledge,
+      ...session.guidance_upload_ids.map((uploadId) => `upload:${uploadId}`),
+    ];
+    let applicableModules = [];
+    let followUpQuestions = [];
+    if (session.context_binding.scope_id !== 'HVAC') {
+      const plan = planV2Report({
+        scopeId: session.context_binding.scope_id,
+        facts,
+        factsReceiptId: transcript.transcript_id,
+      });
+      applicableModules = plan.sections.map((section) => section.id);
+      followUpQuestions = buildFollowUpQuestions({
+        scopeId: session.context_binding.scope_id,
+        missingSections: plan.missing_required_fields,
+      });
+    }
+    const guidanceContext = createGuidanceContext({
+      session_id: session.session_id,
+      context_id: session.context_binding.context_id,
+      scope_id: session.context_binding.scope_id,
+      context_version: session.context_binding.context_version,
+      query,
+      retrieval_method: 'LEXICAL_DETERMINISTIC',
+      retrieval_version: RETRIEVAL_VERSION,
+      permitted_corpora: permittedCorpora,
+      retrieved_at: this.clock(),
+      passages: retrieval.results.map((item) => ({
+        source_type: item.source,
+        scope_id: item.scope_id,
+        document_id: item.doc_id,
+        chunk_id: item.chunk_id,
+        document_version: item.source === 'upload'
+          ? item.provenance.document_version
+          : item.provenance.knowledge_version || item.provenance.schema_version,
+        text: item.text,
+        score: item.score,
+        provenance: item.provenance,
+      })),
+      applicable_modules: applicableModules,
+      follow_up_questions: followUpQuestions,
+    });
+    await this.sessionStore.putRecord('guidance-contexts', guidanceContext.guidance_context_id, guidanceContext);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      event_type: 'GUIDANCE_RETRIEVED',
+      occurred_at: this.clock(),
+      details: {
+        guidance_context_id: guidanceContext.guidance_context_id,
+        query_source: transcript.transcript_id,
+        result_count: guidanceContext.passages.length,
+        warnings: retrieval.warnings,
+      },
+      additions: { guidance_context_ids: [guidanceContext.guidance_context_id] },
+    });
+    return { session: recorded.session, guidanceContext };
+  }
+
+  async submitFieldAnswer({ session_id: sessionId, expected_revision: expectedRevision, field_id: fieldId, value, unit } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'RESOLVE') {
+      throw workflowError('Technician field answers are accepted only during Resolve.', 'FIELD_ANSWER_PHASE_MISMATCH', 409);
+    }
+    const template = templateFor(session.template_binding.template_id);
+    const normalizedFieldId = String(fieldId || '').trim();
+    const definition = template.schema.fields.find((item) => (
+      item.id.endsWith('.*') ? normalizedFieldId.startsWith(item.id.slice(0, -1)) : normalizedFieldId === item.id
+    ));
+    if (!definition) throw workflowError('Field is outside the bound template version.', 'FIELD_NOT_IN_TEMPLATE', 400);
+    const normalizedValue = typeof value === 'string' ? value.trim() : value;
+    const explicitlyCleared = normalizedValue === '' || normalizedValue === null || normalizedValue === undefined || normalizedValue === 'NOT_CHECKED';
+    const allowed = definition.allowedValues || definition.allowedStatuses;
+    if (!explicitlyCleared && allowed && !allowed.includes(String(normalizedValue))) {
+      throw workflowError('Technician field answer is outside the template allowed values.', 'FIELD_ANSWER_INVALID', 400);
+    }
+    const sourceText = explicitlyCleared ? '[technician explicitly cleared this field]' : String(normalizedValue);
+    const sourceDigest = digest(Buffer.from(sourceText, 'utf8'));
+    const storageRef = await this.sessionStore.putTextSource(sourceDigest, sourceText);
+    const evidence = createEvidence({
+      evidence_type: 'MANUAL_INPUT',
+      source_hash: `sha256:${digest(Buffer.from(sourceText, 'utf8'))}`,
+      storage_ref: storageRef,
+      created_at: this.clock(),
+      metadata: {
+        input_kind: 'TECHNICIAN_FIELD_ANSWER',
+        field_id: normalizedFieldId,
+        report_binding: reportBinding(session),
+      },
+    });
+    const span = createEvidenceSpan({
+      evidence_id: evidence.evidence_id,
+      start_offset: 0,
+      end_offset: sourceText.length,
+      quote: sourceText,
+      source_text: sourceText,
+    });
+    const candidate = createFieldCandidate({
+      session_id: session.session_id,
+      field_id: normalizedFieldId,
+      claim: explicitlyCleared ? { kind: 'EXPLICIT_NONE' } : {
+        kind: 'VALUE', value: unit === undefined ? normalizedValue : { value: normalizedValue, unit: String(unit) },
+      },
+      unit: explicitlyCleared || unit === undefined ? undefined : String(unit),
+      support_type: 'MANUAL_TECHNICIAN_INPUT',
+      assessment: 'VALID',
+      evidence_refs: [{ evidence_id: evidence.evidence_id, span_id: span.span_id }],
+      source_ref: evidence.evidence_id,
+      extraction: { method: 'technician-field-answer', version: PROCESSING_VERSION },
+      risk_class: definition.critical || definition.requiresTechnicianConfirmation ? 'CRITICAL' : 'STANDARD',
+      confidence_class: 'DIRECT_EVIDENCE',
+      source_context: {
+        domain: session.context_binding.scope_id,
+        context_id: session.context_binding.context_id,
+        context_version: session.context_binding.context_version,
+        scope_id: session.context_binding.scope_id,
+      },
+    });
+    await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
+    await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
+    await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      event_type: 'FIELD_CANDIDATE_RECORDED',
+      occurred_at: this.clock(),
+      details: { field_id: normalizedFieldId, candidate_id: candidate.candidate_id, evidence_id: evidence.evidence_id },
+      additions: {
+        evidence_ids: [evidence.evidence_id],
+        evidence_span_ids: [span.span_id],
+        field_candidate_ids: [candidate.candidate_id],
+      },
+    });
+    return { session: recorded.session, evidence, span, candidate };
+  }
+
+  async confirmFieldCandidate({ session_id: sessionId, expected_revision: expectedRevision, candidate_id: candidateId } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'RESOLVE' || !session.field_candidate_ids.includes(String(candidateId || ''))) {
+      throw workflowError('Candidate belongs to another ReportSession or phase.', 'FIELD_CANDIDATE_BINDING_MISMATCH', 409);
+    }
+    const source = await this.sessionStore.readRecord('field-candidates', candidateId);
+    if (source.session_id !== session.session_id || source.support_type === 'RAG_GUIDANCE') {
+      throw workflowError('Candidate belongs to another ReportSession.', 'FIELD_CANDIDATE_BINDING_MISMATCH', 409);
+    }
+    const principalRef = 'principal:demo-technician';
+    const event = createTechnicianConfirmationEvent({
+      session_id: session.session_id,
+      revision: session.revision + 1,
+      field_id: source.field_id,
+      candidate_id: source.candidate_id,
+      technician_principal_ref: principalRef,
+      occurred_at: this.clock(),
+    });
+    const candidate = createConfirmedFieldCandidate({
+      session_id: session.session_id,
+      field_id: source.field_id,
+      confirmed_candidate_id: source.candidate_id,
+      claim: source.claim,
+      unit: source.unit,
+      evidence_refs: source.evidence_refs,
+      source_ref: source.source_ref,
+      extraction: { method: 'technician-confirmation', version: PROCESSING_VERSION },
+      risk_class: source.risk_class,
+      confidence_class: 'CONFIRMED',
+      source_context: source.source_context,
+    }, { confirmation_event: event });
+    await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      event_type: 'TECHNICIAN_CONFIRMATION',
+      principal_ref: principalRef,
+      occurred_at: event.occurred_at,
+      details: event.payload,
+      additions: { field_candidate_ids: [candidate.candidate_id] },
+    });
+    if (recorded.event.event_id !== event.event_id) {
+      throw workflowError('Technician confirmation event identity mismatch.', 'CONFIRMATION_EVENT_MISMATCH', 409);
+    }
+    return { session: recorded.session, event: recorded.event, candidate };
   }
 
   async reviewItems(session, transcript) {
@@ -280,10 +575,11 @@ export class AuthoritativeCaptureService {
         next_action: 'REVIEW_TRANSCRIPT',
       };
     }
-    const { spans, candidates } = await this.extractCandidates({ session, transcript, supportType });
+    const { spans, candidates, facts } = await this.extractCandidates({ session, transcript, supportType });
+    const guided = await this.retrieveGuidance({ session, transcript, facts });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
-      expected_revision: session.revision,
+      expected_revision: guided.session.revision,
       to_phase: 'RESOLVE',
       event_type: 'STRUCTURED_CANDIDATES_CREATED',
       occurred_at: this.clock(),
@@ -304,6 +600,7 @@ export class AuthoritativeCaptureService {
       review: null,
       spans,
       candidates,
+      guidance_context: guided.guidanceContext,
       reused: false,
       next_action: 'RESOLVE_REPORT_FIELDS',
     };
@@ -365,7 +662,7 @@ export class AuthoritativeCaptureService {
       }];
     });
     const supportType = transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE';
-    const { spans, candidates } = await this.extractCandidates({
+    const extraction = await this.extractCandidates({
       session,
       transcript,
       supportType,
@@ -373,9 +670,16 @@ export class AuthoritativeCaptureService {
       mapSourceSpan: session.context_binding.scope_id === 'HVAC' ? (span) => span : projection.mapSpan,
       confirmedCorrections,
     });
+    const { spans, candidates, facts } = extraction;
+    const guided = await this.retrieveGuidance({
+      session,
+      transcript,
+      facts,
+      query: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
+    });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
-      expected_revision: session.revision,
+      expected_revision: guided.session.revision,
       to_phase: 'RESOLVE',
       event_type: 'TRANSCRIPT_REVIEW_DECIDED',
       occurred_at: this.clock(),
@@ -383,11 +687,13 @@ export class AuthoritativeCaptureService {
         transcript_id: transcript.transcript_id,
         transcript_review_id: review.review_id,
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+        guidance_context_ids: guided.guidanceContext ? [guided.guidanceContext.guidance_context_id] : [],
       },
       additions: {
         transcript_review_ids: [review.review_id],
         evidence_span_ids: spans.map((span) => span.span_id),
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+        guidance_context_ids: guided.guidanceContext ? [guided.guidanceContext.guidance_context_id] : [],
       },
     });
     const record = await this.sessionStore.readCaptureByEvidence(transcript.source_evidence_id).catch(() => null);
@@ -399,6 +705,7 @@ export class AuthoritativeCaptureService {
         transcript_id: transcript.transcript_id,
         evidence_span_ids: spans.map((span) => span.span_id),
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+        guidance_context_ids: guided.guidanceContext ? [guided.guidanceContext.guidance_context_id] : [],
         next_action: 'RESOLVE_REPORT_FIELDS',
         failure: null,
       });
@@ -410,6 +717,7 @@ export class AuthoritativeCaptureService {
       review,
       spans,
       candidates,
+      guidance_context: guided.guidanceContext,
       reused: false,
       next_action: 'RESOLVE_REPORT_FIELDS',
     };
@@ -451,6 +759,7 @@ export class AuthoritativeCaptureService {
       : null;
     const spans = await Promise.all((record.evidence_span_ids || []).map((id) => this.sessionStore.readRecord('evidence-spans', id)));
     const candidates = await Promise.all((record.field_candidate_ids || []).map((id) => this.sessionStore.readRecord('field-candidates', id)));
+    const guidanceContexts = await Promise.all((record.guidance_context_ids || []).map((id) => this.sessionStore.readRecord('guidance-contexts', id)));
     return {
       session,
       audio,
@@ -459,6 +768,7 @@ export class AuthoritativeCaptureService {
       review,
       spans,
       candidates,
+      guidance_context: guidanceContexts.at(-1) || null,
       reused: true,
       next_action: record.next_action,
     };
@@ -488,6 +798,7 @@ export class AuthoritativeCaptureService {
         review_id: completed.review?.review_id || null,
         evidence_span_ids: completed.spans.map((span) => span.span_id),
         field_candidate_ids: completed.candidates.map((candidate) => candidate.candidate_id),
+        guidance_context_ids: completed.guidance_context ? [completed.guidance_context.guidance_context_id] : [],
         next_action: completed.next_action,
         failure: null,
       });
@@ -587,6 +898,7 @@ export class AuthoritativeCaptureService {
       review_id: null,
       evidence_span_ids: [],
       field_candidate_ids: [],
+      guidance_context_ids: [],
       next_action: 'PROCESS_TEXT',
       failure: null,
     };
@@ -610,6 +922,7 @@ export class AuthoritativeCaptureService {
       review_id: completed.review?.review_id || null,
       evidence_span_ids: completed.spans.map((span) => span.span_id),
       field_candidate_ids: completed.candidates.map((candidate) => candidate.candidate_id),
+      guidance_context_ids: completed.guidance_context ? [completed.guidance_context.guidance_context_id] : [],
       next_action: completed.next_action,
       failure: null,
     });
@@ -651,6 +964,7 @@ export class AuthoritativeCaptureService {
       transcript_id: null,
       evidence_span_ids: [],
       field_candidate_ids: [],
+      guidance_context_ids: [],
       next_action: 'PROCESS_TRANSCRIPTION',
       failure: null,
     };

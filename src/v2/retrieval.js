@@ -121,13 +121,17 @@ async function knowledgeCandidates({ contextId, registry, knowledgeRoot, fsModul
   return { candidates, warnings };
 }
 
-async function uploadCandidates({ contextId, registry, uploadStore }) {
+async function uploadCandidates({ contextId, registry, uploadStore, permittedUploadIds }) {
   const allowed = new Set(allowedScopes(contextId, registry));
+  const permitted = permittedUploadIds === undefined
+    ? null
+    : new Set((permittedUploadIds || []).map(String));
   const candidates = [];
   const warnings = [];
   const uploads = await uploadStore.list({});
   for (const upload of uploads) {
     if (upload.status !== UPLOAD_STATUS.READY) continue;
+    if (permitted && !permitted.has(upload.upload_id)) continue;
     const candidateScopeId = `USER_UPLOADED:${upload.scope_id}`;
     if (!allowed.has(candidateScopeId)) {
       warnings.push(CROSS_DOMAIN_BLOCKED);
@@ -148,6 +152,8 @@ async function uploadCandidates({ contextId, registry, uploadStore }) {
           source: upload.provenance?.source,
           uploader: upload.provenance?.uploader,
           scenario: upload.provenance?.scenario,
+          report_session_id: upload.provenance?.report_session_id,
+          document_version: upload.document_version || `sha256:${upload.sha256}`,
         },
       });
     });
@@ -188,11 +194,11 @@ function scoreChunk(text, queryTerms, rawQuery = '') {
  * returned.
  *
  * @param {{ registry: object, uploadStore?: object, knowledgeRoot?: string, fsModule?: object }} [options]
- * @returns {(params: { contextId: string, query?: string, topK?: number, includeUploads?: boolean }) => Promise<{ results: object[], warnings: string[] }>}
+ * @returns {(params: { contextId: string, query?: string, topK?: number, includeUploads?: boolean, permittedUploadIds?: string[] }) => Promise<{ results: object[], warnings: string[] }>}
  */
 export function createRetriever({ registry, uploadStore, knowledgeRoot = defaultKnowledgeRoot, fsModule = fs } = {}) {
   if (!registry || typeof registry !== 'object') throw new TypeError('createRetriever requires a scope registry.');
-  return async function retrieve({ contextId, query = '', topK = 5, includeUploads = true } = {}) {
+  return async function retrieve({ contextId, query = '', topK = 5, includeUploads = true, permittedUploadIds } = {}) {
     const context = String(contextId ?? '');
     const resolved = resolveContext(context, registry);
     const limit = Math.max(0, Math.floor(Number(topK) || 0));
@@ -209,7 +215,12 @@ export function createRetriever({ registry, uploadStore, knowledgeRoot = default
 
     let uploadItems = [];
     if (includeUploads && uploadStore) {
-      const { candidates: uploadCands, warnings: uploadWarnings } = await uploadCandidates({ contextId: context, registry, uploadStore });
+      const { candidates: uploadCands, warnings: uploadWarnings } = await uploadCandidates({
+        contextId: context,
+        registry,
+        uploadStore,
+        permittedUploadIds,
+      });
       uploadItems = uploadCands;
       warnings.push(...uploadWarnings);
     }
