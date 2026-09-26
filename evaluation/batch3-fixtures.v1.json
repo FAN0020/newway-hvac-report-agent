@@ -1,0 +1,232 @@
+{
+  "schema_version": "batch3-fixtures.v1",
+  "label_status": "SYNTHETIC_SEED_ONLY",
+  "rag_queries": {
+    "HVAC-NORMAL-001": "drain line clearing cooling test",
+    "HVAC-TERM-002": "run capacitor microfarad capacitance",
+    "HVAC-MISSING-003": "refrigerant leak detection",
+    "SBS-BUS-NORMAL-001": "MAN A95 door control module",
+    "SBS-BUS-TERM-002": "MAN A95 brake pressure bar",
+    "SBS-BUS-MISSING-003": "door control module not replaced",
+    "SBS-RAIL-NORMAL-001": "C751A train door roller",
+    "SBS-RAIL-TERM-002": "C751C collector shoe North East Line",
+    "SBS-RAIL-MISSING-003": "C951 not returned to service door motor",
+    "OILFIELD-NORMAL-001": "crude oil buried pipeline coating inspection",
+    "OILFIELD-TERM-002": "closed transport pipeline section",
+    "OILFIELD-MISSING-003": "HSE contractor management",
+    "POWER-GRID-NORMAL-001": "main transformer insulating oil breakdown voltage",
+    "POWER-GRID-TERM-002": "offboard charger charging station",
+    "POWER-GRID-MISSING-003": "insulating oil dielectric loss"
+  },
+  "report_cases": {
+    "HVAC-NORMAL-001": {
+      "facts": [
+        {
+          "fact_id": "hvac-1",
+          "field": "equipment",
+          "value": "fictional unit AC 104",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:HVAC-NORMAL-001"
+        },
+        {
+          "fact_id": "hvac-2",
+          "field": "inspection_findings",
+          "value": "drain line blocked",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:HVAC-NORMAL-001"
+        },
+        {
+          "fact_id": "hvac-3",
+          "field": "work_performed",
+          "value": "cleared the drain line",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:HVAC-NORMAL-001"
+        },
+        {
+          "fact_id": "hvac-4",
+          "field": "test_results",
+          "value": "cooling was normal after a cooling test",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:HVAC-NORMAL-001"
+        },
+        {
+          "fact_id": "hvac-5",
+          "field": "completion_status",
+          "value": "complete",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:HVAC-NORMAL-001"
+        }
+      ],
+      "retrieval_context_ids": [
+        "knowledge:HVAC:hvac-terms.v1.json:term_drain_clearing",
+        "knowledge:HVAC:hvac-terms.v1.json:term_cooling_test"
+      ]
+    },
+    "SBS-BUS-NORMAL-001": {
+      "facts": [
+        {
+          "fact_id": "bus-1",
+          "field": "asset.registration_no",
+          "value": "SG3050Z",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-BUS-NORMAL-001"
+        },
+        {
+          "fact_id": "bus-2",
+          "field": "asset.model",
+          "value": "MAN A95",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-BUS-NORMAL-001"
+        },
+        {
+          "fact_id": "bus-3",
+          "field": "inspection_findings",
+          "value": "front door control module inspected",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-BUS-NORMAL-001"
+        },
+        {
+          "fact_id": "bus-4",
+          "field": "work_performed",
+          "value": "replaced front door control module",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-BUS-NORMAL-001"
+        },
+        {
+          "fact_id": "bus-5",
+          "field": "test.result",
+          "value": "door opening and closing cycles passed",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-BUS-NORMAL-001"
+        }
+      ],
+      "retrieval_context_ids": [
+        "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95",
+        "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_door_control_module"
+      ]
+    },
+    "SBS-RAIL-NORMAL-001": {
+      "facts": [
+        {
+          "fact_id": "rail-1",
+          "field": "asset.train_set",
+          "value": "C751A 7001/7002",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-RAIL-NORMAL-001"
+        },
+        {
+          "fact_id": "rail-2",
+          "field": "asset.car",
+          "value": "car 3",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-RAIL-NORMAL-001"
+        },
+        {
+          "fact_id": "rail-3",
+          "field": "inspection_findings",
+          "value": "worn door roller inspected",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-RAIL-NORMAL-001"
+        },
+        {
+          "fact_id": "rail-4",
+          "field": "work_performed",
+          "value": "replaced worn door roller",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-RAIL-NORMAL-001"
+        },
+        {
+          "fact_id": "rail-5",
+          "field": "test.result",
+          "value": "two door cycles successful",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:SBS-RAIL-NORMAL-001"
+        }
+      ],
+      "retrieval_context_ids": [
+        "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751a",
+        "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_subsys_door"
+      ]
+    },
+    "OILFIELD-NORMAL-001": {
+      "facts": [
+        {
+          "fact_id": "oil-1",
+          "field": "asset.equipment",
+          "value": "fictional crude oil pipeline section P-12",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:OILFIELD-NORMAL-001"
+        },
+        {
+          "fact_id": "oil-2",
+          "field": "inspection.item",
+          "value": "buried pipeline coating over 40 m",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:OILFIELD-NORMAL-001"
+        },
+        {
+          "fact_id": "oil-3",
+          "field": "inspection.observation",
+          "value": "no coating damage observed",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:OILFIELD-NORMAL-001"
+        },
+        {
+          "fact_id": "oil-4",
+          "field": "completion.state",
+          "value": "completed",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:OILFIELD-NORMAL-001"
+        }
+      ],
+      "retrieval_context_ids": [
+        "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_asset_crude_oil_pipeline",
+        "knowledge:OILFIELD:v2/oilfield-terms.v1.json:term_inspection_pipeline_laying"
+      ]
+    },
+    "POWER-GRID-NORMAL-001": {
+      "facts": [
+        {
+          "fact_id": "grid-1",
+          "field": "asset.equipment",
+          "value": "fictional main transformer T-2",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:POWER-GRID-NORMAL-001"
+        },
+        {
+          "fact_id": "grid-2",
+          "field": "inspection.item",
+          "value": "insulating oil sampled for breakdown voltage test",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:POWER-GRID-NORMAL-001"
+        },
+        {
+          "fact_id": "grid-3",
+          "field": "inspection.observation",
+          "value": "breakdown voltage 62 kV",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:POWER-GRID-NORMAL-001"
+        },
+        {
+          "fact_id": "grid-4",
+          "field": "inspection.observation",
+          "value": "ambient temperature 26 °C",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:POWER-GRID-NORMAL-001"
+        },
+        {
+          "fact_id": "grid-5",
+          "field": "completion.state",
+          "value": "completed",
+          "support_status": "DIRECT_TRANSCRIPT",
+          "source": "seed:POWER-GRID-NORMAL-001"
+        }
+      ],
+      "retrieval_context_ids": [
+        "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_main_transformer",
+        "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_test_breakdown_voltage",
+        "knowledge:POWER_GRID:v2/power-grid-terms.v1.json:term_asset_insulating_oil"
+      ]
+    }
+  }
+}
