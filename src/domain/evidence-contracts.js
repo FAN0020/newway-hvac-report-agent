@@ -1,0 +1,177 @@
+import {
+  ContractValidationError,
+  contentAddressedId,
+  copy,
+  deepFreeze,
+  enumValue,
+  evidenceRefs,
+  hashContract,
+  requiredString,
+  requiredTimestamp,
+  stringArray,
+} from './contract-utils.js';
+
+const EVIDENCE_TYPES = Object.freeze(['AUDIO', 'TRANSCRIPT', 'DOCUMENT', 'MANUAL_INPUT', 'SYSTEM_RECORD']);
+const REVIEW_STATUSES = Object.freeze(['PENDING', 'REVIEWED']);
+const REVIEW_DECISIONS = Object.freeze(['ACCEPT', 'REJECT', 'EDIT', 'NO_CHANGE']);
+const VALIDATION_SEVERITIES = Object.freeze(['INFO', 'WARNING', 'ERROR', 'CRITICAL']);
+const RESOLUTION_TYPES = Object.freeze(['SELECT_CANDIDATE', 'PROVIDE_VALUE', 'CONFIRM_VALUE', 'CORRECT_TRANSCRIPT']);
+const RESOLUTION_STATUSES = Object.freeze(['OPEN', 'RESOLVED', 'DECLINED']);
+
+export function createEvidence(input = {}) {
+  const code = 'INVALID_EVIDENCE';
+  const body = {
+    contract: 'Evidence',
+    contract_version: '1',
+    evidence_type: enumValue(input.evidence_type, EVIDENCE_TYPES, 'evidence_type', code),
+    source_hash: requiredString(input.source_hash, 'source_hash', code),
+    storage_ref: requiredString(input.storage_ref, 'storage_ref', code),
+    created_at: requiredTimestamp(input.created_at, 'created_at', code),
+    metadata: copy(input.metadata || {}),
+  };
+  if (!/^sha256:[a-f0-9]{64}$/u.test(body.source_hash)) {
+    throw new ContractValidationError('source_hash must be a SHA-256 digest.', code);
+  }
+  return deepFreeze({ evidence_id: contentAddressedId('evidence', body, input.evidence_id), ...body });
+}
+
+export function createEvidenceSpan(input = {}) {
+  const code = 'INVALID_EVIDENCE_SPAN';
+  const evidenceId = requiredString(input.evidence_id, 'evidence_id', code);
+  const start = Number(input.start_offset);
+  const end = Number(input.end_offset);
+  const quote = String(input.quote ?? '');
+  const sourceText = String(input.source_text ?? '');
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start || quote.length !== end - start) {
+    throw new ContractValidationError('EvidenceSpan requires exact non-empty start/end offsets matching quote length.', code);
+  }
+  if (sourceText.slice(start, end) !== quote) {
+    throw new ContractValidationError('EvidenceSpan quote does not match the source text at the exact offsets.', 'EVIDENCE_SPAN_TEXT_MISMATCH');
+  }
+  const body = {
+    contract: 'EvidenceSpan',
+    contract_version: '1',
+    evidence_id: evidenceId,
+    start_offset: start,
+    end_offset: end,
+    offset_unit: 'UTF16_CODE_UNIT',
+    quote_hash: hashContract(quote),
+  };
+  return deepFreeze({ span_id: contentAddressedId('span', body, input.span_id), ...body });
+}
+
+export function createTranscriptArtifact(input = {}) {
+  const code = 'INVALID_TRANSCRIPT_ARTIFACT';
+  const rawText = requiredString(input.raw_text, 'raw_text', code);
+  const segments = (input.segments || []).map((segment, index) => {
+    const start = Number(segment?.start_ms);
+    const end = Number(segment?.end_ms);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new ContractValidationError(`segments[${index}] requires increasing non-negative millisecond offsets.`, code);
+    }
+    return { start_ms: start, end_ms: end, text: requiredString(segment.text, `segments[${index}].text`, code) };
+  });
+  const body = {
+    contract: 'TranscriptArtifact',
+    contract_version: '1',
+    session_id: requiredString(input.session_id, 'session_id', code),
+    source_evidence_id: requiredString(input.source_evidence_id, 'source_evidence_id', code),
+    raw_text: rawText,
+    text_hash: hashContract(rawText),
+    language: String(input.language || 'und'),
+    provider_ref: String(input.provider_ref || 'unknown'),
+    created_at: requiredTimestamp(input.created_at, 'created_at', code),
+    segments,
+  };
+  return deepFreeze({ transcript_id: contentAddressedId('transcript', body, input.transcript_id), ...body });
+}
+
+export function createTranscriptReview(input = {}) {
+  const code = 'INVALID_TRANSCRIPT_REVIEW';
+  const status = enumValue(input.status, REVIEW_STATUSES, 'status', code);
+  const decisions = (input.decisions || []).map((decision, index) => ({
+    review_item_id: requiredString(decision?.review_item_id, `decisions[${index}].review_item_id`, code),
+    decision: enumValue(decision?.decision, REVIEW_DECISIONS, `decisions[${index}].decision`, code),
+    ...(decision?.corrected_text !== undefined ? { corrected_text: String(decision.corrected_text) } : {}),
+  }));
+  const body = {
+    contract: 'TranscriptReview',
+    contract_version: '1',
+    session_id: requiredString(input.session_id, 'session_id', code),
+    transcript_id: requiredString(input.transcript_id, 'transcript_id', code),
+    status,
+    decisions,
+    reviewer_principal_ref: status === 'REVIEWED'
+      ? requiredString(input.reviewer_principal_ref, 'reviewer_principal_ref', code)
+      : null,
+    reviewed_at: status === 'REVIEWED' ? requiredTimestamp(input.reviewed_at, 'reviewed_at', code) : null,
+  };
+  return deepFreeze({ review_id: contentAddressedId('transcript_review', body, input.review_id), ...body });
+}
+
+export function createGuidanceContext(input = {}) {
+  const code = 'INVALID_GUIDANCE_CONTEXT';
+  const passages = (input.passages || []).map((passage, index) => {
+    const score = Number(passage?.score);
+    if (!Number.isFinite(score)) throw new ContractValidationError(`passages[${index}].score must be finite.`, code);
+    return {
+      source_id: requiredString(passage.source_id, `passages[${index}].source_id`, code),
+      chunk_id: requiredString(passage.chunk_id, `passages[${index}].chunk_id`, code),
+      text: requiredString(passage.text, `passages[${index}].text`, code),
+      score,
+    };
+  });
+  const body = {
+    contract: 'GuidanceContext',
+    contract_version: '1',
+    session_id: requiredString(input.session_id, 'session_id', code),
+    context_id: requiredString(input.context_id, 'context_id', code),
+    scope_id: requiredString(input.scope_id, 'scope_id', code),
+    context_version: requiredString(input.context_version, 'context_version', code),
+    retrieved_at: requiredTimestamp(input.retrieved_at, 'retrieved_at', code),
+    passages,
+    support_type: 'RAG_GUIDANCE',
+    eligible_as_job_evidence: false,
+  };
+  return deepFreeze({ guidance_context_id: contentAddressedId('guidance', body, input.guidance_context_id), ...body });
+}
+
+export function createValidationIssue(input = {}) {
+  const code = 'INVALID_VALIDATION_ISSUE';
+  const body = {
+    contract: 'ValidationIssue',
+    contract_version: '1',
+    issue_id: requiredString(input.issue_id, 'issue_id', code),
+    code: requiredString(input.code, 'code', code),
+    severity: enumValue(input.severity, VALIDATION_SEVERITIES, 'severity', code),
+    field_id: input.field_id ? requiredString(input.field_id, 'field_id', code) : null,
+    candidate_ids: stringArray(input.candidate_ids || [], 'candidate_ids', { code }),
+    evidence_refs: evidenceRefs(input.evidence_refs || [], 'evidence_refs', code),
+    message: requiredString(input.message, 'message', code),
+  };
+  return deepFreeze(body);
+}
+
+export function createResolutionItem(input = {}) {
+  const code = 'INVALID_RESOLUTION_ITEM';
+  return deepFreeze({
+    contract: 'ResolutionItem',
+    contract_version: '1',
+    resolution_id: requiredString(input.resolution_id, 'resolution_id', code),
+    issue_id: requiredString(input.issue_id, 'issue_id', code),
+    type: enumValue(input.type, RESOLUTION_TYPES, 'type', code),
+    field_id: requiredString(input.field_id, 'field_id', code),
+    candidate_ids: stringArray(input.candidate_ids || [], 'candidate_ids', { code }),
+    prompt: requiredString(input.prompt, 'prompt', code),
+    status: enumValue(input.status, RESOLUTION_STATUSES, 'status', code),
+  });
+}
+
+export const evidenceContractEnums = deepFreeze({
+  EVIDENCE_TYPES,
+  REVIEW_STATUSES,
+  REVIEW_DECISIONS,
+  VALIDATION_SEVERITIES,
+  RESOLUTION_TYPES,
+  RESOLUTION_STATUSES,
+});

@@ -1,0 +1,79 @@
+import { SESSION_PHASES } from './constants.js';
+import {
+  ContractValidationError,
+  canonicalJson,
+  copy,
+  deepFreeze,
+  hashContract,
+  requiredString,
+  requiredTimestamp,
+} from './contract-utils.js';
+import { validatePersistedSnapshot } from './report-snapshot.js';
+
+export function serializeContract(value) {
+  if (!value || typeof value !== 'object' || !value.contract || !value.contract_version) {
+    throw new ContractValidationError('Only versioned domain contracts can be serialized.', 'INVALID_SERIALIZATION_INPUT');
+  }
+  return canonicalJson(value);
+}
+
+function parse(serialized) {
+  try {
+    return typeof serialized === 'string' ? JSON.parse(serialized) : copy(serialized);
+  } catch (error) {
+    throw new ContractValidationError(`Serialized contract is not valid JSON: ${error.message}`, 'INVALID_SERIALIZED_CONTRACT');
+  }
+}
+
+function requireTrustedHash(value, trustedHash) {
+  if (!trustedHash) {
+    throw new ContractValidationError(
+      'Deserialization requires an out-of-band hash from trusted persistence.',
+      'UNTRUSTED_DESERIALIZATION',
+    );
+  }
+  if (hashContract(value) !== trustedHash) {
+    throw new ContractValidationError('Persisted contract hash does not match trusted persistence.', 'PERSISTENCE_HASH_MISMATCH');
+  }
+}
+
+function validatePersistedSession(session) {
+  const code = 'INVALID_REPORT_SESSION';
+  if (!session || session.contract !== 'ReportSession' || session.contract_version !== '1'
+    || session.authority !== 'SERVER' || session.client_input_trusted !== false) {
+    throw new ContractValidationError('Persisted value is not a server-authoritative ReportSession v1.', code);
+  }
+  requiredString(session.session_id, 'session_id', code);
+  if (!Number.isSafeInteger(session.revision) || session.revision < 0) {
+    throw new ContractValidationError('revision must be a non-negative integer.', code);
+  }
+  if (!SESSION_PHASES.includes(session.phase)) throw new ContractValidationError('phase is invalid.', code);
+  if (!Array.isArray(session.audit_event_ids) || session.audit_event_ids.length > session.revision) {
+    throw new ContractValidationError('audit_event_ids cannot exceed the session revision.', code);
+  }
+  requiredString(session.template_binding?.template_id, 'template_binding.template_id', code);
+  requiredString(session.template_binding?.template_version, 'template_binding.template_version', code);
+  requiredString(session.context_binding?.context_id, 'context_binding.context_id', code);
+  requiredString(session.context_binding?.context_version, 'context_binding.context_version', code);
+  requiredString(session.context_binding?.scope_id, 'context_binding.scope_id', code);
+  requiredTimestamp(session.created_at, 'created_at', code);
+  requiredTimestamp(session.updated_at, 'updated_at', code);
+  if (session.phase === 'RECOVERABLE_ERROR' && (!session.recovery_phase || !session.last_error)) {
+    throw new ContractValidationError('RECOVERABLE_ERROR sessions require recovery state.', code);
+  }
+  return true;
+}
+
+export function deserializeReportSession(serialized, { trusted_persistence_hash: trustedHash } = {}) {
+  const parsed = parse(serialized);
+  requireTrustedHash(parsed, trustedHash);
+  validatePersistedSession(parsed);
+  return deepFreeze(parsed);
+}
+
+export function deserializeReportSnapshot(serialized, { trusted_persistence_hash: trustedHash } = {}) {
+  const parsed = parse(serialized);
+  requireTrustedHash(parsed, trustedHash);
+  validatePersistedSnapshot(parsed);
+  return deepFreeze(parsed);
+}
