@@ -158,6 +158,7 @@ footer { padding: 28px 4px; color: var(--muted); font-size: .86rem; }
 .v2-follow-up-card small { color: var(--muted); }
 .gate-item { margin: 8px 0; padding: 10px 12px; border-left: 4px solid var(--accent); background: #fff0ea; color: #8d3527; font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
 .gate-item code { font-size: .78rem; background: #f6ddd5; padding: 1px 6px; border-radius: 6px; }
+.gate-item.advisory { border-left-color: #6d8f85; background: #edf5f2; color: #315c52; }
 .v2-section-missing { color: #9a6b3b; }
 .v2-error-text { color: #8d3527; font-weight: 700; }
 

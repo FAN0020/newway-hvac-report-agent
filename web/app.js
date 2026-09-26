@@ -1220,6 +1220,7 @@ function v2RenderReport(result) {
   const report = result.data?.report || {};
   const gates = result.data?.gates || {};
   const violations = Array.isArray(gates.violations) ? gates.violations : [];
+  const advisories = Array.isArray(result.data?.knowledge_advisories) ? result.data.knowledge_advisories : [];
   const needsConfirm = result.status === 'NEEDS_CONFIRMATION' || violations.length > 0;
   v2El['v2-report-output'].hidden = false;
 
@@ -1239,7 +1240,7 @@ function v2RenderReport(result) {
   missingBox.hidden = missing.length === 0;
   v2RenderFollowUps(result.data?.follow_up_questions || []);
 
-  v2El['v2-report-gates'].replaceChildren(...(violations.length ? violations.map((violation) => {
+  const gateItems = violations.map((violation) => {
     const item = node('p', 'gate-item');
     item.append(
       node('strong', '', `[${violation.class}]`),
@@ -1247,7 +1248,16 @@ function v2RenderReport(result) {
       document.createTextNode(` ${violation.detail || ''}`),
     );
     return item;
-  }) : []));
+  });
+  const advisoryItems = advisories.map((advisory) => {
+    const item = node('p', 'gate-item advisory');
+    item.append(
+      node('strong', '', `[${advisory.class}]`),
+      document.createTextNode(` ${advisory.detail || ''}`),
+    );
+    return item;
+  });
+  v2El['v2-report-gates'].replaceChildren(...gateItems, ...advisoryItems);
 
   const sections = Array.isArray(report.sections) ? report.sections : [];
   v2El['v2-report-sections'].replaceChildren(...sections.map((section) => {

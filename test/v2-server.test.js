@@ -280,6 +280,27 @@ test('POST /api/v2/reports/build returns PASS with no gate violations for ground
   assert.deepEqual(body.data.gates.violations, []);
 });
 
+test('POST /api/v2/reports/build does not block on unpromoted RAG recommendations', async () => {
+  const facts = [
+    { field: 'asset.equipment', value: '原油输油管道', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: true },
+    { field: 'inspection.result', value: '检查结果正常', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: true },
+  ];
+  const { status, body } = await json(api('/api/v2/reports/build', {
+    method: 'POST',
+    body: {
+      context_id: 'OILFIELD',
+      facts,
+      knowledge_hits: ['作业指导书建议必要时更换密封件并安装防护装置。'],
+    },
+  }));
+  assert.equal(status, 200);
+  assert.equal(body.status, 'PASS');
+  assert.deepEqual(body.data.gates.violations, []);
+  assert.equal(body.data.knowledge_advisories.length, 1);
+  assert.equal(body.data.knowledge_advisories[0].class, 'KNOWLEDGE_ACTION_NOT_PROMOTED');
+  assert.ok(body.data.report.sections.some((section) => section.id === 'findings_result'));
+});
+
 test('POST /api/v2/reports/build builds a Rail report for SBS/RAIL', async () => {
   const facts = [
     { field: 'asset.train_set', value: 'C751A 7001/7002', support_status: 'DIRECT_TRANSCRIPT', source: 'manual', critical: true },

@@ -460,10 +460,18 @@ async function handleApi(request, response, url, traceId, config) {
         ? buildRailReportSections({ facts, factsReceiptId })
         : buildIndustrialReportSections({ scopeId: resolved.scopeId, facts, factsReceiptId });
     const plan = planV2Report({ scopeId: resolved.scopeId, facts, factsReceiptId });
-    const violations = [
-      ...assertNoServiceFactInvention({ facts, knowledgeHits }),
-      ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
-    ];
+    // Retrieval text may legitimately contain procedural recommendations such
+    // as "replace" or "install". Merely retrieving that text must not block a
+    // report that is rendered exclusively from transcript/technician facts.
+    // Keep those matches visible as advisories; the fact-level hard gates below
+    // still block any knowledge-sourced action that is actually promoted into
+    // a service fact or report section.
+    const knowledgeAdvisories = assertNoServiceFactInvention({ facts, knowledgeHits })
+      .map((item) => Object.freeze({
+        class: 'KNOWLEDGE_ACTION_NOT_PROMOTED',
+        detail: item.detail,
+      }));
+    const violations = checkHardGates({ scopeId: resolved.scopeId, facts }).violations;
     const followUpQuestions = [
       ...buildFollowUpQuestions({
       scopeId: resolved.scopeId,
@@ -481,6 +489,7 @@ async function handleApi(request, response, url, traceId, config) {
         missing_required_fields: plan.missing_required_fields,
       },
       gates: { violations },
+      knowledge_advisories: knowledgeAdvisories,
       follow_up_questions: followUpQuestions,
     }, { retryable: false }));
     return;

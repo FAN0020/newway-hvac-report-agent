@@ -447,6 +447,17 @@ export async function extractV2Facts({ contextId, rawText, registry } = {}) {
       }
     }
     for (const candidate of candidates) {
+      // A report has one current completion/service state. Technicians often
+      // say that a repair step was completed and then clarify that the asset
+      // is still out of service. Preserve that chronology by allowing the
+      // latest explicit completion.state statement to supersede earlier ones.
+      if (candidate.field === 'completion.state') {
+        for (let index = facts.length - 1; index >= 0; index -= 1) {
+          if (facts[index].field !== 'completion.state') continue;
+          seen.delete(`${facts[index].field}|${String(facts[index].value)}|${facts[index].unit ?? ''}`);
+          facts.splice(index, 1);
+        }
+      }
       const fact = {
         field: candidate.field,
         value: candidate.value,

@@ -202,6 +202,18 @@ test('未回役 → out_of_service, not completed', async () => {
   assert.equal(valueOf(facts, 'completion.state'), 'out_of_service');
 });
 
+test('latest explicit completion state wins over an earlier completed repair step', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'OILFIELD',
+    rawText: '已完成补土整改，复测通过。设备暂未恢复运行。',
+    registry,
+  });
+  const states = facts.filter((fact) => fact.field === 'completion.state');
+  assert.deepEqual(states.map((fact) => fact.value), ['out_of_service']);
+  assert.ok(facts.some((fact) => fact.field === 'work_performed'));
+  assert.ok(facts.some((fact) => fact.field === 'test.result'));
+});
+
 /* ------------------------------------------------------------------ *
  * Errors and empty input
  * ------------------------------------------------------------------ */
