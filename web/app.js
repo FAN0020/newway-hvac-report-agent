@@ -512,6 +512,8 @@ const V2_SCOPE_DEFAULTS = Object.freeze({
   HVAC: Object.freeze({ contextId: 'HVAC', scopeId: 'HVAC', display: 'HVAC', v2: false }),
   SBS_BUS: Object.freeze({ contextId: 'SBS/BUS', scopeId: 'SBS_BUS', display: 'SBS / Bus', v2: true }),
   SBS_RAIL: Object.freeze({ contextId: 'SBS/RAIL', scopeId: 'SBS_RAIL', display: 'SBS / Rail', v2: true }),
+  OILFIELD: Object.freeze({ contextId: 'OILFIELD', scopeId: 'OILFIELD', display: 'Oilfield / Pipeline', v2: true }),
+  POWER_GRID: Object.freeze({ contextId: 'POWER/GRID', scopeId: 'POWER_GRID', display: 'Power Grid / Energy', v2: true }),
 });
 
 const v2Ids = [
@@ -567,8 +569,7 @@ function v2UpdateScopeSelector() {
 
 function v2SetScopeHints() {
   v2El['v2-upload-scope-hint'].textContent = `Uploaded documents enter scope ${v2.display} and are visible only to retrieval in that scope.`;
-  const others = v2.scopeId === 'SBS_BUS' ? 'HVAC or Rail' : 'HVAC or Bus';
-  v2El['v2-retrieve-scope-hint'].textContent = `Search scope: ${v2.display}; ${others} content will never be returned.`;
+  v2El['v2-retrieve-scope-hint'].textContent = `Search scope: ${v2.display}; content from every other work scope is blocked.`;
 }
 
 function v2SetScope(scopeId) {

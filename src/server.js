@@ -443,7 +443,16 @@ async function handleApi(request, response, url, traceId, config) {
       return;
     }
     const facts = Array.isArray(input.facts) ? input.facts : [];
-    const factsReceiptId = input.facts_receipt_id ? String(input.facts_receipt_id) : undefined;
+    // V2 accepts technician-reviewed facts directly from the browser. Issue a
+    // deterministic, system-managed receipt for the exact fact bundle used to
+    // build this draft so provenance is always present and changes whenever a
+    // technician edits or confirms a fact.
+    const factsReceiptId = input.facts_receipt_id
+      ? String(input.facts_receipt_id)
+      : `v2facts_${crypto.createHash('sha256')
+        .update(JSON.stringify({ context_id: contextId, facts }))
+        .digest('hex')
+        .slice(0, 24)}`;
     const knowledgeHits = Array.isArray(input.knowledge_hits) ? input.knowledge_hits : [];
     const report = resolved.scopeId === 'SBS_BUS'
       ? buildBusReportSections({ facts, factsReceiptId })
@@ -466,6 +475,7 @@ async function handleApi(request, response, url, traceId, config) {
       report: {
         scope_id: resolved.scopeId,
         context_id: contextId,
+        facts_receipt_id: factsReceiptId,
         reportVersion: report.reportVersion,
         sections: report.sections,
         missing_required_fields: plan.missing_required_fields,

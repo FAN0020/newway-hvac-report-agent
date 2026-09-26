@@ -255,8 +255,13 @@ test('POST /api/v2/reports/build returns PASS with no gate violations for ground
   assert.equal(body.data.report.scope_id, 'SBS_BUS');
   assert.equal(body.data.report.context_id, 'SBS/BUS');
   assert.equal(body.data.report.reportVersion, 'v2-bus-1');
+  assert.match(body.data.report.facts_receipt_id, /^v2facts_[a-f0-9]{24}$/u);
   assert.ok(Array.isArray(body.data.report.sections));
   assert.ok(Array.isArray(body.data.report.missing_required_fields));
+  assert.ok(!body.data.report.missing_required_fields.includes('provenance'));
+  assert.ok(body.data.report.sections
+    .find((section) => section.id === 'provenance')
+    ?.content.some((line) => line.includes(body.data.report.facts_receipt_id)));
   assert.deepEqual(body.data.gates.violations, []);
 });
 
