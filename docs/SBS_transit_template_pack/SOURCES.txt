@@ -1,0 +1,16 @@
+PUBLIC REFERENCE SOURCES (accessed 26 Sep 2026)
+
+SBS Transit workflow evidence:
+https://www.openinnovationnetwork.gov.sg/innovation-challenges/singapore-mobility-challenge-2022
+
+Bus references:
+https://www.maptrack.com/templates/bus-10000-km-service
+https://www.maptrack.com/templates/bus-50000-km-service
+https://templates.reportwalk.com/bus-inspection
+
+Rail references:
+https://www.scribd.com/document/900969870/1-Register-TNM-AGL-Maintenance-Form-PM-Checklist-Track-Work-Ver-2021-1
+https://www.scribd.com/document/946066677/New-Plain-Rail-01-06-2
+
+Some third-party downloads require their own email/login/download flow. This pack does not redistribute gated third-party PDFs.
+Verify all engineering, safety, regulatory and company-specific fields with SBS Transit before operational use.

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
+import { resources } from '../web/i18n.js';
 
 test('demo UI asks for a temporary token and provides a non-submitting example filler', async () => {
   const [html, client] = await Promise.all([
@@ -49,7 +50,7 @@ test('LAN token is not embedded in HTML or a startup log template', async () => 
   assert.doesNotMatch(launcher, /console\.log\([^\n]*(?:token|HVAC_DEMO_TOKEN)/i);
 });
 
-test('guided walkthrough is wired: English 7-step flow with sample data per SBS scope', async () => {
+test('guided walkthrough is wired: localized 7-step flow with sample data per SBS scope', async () => {
   const [html, client] = await Promise.all([
     fs.readFile('web/index.html', 'utf8'),
     fs.readFile('web/app.js', 'utf8'),
@@ -59,9 +60,11 @@ test('guided walkthrough is wired: English 7-step flow with sample data per SBS 
     assert.match(html, new RegExp(`id="${id}"`));
     assert.match(client, new RegExp(id));
   }
-  // Step titles are all English (product walkthrough, never Chinese).
-  for (const title of ['Choose your scope', 'Upload a service document', 'Retrieve knowledge', 'Enter the on-site statement', 'Review the extracted facts', 'Build the report', 'Report ready']) {
-    assert.match(client, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  // Every step resolves through both locale catalogs.
+  for (const key of ['scope', 'upload', 'retrieval', 'statement', 'facts', 'report', 'done']) {
+    assert.equal(typeof resources.en.walkthrough[key].title, 'string');
+    assert.equal(typeof resources['zh-CN'].walkthrough[key].title, 'string');
+    assert.match(client, new RegExp(`walkthrough\\.${key}\\.title`));
   }
   // Sample data helpers exist and are scope-aware.
   assert.match(client, /function v2WtSampleDoc\(\)/);

@@ -71,6 +71,21 @@ async function json(responsePromise) {
   return { status: response.status, body: await response.json() };
 }
 
+test('localization browser modules are served as JavaScript', async () => {
+  for (const pathname of ['/i18n.js', '/locales/en.js', '/locales/zh-CN.js', '/locales/overrides.js']) {
+    const response = await fetch(`${base}${pathname}`);
+    assert.equal(response.status, 200, pathname);
+    assert.match(response.headers.get('content-type') || '', /^text\/javascript/);
+    assert.ok((await response.text()).length > 100, pathname);
+  }
+});
+
+test('browser shell icon is served without a console-visible 404', async () => {
+  const response = await fetch(`${base}/favicon.svg`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /^image\/svg\+xml/);
+});
+
 test('GET /api/v2/scopes lists transport and industrial scopes with HVAC upload disabled', async () => {
   const { status, body } = await json(api('/api/v2/scopes'));
   assert.equal(status, 200);

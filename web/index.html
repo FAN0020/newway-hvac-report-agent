@@ -3,24 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Newway Service Report Agent</title>
+  <title data-i18n="app.title">Newway Service Report Agent</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main>
-    <div class="demo-ribbon" role="note"><strong>Demo mode · not production</strong><span id="network-mode">Checking access mode…</span></div>
+    <div class="demo-ribbon" role="note"><strong data-i18n="app.demoMode">Demo mode · not production</strong><span id="network-mode" data-i18n="network.checking">Checking access mode…</span></div>
+    <div class="app-toolbar">
+      <label class="language-control" for="ui-language">
+        <span data-i18n="language.selectorLabel">Language</span>
+        <select id="ui-language" data-i18n-aria-label="accessibility.uiLanguage" aria-label="Application language">
+          <option value="en" data-i18n="language.english">English</option>
+          <option value="zh-CN" data-i18n="language.chinese">简体中文</option>
+        </select>
+      </label>
+    </div>
     <header>
-      <p class="eyebrow">NEWWAY SYSTEMS · HVAC REPORT MVP</p>
-      <h1>Speak a few words; review one service report before you leave</h1>
-      <p class="lead">Audio and reports are stored on the computer running the service. The AI organizes the content and does not replace repair, safety, or pricing judgment; only the current version confirmed by the technician can be officially saved or exported.</p>
+      <p class="eyebrow" data-i18n="app.eyebrow">NEWWAY SYSTEMS · FIELD SERVICE REPORT AGENT</p>
+      <h1 data-i18n="app.headline">Speak a few words; review one service report before you leave</h1>
+      <p class="lead" data-i18n="app.lead">Audio and reports are stored on the computer running the service. The AI organizes the content and does not replace repair, safety, or pricing judgment; only the current version confirmed by the technician can be officially saved or exported.</p>
     </header>
 
     <section id="scope-selector" class="scope-selector" aria-labelledby="scope-selector-title">
       <div class="scope-selector-head">
-        <h2 id="scope-selector-title">Select work scope</h2>
+        <h2 id="scope-selector-title" data-i18n="scope.selectTitle">Select work scope</h2>
         <p id="scope-selector-status" class="live-status">Current scope: HVAC (V1 panel)</p>
       </div>
-      <div id="scope-selector-buttons" class="scope-selector-buttons" role="group" aria-label="Work scope">
+      <div id="scope-selector-buttons" class="scope-selector-buttons" role="group" data-i18n-aria-label="scope.groupLabel" aria-label="Work scope">
         <button type="button" class="scope-button active" data-scope-id="HVAC">HVAC</button>
         <button type="button" class="scope-button" data-scope-id="SBS_BUS">SBS·Bus</button>
         <button type="button" class="scope-button" data-scope-id="SBS_RAIL">SBS·Rail</button>
@@ -31,212 +41,214 @@
 
     <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
       <div>
-        <div class="step">Temporary demo session</div>
-        <h2 id="auth-title">Enter the LAN demo passcode</h2>
-        <p>The passcode is kept only in this tab's sessionStorage and memory; it is never written to the URL, long-term local storage, logs, or reports.</p>
+        <div class="step" data-i18n="auth.step">Temporary demo session</div>
+        <h2 id="auth-title" data-i18n="auth.title">Enter the LAN demo passcode</h2>
+        <p data-i18n="auth.description">The passcode is kept only in this tab's session storage and memory; it is never written to the URL, long-term local storage, logs, or reports.</p>
       </div>
       <div class="auth-controls">
-        <label for="auth-token">Temporary passcode</label>
-        <input id="auth-token" type="password" autocomplete="off" spellcheck="false" placeholder="provided verbally by the presenter">
-        <button id="auth-submit">Enter demo</button>
+        <label for="auth-token" data-i18n="auth.passcode">Temporary passcode</label>
+        <input id="auth-token" type="password" autocomplete="off" spellcheck="false" data-i18n-placeholder="auth.passcodePlaceholder" placeholder="provided verbally by the presenter">
+        <button id="auth-submit" data-i18n="auth.enter">Enter demo</button>
       </div>
-      <p id="auth-status" class="live-status" role="status">Establishing secure session…</p>
+      <p id="auth-status" class="live-status" role="status" data-i18n="auth.establishing">Establishing secure session…</p>
     </section>
 
-    <div id="network-warning" class="network-warning" role="note">For trusted LAN demo use only; not a public or production deployment.</div>
+    <div id="network-warning" class="network-warning" role="note" data-i18n="network.trustedOnly">For trusted LAN demo use only; not a public or production deployment.</div>
 
     <div id="v1-panel">
     <section class="status-card" aria-labelledby="health-title">
-      <div><h2 id="health-title">Local runtime status</h2><p id="health-summary">Checking local components…</p></div>
-      <button id="refresh-health" class="secondary">Check again</button>
+      <div><h2 id="health-title" data-i18n="runtime.title">Local runtime status</h2><p id="health-summary" data-i18n="runtime.checking">Checking local components…</p></div>
+      <button id="refresh-health" class="secondary" data-i18n="runtime.checkAgain">Check again</button>
       <div id="health-details" class="health-grid"></div>
     </section>
 
     <section aria-labelledby="capture-title">
-      <div class="step">01 · Provide on-site statement</div>
-      <h2 id="capture-title">Record, or type manually when Whisper is unavailable</h2>
-      <p class="hint">Suggested statement: customer issue, inspection findings, work completed, parts, test results, current status. Manual input is clearly marked as manual and is never disguised as speech recognition.</p>
+      <div class="step" data-i18n="capture.step">01 · Provide on-site statement</div>
+      <h2 id="capture-title" data-i18n="capture.title">Record, or type manually when Whisper is unavailable</h2>
+      <p class="hint" data-i18n="capture.hint">Suggested statement: customer issue, inspection findings, work completed, parts, test results, current status. Manual input is clearly marked as manual and is never disguised as speech recognition.</p>
       <div class="capture-grid">
         <div class="input-panel">
-          <h3>Record the statement</h3>
+          <h3 data-i18n="capture.recordTitle">Record the statement</h3>
           <div class="controls">
-            <button id="start-recording">Start recording</button>
-            <button id="stop-recording" class="danger" disabled>Stop recording</button>
-            <label class="file-button">Upload WAV<input id="audio-file" type="file" accept="audio/wav,.wav"></label>
+            <button id="start-recording" data-i18n="capture.start">Start recording</button>
+            <button id="stop-recording" class="danger" disabled data-i18n="capture.stop">Stop recording</button>
+            <label class="file-button"><span data-i18n="capture.uploadWav">Upload WAV</span><input id="audio-file" type="file" accept="audio/wav,.wav"></label>
           </div>
-          <p id="recording-status" class="live-status" role="status">No audio selected.</p>
+          <p id="recording-status" class="live-status" role="status" data-i18n="capture.noAudio">No audio selected.</p>
           <audio id="audio-preview" controls hidden></audio>
           <div class="controls compact">
-            <label>Language<select id="language"><option value="auto">Auto</option><option value="zh">Chinese</option><option value="en">English</option><option value="ms">Bahasa Melayu</option><option value="ta">தமிழ்</option></select></label>
-            <label>Model<select id="model"><option value="base">Base</option><option value="tiny">Tiny</option><option value="small">Small</option></select></label>
-            <button id="transcribe" disabled>Transcribe</button>
-            <button id="retry" class="secondary" disabled>Retry once</button>
+            <label><span data-i18n="capture.audioLanguage">Audio language</span><select id="language"><option value="auto" data-i18n="capture.autoLanguage">Auto</option><option value="zh" data-i18n="capture.chineseLanguage">Chinese</option><option value="en" data-i18n="capture.englishLanguage">English</option><option value="ms" data-i18n="capture.malayLanguage">Bahasa Melayu</option><option value="ta" data-i18n="capture.tamilLanguage">தமிழ்</option></select></label>
+            <label><span data-i18n="capture.model">Model</span><select id="model"><option value="base">Base</option><option value="tiny">Tiny</option><option value="small">Small</option></select></label>
+            <button id="transcribe" disabled data-i18n="capture.transcribe">Transcribe</button>
+            <button id="retry" class="secondary" disabled data-i18n="capture.retryOnce">Retry once</button>
           </div>
         </div>
         <div class="input-panel manual-panel">
-          <h3>Type the statement manually</h3>
-          <label for="manual-transcript">Complete the demo without Whisper</label>
-          <textarea id="manual-transcript" rows="8" placeholder="Example: The customer reports the air conditioner is not cooling. Inspection found the operating capacitor is damaged. Replaced it with a 35 µF capacitor. Test run is normal. Problem resolved. Recommendation: clean the filter at the next service."></textarea>
+          <h3 data-i18n="capture.manualTitle">Type the statement manually</h3>
+          <label for="manual-transcript" data-i18n="capture.manualLabel">Complete the demo without Whisper</label>
+          <textarea id="manual-transcript" rows="8" data-i18n-placeholder="capture.manualPlaceholder" placeholder="Example: The customer reports the air conditioner is not cooling. Inspection found the operating capacitor is damaged. Replaced it with a 35 µF capacitor. Test run is normal. Problem resolved. Recommendation: clean the filter at the next service."></textarea>
           <div class="controls">
-            <button id="fill-demo" class="secondary" type="button">Fill in synthetic demo text</button>
-            <button id="use-manual">Save as manual statement</button>
+            <button id="fill-demo" class="secondary" type="button" data-i18n="capture.fillDemo">Fill in synthetic demo text</button>
+            <button id="use-manual" data-i18n="capture.saveManual">Save as manual statement</button>
           </div>
-          <p class="hint">“Fill in” only populates the text; it will not submit, generate, or confirm a report.</p>
+          <p class="hint" data-i18n="capture.fillHint">“Fill in” only populates the text; it will not submit, generate, or confirm a report.</p>
         </div>
       </div>
-      <p id="transcription-status" class="live-status" role="status">Waiting for voice transcription or a manual statement.</p>
+      <p id="transcription-status" class="live-status" role="status" data-i18n="capture.waiting">Waiting for voice transcription or a manual statement.</p>
     </section>
 
     <section aria-labelledby="source-title">
-      <div class="step">02 · Raw text &amp; source</div>
-      <h2 id="source-title">Immutable TranscriptArtifact</h2>
-      <article id="transcript-output" class="transcript-output empty">The raw transcript will appear here.</article>
-      <div class="controls"><button id="build-report" disabled>Check terminology fix candidates</button></div>
-      <details><summary>View immutable Artifact</summary><pre id="artifact-output">—</pre></details>
+      <div class="step" data-i18n="transcript.step">02 · Raw text and source</div>
+      <h2 id="source-title" data-i18n="transcript.title">Immutable transcript artifact</h2>
+      <article id="transcript-output" class="transcript-output empty" data-i18n="transcript.empty">The raw transcript will appear here.</article>
+      <div class="controls"><button id="build-report" disabled data-i18n="transcript.checkTerminology">Check terminology fix candidates</button></div>
+      <details><summary data-i18n="transcript.viewArtifact">View immutable artifact</summary><pre id="artifact-output">—</pre></details>
     </section>
 
     <section id="correction-section" hidden aria-labelledby="correction-title">
-      <div class="step">03 · Manual gate on terminology fixes</div>
-      <h2 id="correction-title">Compare raw text and proposed fixes side by side</h2>
-      <p class="hint">Candidates come only from the server-side versioned HVAC vocabulary. The AI only suggests; accept or reject each item, and also check key values and model numbers as verified.</p>
+      <div class="step" data-i18n="correction.step">03 · Manual gate on terminology fixes</div>
+      <h2 id="correction-title" data-i18n="correction.title">Compare raw text and proposed fixes side by side</h2>
+      <p class="hint" data-i18n="correction.hint">Candidates come only from the server-side versioned HVAC vocabulary. The AI only suggests; accept or reject each item, and also check key values and model numbers as verified.</p>
       <div class="two-columns transcript-compare">
-        <div><h3>Immutable raw text</h3><article id="correction-raw" class="transcript-output"></article></div>
-        <div><h3>AI-proposed text (not applied)</h3><article id="correction-proposed" class="transcript-output proposed"></article></div>
+        <div><h3 data-i18n="correction.raw">Immutable raw text</h3><article id="correction-raw" class="transcript-output"></article></div>
+        <div><h3 data-i18n="correction.proposed">AI-proposed text (not applied)</h3><article id="correction-proposed" class="transcript-output proposed"></article></div>
       </div>
       <div id="correction-list" class="stack"></div>
       <div class="form-grid">
-        <label>Reviewing technician name<input id="correction-technician-name" autocomplete="name" placeholder="e.g., Chen Wei"></label>
-        <label>Reviewing technician ID<input id="correction-technician-id" autocomplete="off" placeholder="e.g., TECH-007"></label>
+        <label><span data-i18n="correction.technicianName">Reviewing technician name</span><input id="correction-technician-name" autocomplete="name" data-i18n-placeholder="correction.technicianNamePlaceholder" placeholder="e.g., Chen Wei"></label>
+        <label><span data-i18n="correction.technicianId">Reviewing technician ID</span><input id="correction-technician-id" autocomplete="off" data-i18n-placeholder="correction.technicianIdPlaceholder" placeholder="e.g., TECH-007"></label>
       </div>
-      <button id="confirm-corrections">Confirm fix decisions and generate report draft</button>
-      <p id="correction-status" class="live-status" role="status">No text confirmation credential generated yet.</p>
-      <details><summary>View candidate sources &amp; versions</summary><pre id="correction-evidence">—</pre></details>
+      <button id="confirm-corrections" data-i18n="correction.confirmAndGenerate">Confirm fix decisions and generate report draft</button>
+      <p id="correction-status" class="live-status" role="status" data-i18n="correction.noCredential">No text confirmation credential generated yet.</p>
+      <details><summary data-i18n="correction.viewSources">View candidate sources and versions</summary><pre id="correction-evidence">—</pre></details>
     </section>
 
     <section id="questions-section" hidden aria-labelledby="questions-title">
-      <div class="step">04 · Up to three follow-up questions</div>
-      <h2 id="questions-title">Fill missing details, or explicitly choose “Not provided”</h2>
-      <p class="hint">Empty fields are not guessed by the AI; after choosing “Not provided”, the official draft still clearly shows it as pending confirmation.</p>
+      <div class="step" data-i18n="questions.step">04 · Up to three follow-up questions</div>
+      <h2 id="questions-title" data-i18n="questions.title">Fill missing details, or explicitly choose “Not provided”</h2>
+      <p class="hint" data-i18n="questions.hint">Empty fields are not guessed by the AI; after choosing “Not provided”, the official draft still clearly shows it as pending confirmation.</p>
       <div id="questions-list"></div>
-      <button id="apply-answers">Apply answers and regenerate</button>
+      <button id="apply-answers" data-i18n="questions.apply">Apply answers and regenerate</button>
     </section>
 
     <section id="evidence-section" hidden aria-labelledby="evidence-title">
-      <div class="step">05 · Facts &amp; evidence</div>
-      <h2 id="evidence-title">What the AI identified and what is still missing</h2>
+      <div class="step" data-i18n="evidence.step">05 · Facts and evidence</div>
+      <h2 id="evidence-title" data-i18n="evidence.title">What the AI identified and what is still missing</h2>
       <div class="two-columns">
-        <div><h3>Sourced facts</h3><div id="facts-output" class="stack"></div></div>
-        <div><h3>Fixes &amp; gaps</h3><div id="issues-output" class="stack"></div></div>
+        <div><h3 data-i18n="evidence.sourcedFacts">Sourced facts</h3><div id="facts-output" class="stack"></div></div>
+        <div><h3 data-i18n="evidence.fixesAndGaps">Fixes and gaps</h3><div id="issues-output" class="stack"></div></div>
       </div>
     </section>
 
     <section id="report-section" hidden aria-labelledby="report-title">
-      <div class="step">06 · Draft &amp; independent validation</div>
-      <h2 id="report-title">Full service report draft</h2>
-      <div class="warning">This is an AI-organized draft. The AI does not replace repair, safety, pricing, or warranty judgment.</div>
+      <div class="step" data-i18n="report.step">06 · Draft and independent validation</div>
+      <h2 id="report-title" data-i18n="report.title">Full service report draft</h2>
+      <div class="warning" data-i18n="report.warning">This is an AI-organized draft. The AI does not replace repair, safety, pricing, or warranty judgment.</div>
+      <p class="report-language-note"><strong data-i18n="report.languageLabel">Report language</strong>: <span data-i18n="report.sourceLanguage">Same as template or source</span></p>
       <div id="validator-banner" class="validator-banner"></div>
       <div id="report-output" class="report-paper"></div>
-      <details><summary>View Validator details</summary><pre id="validator-output">—</pre></details>
+      <details><summary data-i18n="report.viewValidator">View Validator details</summary><pre id="validator-output">—</pre></details>
     </section>
 
     <section id="confirm-section" hidden aria-labelledby="confirm-title">
-      <div class="step">07 · Technician confirmation</div>
-      <h2 id="confirm-title">Confirm the current report version</h2>
+      <div class="step" data-i18n="confirmation.step">07 · Technician confirmation</div>
+      <h2 id="confirm-title" data-i18n="confirmation.title">Confirm the current report version</h2>
       <div class="form-grid">
-        <label>Technician name<input id="technician-name" autocomplete="name" placeholder="e.g., Chen Wei"></label>
-        <label>Technician ID<input id="technician-id" autocomplete="off" placeholder="e.g., TECH-007"></label>
+        <label><span data-i18n="confirmation.technicianName">Technician name</span><input id="technician-name" autocomplete="name" data-i18n-placeholder="correction.technicianNamePlaceholder" placeholder="e.g., Chen Wei"></label>
+        <label><span data-i18n="confirmation.technicianId">Technician ID</span><input id="technician-id" autocomplete="off" data-i18n-placeholder="correction.technicianIdPlaceholder" placeholder="e.g., TECH-007"></label>
       </div>
-      <label class="confirm-check"><input id="confirm-check" type="checkbox"> I have reviewed the raw text, gaps, report draft, and validation results, and I confirm the current version.</label>
+      <label class="confirm-check"><input id="confirm-check" type="checkbox"><span data-i18n="confirmation.acknowledgement">I have reviewed the raw text, gaps, report draft, and validation results, and I confirm the current version.</span></label>
       <div class="controls">
-        <button id="confirm-report" disabled>Confirm current version</button>
-        <button id="save-report" disabled>Save official JSON</button>
-        <button id="export-report" disabled>Export copyable text</button>
-        <button id="copy-export" class="secondary" disabled>Copy exported text</button>
+        <button id="confirm-report" disabled data-i18n="confirmation.confirmVersion">Confirm current version</button>
+        <button id="save-report" disabled data-i18n="confirmation.saveJson">Save official JSON</button>
+        <button id="export-report" disabled data-i18n="confirmation.exportText">Export copyable text</button>
+        <button id="copy-export" class="secondary" disabled data-i18n="confirmation.copyText">Copy exported text</button>
       </div>
-      <p id="confirmation-status" class="live-status" role="status">Not confirmed yet. Unconfirmed or stale confirmations cannot be saved or exported.</p>
-      <textarea id="export-output" rows="12" readonly hidden aria-label="Exported report text"></textarea>
+      <p id="confirmation-status" class="live-status" role="status" data-i18n="confirmation.notConfirmed">Not confirmed yet. Unconfirmed or stale confirmations cannot be saved or exported.</p>
+      <textarea id="export-output" rows="12" readonly hidden data-i18n-aria-label="accessibility.exportedReport" aria-label="Exported report text"></textarea>
     </section>
     </div>
 
-    <div id="v2-panel" hidden aria-label="SBS V2 panel">
+    <div id="v2-panel" hidden data-i18n-aria-label="scope.v2PanelLabel" aria-label="SBS V2 panel">
       <section id="v2-demo" class="v2-zone v2-demo-zone" aria-labelledby="v2-demo-title">
-        <div class="step">V2 · Guided demo</div>
-        <h3 id="v2-demo-title">Guided demo (no Whisper needed)</h3>
-        <p class="hint">Plays a pre-recorded scenario: simulated recording → live captions with voice → terminology fixes for mis-heard words → facts → report.</p>
+        <div class="step" data-i18n="v2.demo.step">V2 · Guided demo</div>
+        <h3 id="v2-demo-title" data-i18n="v2.demo.title">Guided demo (no Whisper needed)</h3>
+        <p class="hint" data-i18n="v2.demo.hint">Plays a pre-recorded scenario: simulated recording → live captions with voice → terminology fixes for mis-heard words → facts → report.</p>
         <div class="controls v2-demo-controls">
-          <button id="v2-demo-play" type="button">▶ Play demo</button>
-          <button id="v2-walkthrough-start" type="button" class="v2-walkthrough-start">Guided walkthrough</button>
+          <button id="v2-demo-play" type="button" data-i18n="v2.demo.play">▶ Play demo</button>
+          <button id="v2-walkthrough-start" type="button" class="v2-walkthrough-start" data-i18n="v2.demo.walkthrough">Guided walkthrough</button>
         </div>
         <p id="v2-demo-status" class="live-status" role="status"></p>
         <div id="v2-demo-captions" class="v2-demo-captions" aria-live="polite"></div>
         <div id="v2-demo-fixes" class="v2-demo-fixes" hidden>
-          <h4>Mis-heard words fixed</h4>
+          <h4 data-i18n="v2.demo.fixesTitle">Mis-heard words fixed</h4>
           <div id="v2-demo-fix-list" class="stack"></div>
         </div>
       </section>
 
       <section class="v2-zone" aria-labelledby="v2-upload-title">
-        <div class="step">V2 · A · Document ingestion</div>
-        <h2 id="v2-upload-title">Upload service documents (scope-isolated)</h2>
+        <div class="step" data-i18n="v2.upload.step">V2 · A · Document ingestion</div>
+        <h2 id="v2-upload-title" data-i18n="v2.upload.title">Upload service documents (scope-isolated)</h2>
         <p id="v2-upload-scope-hint" class="hint"></p>
         <div class="controls">
-          <label class="file-button">Choose a document<input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label>
-          <button id="v2-upload-submit" type="button" disabled>Upload document</button>
+          <label class="file-button"><span data-i18n="v2.upload.choose">Choose a document</span><input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label>
+          <button id="v2-upload-submit" type="button" disabled data-i18n="v2.upload.submit">Upload document</button>
         </div>
         <div class="v2-form-grid">
-          <label>Uploader (X-Uploader)<input id="v2-uploader" autocomplete="off" placeholder="e.g., Chen Wei"></label>
+          <label><span data-i18n="v2.upload.uploader">Uploader (X-Uploader)</span><input id="v2-uploader" autocomplete="off" data-i18n-placeholder="v2.upload.uploaderPlaceholder" placeholder="e.g., Chen Wei"></label>
         </div>
-        <p id="v2-upload-status" class="live-status" role="status">No document selected.</p>
+        <p id="v2-upload-status" class="live-status" role="status" data-i18n="v2.upload.noneSelected">No document selected.</p>
         <div id="v2-upload-progress" class="v2-progress-row" hidden></div>
         <div id="v2-upload-record" class="upload-record" hidden></div>
-        <h3>Uploads in this scope</h3>
+        <h3 data-i18n="v2.upload.scopeUploads">Uploads in this scope</h3>
         <div id="v2-upload-list" class="stack"></div>
       </section>
 
       <section class="v2-zone" aria-labelledby="v2-retrieve-title">
-        <div class="step">V2 · B · Knowledge retrieval</div>
-        <h2 id="v2-retrieve-title">Scope-gated retrieval</h2>
+        <div class="step" data-i18n="v2.retrieval.step">V2 · B · Knowledge retrieval</div>
+        <h2 id="v2-retrieve-title" data-i18n="v2.retrieval.title">Scope-gated retrieval</h2>
         <p id="v2-retrieve-scope-hint" class="hint"></p>
         <div class="v2-form-grid">
-          <label>Query<textarea id="v2-retrieve-query" rows="2" placeholder="e.g., Door fails to close, or Replace traction motor carbon brushes"></textarea></label>
-          <label>Top K<input id="v2-retrieve-topk" type="number" min="1" max="20" step="1" value="5"></label>
+          <label><span data-i18n="v2.retrieval.query">Query</span><textarea id="v2-retrieve-query" rows="2" data-i18n-placeholder="v2.retrieval.queryPlaceholder" placeholder="e.g., Door fails to close, or Replace traction motor carbon brushes"></textarea></label>
+          <label><span data-i18n="v2.retrieval.topK">Top K</span><input id="v2-retrieve-topk" type="number" min="1" max="20" step="1" value="5"></label>
         </div>
-        <div class="controls"><button id="v2-retrieve-submit" type="button">Search</button></div>
+        <div class="controls"><button id="v2-retrieve-submit" type="button" data-i18n="v2.retrieval.search">Search</button></div>
         <p id="v2-retrieve-status" class="live-status" role="status"></p>
         <div id="v2-retrieve-warnings" class="stack"></div>
         <div id="v2-retrieve-results" class="stack"></div>
       </section>
 
       <section class="v2-zone" aria-labelledby="v2-facts-title">
-        <div class="step">V2 · C · Facts &amp; report</div>
-        <h2 id="v2-facts-title">SBS fact extraction &amp; report preview</h2>
-        <label for="v2-facts-text">Dictation / manual on-site statement</label>
-        <textarea id="v2-facts-text" rows="8" placeholder="e.g. (Bus): Vehicle plate SBS 1234, work type maintenance, replaced the left front door lock actuator, tested door opening/closing normal, completion status completed."></textarea>
+        <div class="step" data-i18n="v2.facts.step">V2 · C · Facts and report</div>
+        <h2 id="v2-facts-title" data-i18n="v2.facts.title">V2 fact extraction and report preview</h2>
+        <label for="v2-facts-text" data-i18n="v2.facts.statement">Dictation or manual on-site statement</label>
+        <textarea id="v2-facts-text" rows="8" data-i18n-placeholder="v2.facts.busPlaceholder" placeholder="e.g. (Bus): Vehicle plate SBS 1234, work type maintenance, replaced the left front door lock actuator, tested door opening/closing normal, completion status completed."></textarea>
         <section id="v2-transcript-review" class="v2-follow-up" hidden aria-labelledby="v2-transcript-review-title">
-          <h3 id="v2-transcript-review-title">Review speech recognition before extracting facts</h3>
-          <p class="hint">Domain terminology corrections are suggestions only. Select each correction you personally confirm. Planned or future actions are never converted into completed work automatically.</p>
+          <h3 id="v2-transcript-review-title" data-i18n="v2.facts.transcriptReviewTitle">Review speech recognition before extracting facts</h3>
+          <p class="hint" data-i18n="v2.facts.transcriptReviewHint">Domain terminology corrections are suggestions only. Select each correction you personally confirm. Planned or future actions are never converted into completed work automatically.</p>
           <div id="v2-transcript-corrections" class="stack"></div>
           <div id="v2-transcript-questions" class="stack"></div>
-          <button id="v2-transcript-apply" type="button">Apply selected corrections &amp; re-extract</button>
+          <button id="v2-transcript-apply" type="button" data-i18n="v2.facts.applyCorrections">Apply selected corrections and re-extract</button>
         </section>
         <div class="controls">
-          <button id="v2-facts-extract" type="button">Extract facts</button>
-          <button id="v2-report-build" type="button" disabled>Build report</button>
+          <button id="v2-facts-extract" type="button" data-i18n="v2.facts.extract">Extract facts</button>
+          <button id="v2-report-build" type="button" disabled data-i18n="v2.facts.build">Build report</button>
         </div>
         <p id="v2-facts-status" class="live-status" role="status"></p>
         <div id="v2-facts-table-wrap" hidden>
-          <h3>Extracted facts</h3>
+          <h3 data-i18n="v2.facts.extractedFacts">Extracted facts</h3>
           <div id="v2-facts-table" class="fact-table-wrap"></div>
         </div>
         <div id="v2-report-output" hidden>
-          <h3>Report preview</h3>
+          <h3 data-i18n="v2.facts.preview">Report preview</h3>
+          <p class="report-language-note"><strong data-i18n="report.languageLabel">Report language</strong>: <span data-i18n="report.sourceLanguage">Same as template or source</span></p>
           <p id="v2-report-banner" class="validator-banner" role="status"></p>
           <p id="v2-report-missing" class="v2-missing"></p>
           <section id="v2-follow-up" class="v2-follow-up" hidden aria-labelledby="v2-follow-up-title">
-            <h3 id="v2-follow-up-title">Complete the missing report information</h3>
-            <p class="hint">These questions come from the active report template. Answers are recorded as technician-confirmed facts; RAG does not fill them automatically.</p>
+            <h3 id="v2-follow-up-title" data-i18n="v2.facts.followUpTitle">Complete the missing report information</h3>
+            <p class="hint" data-i18n="v2.facts.followUpHint">These questions come from the active report template. Answers are recorded as technician-confirmed facts; RAG does not fill them automatically.</p>
             <div id="v2-follow-up-list" class="stack"></div>
-            <button id="v2-follow-up-apply" type="button">Apply answers and rebuild report</button>
+            <button id="v2-follow-up-apply" type="button" data-i18n="v2.facts.applyAnswers">Apply answers and rebuild report</button>
           </section>
           <div id="v2-report-gates" class="stack"></div>
           <div id="v2-report-sections" class="report-paper"></div>
@@ -244,7 +256,7 @@
       </section>
     </div>
 
-    <div id="v2-walkthrough" class="v2-walkthrough" hidden role="region" aria-label="Guided walkthrough">
+    <div id="v2-walkthrough" class="v2-walkthrough" hidden role="region" data-i18n-aria-label="walkthrough.regionLabel" aria-label="Guided walkthrough">
       <div class="v2-wt-progress" id="v2-wt-progress" aria-hidden="true"></div>
       <div class="v2-wt-body">
         <p class="v2-wt-step" id="v2-wt-step"></p>
@@ -252,12 +264,12 @@
         <p class="v2-wt-desc" id="v2-wt-desc"></p>
       </div>
       <div class="v2-wt-actions">
-        <button id="v2-wt-skip" type="button">Skip</button>
-        <button id="v2-wt-next" type="button">Next</button>
+        <button id="v2-wt-skip" type="button" data-i18n="common.skip">Skip</button>
+        <button id="v2-wt-next" type="button" data-i18n="common.next">Next</button>
       </div>
     </div>
 
-    <footer>This MVP validates process boundaries with synthetic test data and does not represent real-world accuracy or production readiness.</footer>
+    <footer data-i18n="app.footer">This MVP validates process boundaries with synthetic test data and does not represent real-world accuracy or production readiness.</footer>
   </main>
   <script type="module" src="/app.js"></script>
 </body>
