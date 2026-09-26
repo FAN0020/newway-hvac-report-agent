@@ -46,6 +46,8 @@ export {
   validatePersistedSnapshot,
 } from './report-snapshot.js';
 
+export { createAgentRun } from './agent-contracts.js';
+
 export {
   deserializeReportSession,
   deserializeReportSnapshot,

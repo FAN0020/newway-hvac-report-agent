@@ -59,6 +59,7 @@ function validatePersistedSession(session) {
     'field_candidate_ids',
     'guidance_upload_ids',
     'guidance_context_ids',
+    'agent_run_ids',
   ]) {
     if (!Array.isArray(session[key])) throw new ContractValidationError(`${key} must be an array.`, code);
   }
@@ -82,6 +83,8 @@ export function deserializeReportSession(serialized, { trusted_persistence_hash:
     ...parsed,
     guidance_upload_ids: parsed.guidance_upload_ids || [],
     guidance_context_ids: parsed.guidance_context_ids || [],
+    agent_run_ids: parsed.agent_run_ids || [],
+    current_agent_run_id: parsed.current_agent_run_id || null,
   };
   validatePersistedSession(migrated);
   return deepFreeze(migrated);

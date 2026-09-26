@@ -15,8 +15,20 @@ const EVIDENCE_TYPES = Object.freeze(['AUDIO', 'TRANSCRIPT', 'DOCUMENT', 'MANUAL
 const REVIEW_STATUSES = Object.freeze(['PENDING', 'REVIEWED']);
 const REVIEW_DECISIONS = Object.freeze(['ACCEPT', 'REJECT', 'EDIT', 'NO_CHANGE']);
 const VALIDATION_SEVERITIES = Object.freeze(['INFO', 'WARNING', 'ERROR', 'CRITICAL']);
-const RESOLUTION_TYPES = Object.freeze(['SELECT_CANDIDATE', 'PROVIDE_VALUE', 'CONFIRM_VALUE', 'CORRECT_TRANSCRIPT']);
+const RESOLUTION_TYPES = Object.freeze([
+  'MISSING',
+  'UNCERTAIN',
+  'CONFLICT',
+  'INVALID',
+  'CONDITIONAL_REQUIREMENT',
+  'SAFETY_CONFIRMATION',
+  'SELECT_CANDIDATE',
+  'PROVIDE_VALUE',
+  'CONFIRM_VALUE',
+  'CORRECT_TRANSCRIPT',
+]);
 const RESOLUTION_STATUSES = Object.freeze(['OPEN', 'RESOLVED', 'DECLINED']);
+const ANSWER_TYPES = Object.freeze(['VALUE', 'SINGLE_SELECT', 'SELECT_OR_PROVIDE', 'CONFIRM_OR_REPLACE', 'SEMANTIC_STATE', 'NONE_OR_VALUE']);
 
 export function createEvidence(input = {}) {
   const code = 'INVALID_EVIDENCE';
@@ -205,30 +217,60 @@ export function createValidationIssue(input = {}) {
   const body = {
     contract: 'ValidationIssue',
     contract_version: '1',
-    issue_id: requiredString(input.issue_id, 'issue_id', code),
     code: requiredString(input.code, 'code', code),
+    issue_type: requiredString(input.issue_type || input.code, 'issue_type', code),
     severity: enumValue(input.severity, VALIDATION_SEVERITIES, 'severity', code),
+    blocking: input.blocking === true,
     field_id: input.field_id ? requiredString(input.field_id, 'field_id', code) : null,
     candidate_ids: stringArray(input.candidate_ids || [], 'candidate_ids', { code }),
     evidence_refs: evidenceRefs(input.evidence_refs || [], 'evidence_refs', code),
-    message: requiredString(input.message, 'message', code),
+    reason: requiredString(input.reason || input.message, 'reason', code),
+    message: requiredString(input.message || input.reason, 'message', code),
+    possible_resolution_type: input.possible_resolution_type
+      ? enumValue(input.possible_resolution_type, RESOLUTION_TYPES, 'possible_resolution_type', code)
+      : null,
   };
-  return deepFreeze(body);
+  const issueId = input.issue_id === undefined
+    ? contentAddressedId('issue', body)
+    : requiredString(input.issue_id, 'issue_id', code);
+  return deepFreeze({ issue_id: issueId, ...body });
 }
 
 export function createResolutionItem(input = {}) {
   const code = 'INVALID_RESOLUTION_ITEM';
-  return deepFreeze({
+  const issueIds = stringArray(input.issue_ids || (input.issue_id ? [input.issue_id] : []), 'issue_ids', { code });
+  if (!issueIds.length) throw new ContractValidationError('ResolutionItem requires at least one issue.', code);
+  const priority = Number(input.priority ?? 5);
+  if (!Number.isSafeInteger(priority) || priority < 1 || priority > 6) {
+    throw new ContractValidationError('priority must be an integer from 1 to 6.', code);
+  }
+  const options = (input.options || []).map((option) => copy(option));
+  const body = {
     contract: 'ResolutionItem',
     contract_version: '1',
-    resolution_id: requiredString(input.resolution_id, 'resolution_id', code),
-    issue_id: requiredString(input.issue_id, 'issue_id', code),
+    issue_id: issueIds[0],
+    issue_ids: issueIds,
     type: enumValue(input.type, RESOLUTION_TYPES, 'type', code),
     field_id: requiredString(input.field_id, 'field_id', code),
     candidate_ids: stringArray(input.candidate_ids || [], 'candidate_ids', { code }),
     prompt: requiredString(input.prompt, 'prompt', code),
+    reason: requiredString(input.reason || input.prompt, 'reason', code),
+    priority,
+    priority_class: requiredString(input.priority_class || 'DETERMINISTIC_RULE_VIOLATION', 'priority_class', code),
+    answer_type: enumValue(input.answer_type || ({
+      SELECT_CANDIDATE: 'SELECT_OR_PROVIDE',
+      PROVIDE_VALUE: 'VALUE',
+      CONFIRM_VALUE: 'CONFIRM_OR_REPLACE',
+      CORRECT_TRANSCRIPT: 'VALUE',
+    }[input.type] || 'VALUE'), ANSWER_TYPES, 'answer_type', code),
+    options,
+    allow_other: input.allow_other === true,
     status: enumValue(input.status, RESOLUTION_STATUSES, 'status', code),
-  });
+  };
+  const resolutionId = input.resolution_id === undefined
+    ? contentAddressedId('resolution', body)
+    : requiredString(input.resolution_id, 'resolution_id', code);
+  return deepFreeze({ resolution_id: resolutionId, ...body });
 }
 
 export const evidenceContractEnums = deepFreeze({
@@ -238,4 +280,5 @@ export const evidenceContractEnums = deepFreeze({
   VALIDATION_SEVERITIES,
   RESOLUTION_TYPES,
   RESOLUTION_STATUSES,
+  ANSWER_TYPES,
 });

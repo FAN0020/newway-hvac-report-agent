@@ -53,6 +53,7 @@ import {
 } from '../web/report-runtime.js';
 import { listPredefinedTemplates, templateFor } from '../web/template-catalog.js';
 import { AuthoritativeCaptureService } from './workflows/authoritative-capture.js';
+import { officialFactsFromAgentState } from './agent/index.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -149,7 +150,18 @@ const UNTRUSTED_CAPTURE_FIELDS = new Set([
 function rejectUntrustedAuthority(input, { allow = [] } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return;
   const allowed = new Set(allow);
-  const forged = Object.keys(input).find((key) => UNTRUSTED_CAPTURE_FIELDS.has(key) && !allowed.has(key));
+  const pending = [input];
+  let forged;
+  while (pending.length && !forged) {
+    const current = pending.pop();
+    for (const [key, value] of Object.entries(current)) {
+      if (UNTRUSTED_CAPTURE_FIELDS.has(key) && !allowed.has(key)) {
+        forged = key;
+        break;
+      }
+      if (value && typeof value === 'object') pending.push(value);
+    }
+  }
   if (forged) {
     throw Object.assign(new Error(`Client field "${forged}" cannot establish server authority.`), {
       code: 'UNTRUSTED_CAPTURE_INPUT', status: 400,
@@ -208,6 +220,26 @@ async function handleApi(request, response, url, traceId, config, services) {
   if (request.method === 'GET' && sessionMatch) {
     const chain = await captureService.sessionStore.loadChain(decodeURIComponent(sessionMatch[1]));
     writeJson(response, 200, toolEnvelope('get_report_session', traceId, 'PASS', chain));
+    return;
+  }
+
+  const agentStateMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/agent-state$/u);
+  if (request.method === 'GET' && agentStateMatch) {
+    const result = await captureService.getAgentState(decodeURIComponent(agentStateMatch[1]));
+    writeJson(response, 200, toolEnvelope('get_report_agent_state', traceId, 'PASS', result));
+    return;
+  }
+
+  const resolutionAnswerMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/resolution-items\/([^/]+)\/answer$/u);
+  if (request.method === 'POST' && resolutionAnswerMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.answerResolutionItem({
+      ...input,
+      session_id: decodeURIComponent(resolutionAnswerMatch[1]),
+      resolution_id: decodeURIComponent(resolutionAnswerMatch[2]),
+    });
+    writeJson(response, result.reused ? 200 : 201, toolEnvelope('answer_report_resolution', traceId, 'PASS', result));
     return;
   }
 
@@ -374,6 +406,7 @@ async function handleApi(request, response, url, traceId, config, services) {
     if (!selectedTemplate) throw Object.assign(new Error('Template version was not found.'), { code: 'TEMPLATE_NOT_FOUND', status: 404 });
     const reportSessionId = String(input.report_session_id || `server_${traceId}`).slice(0, 160);
     let facts;
+    let authoritativeAgentState = null;
     if (reportSessionId.startsWith('session_')) {
       const chain = await captureService.sessionStore.loadChain(reportSessionId);
       if (chain.session.template_binding.template_id !== templateId) {
@@ -384,7 +417,9 @@ async function handleApi(request, response, url, traceId, config, services) {
           code: 'UNTRUSTED_REPORT_FACTS', status: 400,
         });
       }
-      facts = factsFromAuthoritativeCandidates(chain);
+      const authoritative = chain.agent_state ? { agent_state: chain.agent_state } : await captureService.getAgentState(reportSessionId);
+      authoritativeAgentState = authoritative.agent_state;
+      facts = officialFactsFromAgentState(authoritativeAgentState);
     } else {
       facts = Array.isArray(input.facts) ? input.facts : [];
     }
@@ -402,6 +437,13 @@ async function handleApi(request, response, url, traceId, config, services) {
     const violations = [
       ...missing.map((field) => ({ class: 'SCHEMA_REQUIRED_FIELD_MISSING', field, message: `${field} requires technician evidence or explicit input.` })),
       ...unsupported.map((fact) => ({ class: 'SCHEMA_UNSUPPORTED_FIELD', field: fact.field, message: `${fact.field} is outside this template version.` })),
+      ...(authoritativeAgentState?.validation_issues || []).filter((issue) => issue.blocking).map((issue) => ({
+        class: issue.code,
+        field: issue.field_id,
+        message: issue.reason,
+        blocking: issue.blocking,
+        issue_id: issue.issue_id,
+      })),
     ];
     for (const definition of definitions) {
       const fact = [...state.entries()].find(([fieldId]) => matches(definition.id, fieldId))?.[1];

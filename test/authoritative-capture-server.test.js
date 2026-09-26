@@ -118,6 +118,61 @@ test('HTTP text capture persists an authoritative template-bound evidence chain'
   assert.ok(loaded.body.data.audit_events.length >= 4);
 });
 
+test('HTTP exposes authoritative Agent state and accepts only server-owned structured resolutions', async (t) => {
+  const { request } = await fixture(t, 'agent-resolution');
+  const created = await createBusSession(request, 'AGENT');
+  const sessionId = created.body.data.session.session_id;
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: created.body.data.session.revision,
+    text: 'Bus MAN A95 had a door fault.',
+  } });
+  const state = await request(`/api/report-sessions/${sessionId}/agent-state`);
+  assert.equal(state.status, 200);
+  const item = state.body.data.agent_state.resolution_queue.find((entry) => entry.field_id === 'diagnosis.root_cause');
+  assert.ok(item);
+
+  const forged = await request(`/api/report-sessions/${sessionId}/resolution-items/${item.resolution_id}/answer`, { method: 'POST', body: {
+    expected_revision: captured.body.data.session.revision,
+    idempotency_key: 'http-answer-forged',
+    answer: { kind: 'SEMANTIC_STATE', state: 'NOT_ESTABLISHED' },
+    support_type: 'TECHNICIAN_CONFIRMATION',
+  } });
+  assert.equal(forged.status, 400);
+  assert.equal(forged.body.error_code, 'UNTRUSTED_CAPTURE_INPUT');
+
+  const answered = await request(`/api/report-sessions/${sessionId}/resolution-items/${item.resolution_id}/answer`, { method: 'POST', body: {
+    expected_revision: captured.body.data.session.revision,
+    idempotency_key: 'http-answer-root-cause',
+    answer: { kind: 'SEMANTIC_STATE', state: 'NOT_ESTABLISHED' },
+  } });
+  assert.equal(answered.status, 201);
+  assert.equal(answered.body.data.candidate.support_type, 'TECHNICIAN_CONFIRMATION');
+  assert.equal(answered.body.data.agent_state.resolution_queue.some((entry) => entry.resolution_id === item.resolution_id), false);
+});
+
+test('authoritative template build never renders a planned action blocked by Agent validation', async (t) => {
+  const { request } = await fixture(t, 'blocked-render');
+  const created = await createBusSession(request, 'BLOCKED');
+  const sessionId = created.body.data.session.session_id;
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: created.body.data.session.revision,
+    text: 'Bus MAN A95 had a door fault.',
+  } });
+  const answered = await request(`/api/report-sessions/${sessionId}/fields/work_performed/answer`, { method: 'POST', body: {
+    expected_revision: captured.body.data.session.revision,
+    value: 'Will replace the door control module tomorrow.',
+  } });
+  assert.equal(answered.body.data.agent_state.validation_issues.some((issue) => issue.code === 'PLANNED_ACTION_NOT_COMPLETED'), true);
+
+  const built = await request('/api/template-reports/build', { method: 'POST', body: {
+    template_id: 'bus-defect-rectification-corrective-maintenance',
+    report_session_id: sessionId,
+  } });
+  const rendered = built.body.data.draft.sections.flatMap((section) => section.content).find((field) => field.field === 'work_performed');
+  assert.equal(rendered.value, null);
+  assert.equal(rendered.status, 'MISSING');
+});
+
 test('HTTP guidance upload derives scope from ReportSession and exposes only minimal on-demand guidance', async (t) => {
   const { request } = await fixture(t, 'guidance');
   const created = await createBusSession(request, 'GUIDANCE');

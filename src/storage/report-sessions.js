@@ -48,6 +48,7 @@ export class ReportSessionStore {
     this.recordsRoot = path.join(this.root, 'records');
     this.textRoot = path.join(this.root, 'text-sources');
     this.captureRoot = path.join(this.root, 'capture-index');
+    this.answerRoot = path.join(this.root, 'answer-index');
     this.locks = new Map();
   }
 
@@ -138,6 +139,8 @@ export class ReportSessionStore {
         field_candidate_ids: append('field_candidate_ids'),
         guidance_upload_ids: append('guidance_upload_ids'),
         guidance_context_ids: append('guidance_context_ids'),
+        agent_run_ids: append('agent_run_ids'),
+        current_agent_run_id: command.current_agent_run_id || result.session.current_agent_run_id || null,
       });
       await this.writeEvent(result.event);
       await this.writeSession(session);
@@ -160,6 +163,8 @@ export class ReportSessionStore {
         field_candidate_ids: append('field_candidate_ids'),
         guidance_upload_ids: append('guidance_upload_ids'),
         guidance_context_ids: append('guidance_context_ids'),
+        agent_run_ids: append('agent_run_ids'),
+        current_agent_run_id: command.current_agent_run_id || result.session.current_agent_run_id || null,
       });
       await this.writeEvent(result.event);
       await this.writeSession(session);
@@ -211,6 +216,8 @@ export class ReportSessionStore {
   async loadChain(sessionId) {
     const session = await this.load(sessionId);
     const loadMany = (kind, ids) => Promise.all(ids.map((id) => this.readRecord(kind, id)));
+    const agentRuns = await loadMany('agent-runs', session.agent_run_ids);
+    const currentRun = agentRuns.find((run) => run.run_id === session.current_agent_run_id) || null;
     return deepFreeze({
       session,
       audit_events: await this.listAuditEvents(sessionId),
@@ -221,7 +228,56 @@ export class ReportSessionStore {
       field_candidates: await loadMany('field-candidates', session.field_candidate_ids),
       guidance_uploads: await loadMany('guidance-uploads', session.guidance_upload_ids),
       guidance_contexts: await loadMany('guidance-contexts', session.guidance_context_ids),
+      agent_runs: agentRuns,
+      agent_state: currentRun?.agent_state || null,
     });
+  }
+
+  async attachAgentRun({ session_id: sessionId, expected_revision: expectedRevision, run } = {}) {
+    await this.putRecord('agent-runs', run.run_id, run);
+    return this.withLock(sessionId, async () => {
+      const current = await this.load(sessionId);
+      if (current.revision !== expectedRevision) {
+        throw storageError('ReportSession changed while its AgentRun was being persisted.', 'STALE_REVISION', 409);
+      }
+      const session = deepFreeze({
+        ...current,
+        agent_run_ids: [...new Set([...current.agent_run_ids, run.run_id])],
+        current_agent_run_id: run.run_id,
+      });
+      await this.writeSession(session);
+      return session;
+    });
+  }
+
+  answerKeyPath(sessionId, key) {
+    const keyHash = crypto.createHash('sha256').update(`${safeId(sessionId)}:${String(key)}`).digest('hex');
+    return path.join(this.answerRoot, 'by-key', `${keyHash}.json`);
+  }
+
+  async claimAnswer({ session_id: sessionId, idempotency_key: key, request_hash: requestHash } = {}) {
+    if (!key) throw storageError('Resolution answers require an idempotency key.', 'IDEMPOTENCY_KEY_REQUIRED', 400);
+    const filename = this.answerKeyPath(sessionId, key);
+    try {
+      const existing = JSON.parse(await fs.readFile(filename, 'utf8'));
+      if (existing.request_hash !== requestHash) {
+        throw storageError('Idempotency key is already bound to another resolution answer.', 'IDEMPOTENCY_KEY_REUSE', 409);
+      }
+      return deepFreeze(existing.response);
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  async saveAnswer({ session_id: sessionId, idempotency_key: key, request_hash: requestHash, response } = {}) {
+    const filename = this.answerKeyPath(sessionId, key);
+    await atomicJson(filename, { request_hash: requestHash, response }, { exclusive: true }).catch(async (error) => {
+      if (error.code !== 'REPORT_SESSION_ALREADY_EXISTS') throw error;
+      const existing = JSON.parse(await fs.readFile(filename, 'utf8'));
+      if (existing.request_hash !== requestHash) throw storageError('Idempotency key is already bound to another resolution answer.', 'IDEMPOTENCY_KEY_REUSE', 409);
+    });
+    return deepFreeze(structuredClone(response));
   }
 
   capturePath(identityHash) {

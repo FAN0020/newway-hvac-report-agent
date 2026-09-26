@@ -85,6 +85,8 @@ export function createReportSession(input = {}) {
     field_candidate_ids: [],
     guidance_upload_ids: [],
     guidance_context_ids: [],
+    agent_run_ids: [],
+    current_agent_run_id: null,
     recovery_phase: null,
     last_error: null,
   });

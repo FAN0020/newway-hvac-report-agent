@@ -4,6 +4,7 @@ import {
   createEvidence,
   createEvidenceSpan,
   createConfirmedFieldCandidate,
+  createAgentRun,
   createFieldCandidate,
   createGuidanceContext,
   createTechnicianConfirmationEvent,
@@ -11,6 +12,7 @@ import {
   createTranscriptReview,
   hashContract,
 } from '../domain/index.js';
+import { runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
 import { extractServiceFacts } from '../tools/extract-service-facts.js';
 import { extractV2Facts } from '../tools/extract-v2-facts.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
@@ -138,6 +140,7 @@ export class AuthoritativeCaptureService {
     scopeRegistryProvider,
     uploadStore,
     retriever,
+    jobContextProvider,
     clock = () => new Date().toISOString(),
   } = {}) {
     if (!artifactStore || !sessionStore || !whisperProvider?.transcribe) {
@@ -150,6 +153,7 @@ export class AuthoritativeCaptureService {
     this.scopeRegistryProvider = scopeRegistryProvider || null;
     this.uploadStore = uploadStore || null;
     this.retriever = retriever || null;
+    this.jobContextProvider = jobContextProvider || null;
     this.clock = clock;
   }
 
@@ -226,7 +230,7 @@ export class AuthoritativeCaptureService {
       throw workflowError('Requested template version does not match the published template.', 'TEMPLATE_VERSION_MISMATCH', 409);
     }
     const scopeId = template.domain;
-    return this.sessionStore.create({
+    let created = await this.sessionStore.create({
       session_id: `session_${crypto.randomUUID()}`,
       template_binding: { template_id: template.templateId, template_version: template.templateVersion },
       context_binding: {
@@ -237,6 +241,105 @@ export class AuthoritativeCaptureService {
       job_context_ref: jobContextRef,
       created_at: this.clock(),
     });
+    if (this.jobContextProvider?.resolve) {
+      const context = await this.jobContextProvider.resolve({
+        job_context_ref: jobContextRef,
+        template_id: template.templateId,
+        template_version: template.templateVersion,
+      });
+      const fields = Array.isArray(context?.fields) ? context.fields : [];
+      if (fields.length) {
+        const lines = fields.map((item) => `${item.field_id}=${item.value}${item.unit ? ` ${item.unit}` : ''}`);
+        const sourceText = lines.join('\n');
+        const sourceDigest = digest(Buffer.from(sourceText, 'utf8'));
+        const storageRef = await this.sessionStore.putTextSource(sourceDigest, sourceText);
+        const evidence = createEvidence({
+          evidence_type: 'SYSTEM_RECORD', source_hash: `sha256:${sourceDigest}`, storage_ref: storageRef, created_at: this.clock(),
+          metadata: { record_id: context.record_id, version: context.version, report_binding: reportBinding(created.session) },
+        });
+        await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
+        const spans = [];
+        const candidates = [];
+        let cursor = 0;
+        for (let index = 0; index < fields.length; index += 1) {
+          const item = fields[index];
+          const line = lines[index];
+          const renderedValue = `${item.value}${item.unit ? ` ${item.unit}` : ''}`;
+          const start = cursor + line.indexOf(renderedValue);
+          const span = createEvidenceSpan({
+            evidence_id: evidence.evidence_id, start_offset: start, end_offset: start + renderedValue.length,
+            quote: renderedValue, source_text: sourceText,
+          });
+          const definition = template.schema.fields.find((entry) => entry.id === item.field_id || (entry.id.endsWith('.*') && item.field_id.startsWith(entry.id.slice(0, -1))));
+          const candidate = createFieldCandidate({
+            session_id: created.session.session_id,
+            field_id: item.field_id,
+            claim: { kind: 'VALUE', value: item.unit ? { value: item.value, unit: item.unit } : item.value },
+            unit: item.unit,
+            support_type: 'AUTHORITATIVE_SYSTEM_DATA',
+            assessment: 'VALID',
+            evidence_refs: [{ evidence_id: evidence.evidence_id, span_id: span.span_id }],
+            source_ref: evidence.evidence_id,
+            extraction: { method: 'authoritative-job-context', version: String(context.version || PROCESSING_VERSION) },
+            risk_class: definition?.critical || definition?.requiresTechnicianConfirmation ? 'CRITICAL' : 'STANDARD',
+            confidence_class: 'DIRECT_EVIDENCE',
+            source_context: {
+              domain: created.session.context_binding.scope_id,
+              context_id: created.session.context_binding.context_id,
+              context_version: created.session.context_binding.context_version,
+              scope_id: created.session.context_binding.scope_id,
+            },
+          });
+          await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
+          await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
+          spans.push(span);
+          candidates.push(candidate);
+          cursor += line.length + 1;
+        }
+        created = await this.sessionStore.recordEvent({
+          session_id: created.session.session_id,
+          expected_revision: created.session.revision,
+          event_type: 'AUTHORITATIVE_CONTEXT_INGESTED',
+          occurred_at: this.clock(),
+          details: { evidence_id: evidence.evidence_id, record_id: context.record_id, field_candidate_ids: candidates.map((item) => item.candidate_id) },
+          additions: {
+            evidence_ids: [evidence.evidence_id], evidence_span_ids: spans.map((item) => item.span_id), field_candidate_ids: candidates.map((item) => item.candidate_id),
+          },
+        });
+      }
+    }
+    const computed = await this.persistAgentState(created.session);
+    return { ...created, session: computed.session, agent_state: computed.agent_state };
+  }
+
+  async persistAgentState(session) {
+    const chain = await this.sessionStore.loadChain(session.session_id);
+    const agentState = runAuthoritativeAgent({
+      session,
+      template: templateFor(session.template_binding.template_id),
+      candidates: chain.field_candidates,
+      guidance_contexts: chain.guidance_contexts,
+      created_at: this.clock(),
+    });
+    const run = createAgentRun({
+      session_id: session.session_id,
+      session_revision: session.revision,
+      processing_version: AGENT_PROCESSING_VERSION,
+      created_at: agentState.created_at,
+      agent_state: agentState,
+    });
+    const attached = await this.sessionStore.attachAgentRun({
+      session_id: session.session_id, expected_revision: session.revision, run,
+    });
+    return { session: attached, agent_state: agentState, agent_run: run };
+  }
+
+  async getAgentState(sessionId) {
+    const chain = await this.sessionStore.loadChain(sessionId);
+    if (chain.agent_state?.session_revision === chain.session.revision) {
+      return { session: chain.session, agent_state: chain.agent_state };
+    }
+    return this.persistAgentState(chain.session);
   }
 
   async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [] }) {
@@ -256,6 +359,18 @@ export class AuthoritativeCaptureService {
       })).facts;
     }
     const accepted = mapFactsForTemplate(template.templateId, facts).facts;
+    const noParts = /\bno parts (?:were )?used\b/iu.exec(extractionText);
+    if (noParts && template.schema.fields.some((field) => field.id === 'parts.part_number')
+      && !accepted.some((fact) => fact.field === 'parts.part_number')) {
+      accepted.push({
+        field: 'parts.part_number',
+        value: null,
+        claim_kind: 'EXPLICIT_NONE',
+        support_status: 'CONFIRMED_BY_EVIDENCE',
+        critical: false,
+        source_span: { start: noParts.index, end: noParts.index + noParts[0].length, text: noParts[0] },
+      });
+    }
     const spans = [];
     const candidates = [];
     for (const fact of accepted) {
@@ -271,7 +386,9 @@ export class AuthoritativeCaptureService {
       const candidate = createFieldCandidate({
         session_id: session.session_id,
         field_id: fact.field,
-        claim: { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: fact.value, unit: fact.unit } },
+        claim: fact.claim_kind === 'EXPLICIT_NONE'
+          ? { kind: 'EXPLICIT_NONE' }
+          : { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: fact.value, unit: fact.unit } },
         unit: fact.unit,
         support_type: supportType,
         assessment: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'VALID',
@@ -444,7 +561,8 @@ export class AuthoritativeCaptureService {
         field_candidate_ids: [candidate.candidate_id],
       },
     });
-    return { session: recorded.session, evidence, span, candidate };
+    const computed = await this.persistAgentState(recorded.session);
+    return { session: computed.session, evidence, span, candidate, agent_state: computed.agent_state };
   }
 
   async confirmFieldCandidate({ session_id: sessionId, expected_revision: expectedRevision, candidate_id: candidateId } = {}) {
@@ -492,7 +610,128 @@ export class AuthoritativeCaptureService {
     if (recorded.event.event_id !== event.event_id) {
       throw workflowError('Technician confirmation event identity mismatch.', 'CONFIRMATION_EVENT_MISMATCH', 409);
     }
-    return { session: recorded.session, event: recorded.event, candidate };
+    const computed = await this.persistAgentState(recorded.session);
+    return { session: computed.session, event: recorded.event, candidate, agent_state: computed.agent_state };
+  }
+
+  async answerResolutionItem({ session_id: sessionId, expected_revision: expectedRevision, resolution_id: resolutionId, answer, idempotency_key: idempotencyKey } = {}) {
+    const requestHash = hashContract({ session_id: sessionId, resolution_id: resolutionId, answer });
+    const reused = await this.sessionStore.claimAnswer({
+      session_id: sessionId, idempotency_key: idempotencyKey, request_hash: requestHash,
+    });
+    if (reused) return { ...reused, reused: true };
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'RESOLVE') {
+      throw workflowError('Resolution answers are accepted only during Resolve.', 'RESOLUTION_ANSWER_PHASE_MISMATCH', 409);
+    }
+    const current = await this.getAgentState(sessionId);
+    const item = current.agent_state.resolution_queue.find((entry) => entry.resolution_id === String(resolutionId || ''));
+    if (!item) throw workflowError('Resolution item is not open in the current Agent state.', 'RESOLUTION_ITEM_NOT_OPEN', 409);
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer)) {
+      throw workflowError('A structured resolution answer is required.', 'INVALID_RESOLUTION_ANSWER');
+    }
+    const kind = String(answer.kind || '');
+    let claim;
+    let unit;
+    let selectedSource = null;
+    if (kind === 'SELECT_CANDIDATE') {
+      const candidateId = String(answer.candidate_id || '');
+      if (!item.candidate_ids.includes(candidateId)) {
+        throw workflowError('Selected candidate is outside the resolution item.', 'INVALID_RESOLUTION_ANSWER');
+      }
+      selectedSource = await this.sessionStore.readRecord('field-candidates', candidateId);
+      claim = selectedSource.claim;
+      unit = selectedSource.unit || undefined;
+    } else if (kind === 'VALUE') {
+      const value = typeof answer.value === 'string' ? answer.value.trim() : answer.value;
+      if (value === '' || value === null || value === undefined) throw workflowError('Resolution value is required.', 'INVALID_RESOLUTION_ANSWER');
+      unit = answer.unit === undefined ? undefined : String(answer.unit);
+      claim = { kind: 'VALUE', value: unit ? { value, unit } : value };
+    } else if (kind === 'SEMANTIC_STATE') {
+      const semantic = String(answer.state || '');
+      const values = {
+        NOT_ESTABLISHED: 'Root cause not established',
+        FURTHER_INVESTIGATION_REQUIRED: 'Further investigation required',
+        SUSPECTED: answer.value ? `Suspected root cause: ${String(answer.value).trim()}` : 'Suspected root cause',
+        CONFIRMED: answer.value ? String(answer.value).trim() : 'Confirmed root cause',
+      };
+      if (!values[semantic]) throw workflowError('Semantic resolution state is invalid.', 'INVALID_RESOLUTION_ANSWER');
+      claim = { kind: 'VALUE', value: values[semantic] };
+    } else if (kind === 'EXPLICIT_NONE') {
+      claim = { kind: 'EXPLICIT_NONE' };
+    } else if (kind === 'NOT_APPLICABLE') {
+      claim = { kind: 'NOT_APPLICABLE' };
+    } else {
+      throw workflowError('Resolution answer kind is invalid.', 'INVALID_RESOLUTION_ANSWER');
+    }
+
+    const sourceText = JSON.stringify({ resolution_id: item.resolution_id, answer });
+    const sourceDigest = digest(Buffer.from(sourceText, 'utf8'));
+    const storageRef = await this.sessionStore.putTextSource(sourceDigest, sourceText);
+    const evidence = createEvidence({
+      evidence_type: 'MANUAL_INPUT', source_hash: `sha256:${sourceDigest}`, storage_ref: storageRef, created_at: this.clock(),
+      metadata: { input_kind: 'TECHNICIAN_RESOLUTION_ANSWER', resolution_id: item.resolution_id, field_id: item.field_id, report_binding: reportBinding(session) },
+    });
+    const span = createEvidenceSpan({
+      evidence_id: evidence.evidence_id, start_offset: 0, end_offset: sourceText.length, quote: sourceText, source_text: sourceText,
+    });
+    const template = templateFor(session.template_binding.template_id);
+    const definition = template.schema.fields.find((entry) => entry.id === item.field_id || (entry.id.endsWith('.*') && item.field_id.startsWith(entry.id.slice(0, -1))));
+    const sourceCandidate = createFieldCandidate({
+      session_id: session.session_id, field_id: item.field_id, claim, unit,
+      support_type: 'MANUAL_TECHNICIAN_INPUT', assessment: kind === 'SEMANTIC_STATE' && answer.state === 'SUSPECTED' ? 'UNCERTAIN' : 'VALID',
+      evidence_refs: [{ evidence_id: evidence.evidence_id, span_id: span.span_id }], source_ref: evidence.evidence_id,
+      extraction: { method: 'technician-resolution-answer', version: PROCESSING_VERSION },
+      risk_class: definition?.critical || definition?.requiresTechnicianConfirmation ? 'CRITICAL' : 'STANDARD',
+      confidence_class: kind === 'SEMANTIC_STATE' && answer.state === 'SUSPECTED' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
+      source_context: {
+        domain: session.context_binding.scope_id, context_id: session.context_binding.context_id,
+        context_version: session.context_binding.context_version, scope_id: session.context_binding.scope_id,
+      },
+    });
+    const principalRef = 'principal:demo-technician';
+    const event = createTechnicianConfirmationEvent({
+      session_id: session.session_id, revision: session.revision + 1, field_id: item.field_id,
+      candidate_id: sourceCandidate.candidate_id, technician_principal_ref: principalRef, occurred_at: this.clock(),
+    });
+    const linkedRefs = [
+      ...sourceCandidate.evidence_refs,
+      ...(selectedSource?.evidence_refs || []),
+    ].filter((reference, index, values) => values.findIndex((value) => hashContract(value) === hashContract(reference)) === index);
+    const resolvedCandidateIds = [...new Set([...item.candidate_ids, sourceCandidate.candidate_id])];
+    const candidate = createConfirmedFieldCandidate({
+      session_id: session.session_id, field_id: item.field_id, confirmed_candidate_id: sourceCandidate.candidate_id,
+      claim, unit, evidence_refs: linkedRefs, source_ref: evidence.evidence_id,
+      extraction: { method: 'technician-resolution-confirmation', version: PROCESSING_VERSION },
+      risk_class: sourceCandidate.risk_class, confidence_class: 'CONFIRMED', source_context: sourceCandidate.source_context,
+      resolution: {
+        resolution_id: item.resolution_id, issue_ids: item.issue_ids,
+        resolved_candidate_ids: resolvedCandidateIds, answer_kind: kind,
+      },
+    }, { confirmation_event: event });
+    await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
+    await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
+    await this.sessionStore.putRecord('field-candidates', sourceCandidate.candidate_id, sourceCandidate);
+    await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: session.session_id, expected_revision: session.revision, event_type: 'TECHNICIAN_CONFIRMATION',
+      principal_ref: principalRef, occurred_at: event.occurred_at, details: event.payload,
+      additions: {
+        evidence_ids: [evidence.evidence_id], evidence_span_ids: [span.span_id],
+        field_candidate_ids: [sourceCandidate.candidate_id, candidate.candidate_id],
+      },
+    });
+    if (recorded.event.event_id !== event.event_id) throw workflowError('Technician confirmation event identity mismatch.', 'CONFIRMATION_EVENT_MISMATCH', 409);
+    const computed = await this.persistAgentState(recorded.session);
+    const response = {
+      session: computed.session, evidence, span, candidate, source_candidate: sourceCandidate,
+      confirmation_event: recorded.event, agent_state: computed.agent_state, reused: false,
+    };
+    await this.sessionStore.saveAnswer({
+      session_id: sessionId, idempotency_key: idempotencyKey, request_hash: requestHash, response,
+    });
+    return response;
   }
 
   async reviewItems(session, transcript) {
@@ -593,8 +832,9 @@ export class AuthoritativeCaptureService {
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
       },
     });
+    const computed = await this.persistAgentState(completed.session);
     return {
-      session: completed.session,
+      session: computed.session,
       evidence,
       transcript,
       review: null,
@@ -603,6 +843,7 @@ export class AuthoritativeCaptureService {
       guidance_context: guided.guidanceContext,
       reused: false,
       next_action: 'RESOLVE_REPORT_FIELDS',
+      agent_state: computed.agent_state,
     };
   }
 
@@ -710,8 +951,9 @@ export class AuthoritativeCaptureService {
         failure: null,
       });
     }
+    const computed = await this.persistAgentState(completed.session);
     return {
-      session: completed.session,
+      session: computed.session,
       evidence: await this.sessionStore.readRecord('evidence', transcript.source_evidence_id),
       transcript,
       review,
@@ -720,6 +962,7 @@ export class AuthoritativeCaptureService {
       guidance_context: guided.guidanceContext,
       reused: false,
       next_action: 'RESOLVE_REPORT_FIELDS',
+      agent_state: computed.agent_state,
     };
   }
 
@@ -736,7 +979,8 @@ export class AuthoritativeCaptureService {
   }
 
   async reuseCapture(record) {
-    const session = await this.sessionStore.load(record.session_id);
+    const chain = await this.sessionStore.loadChain(record.session_id);
+    const session = chain.session;
     const evidence = await this.sessionStore.readRecord('evidence', record.evidence_id);
     const audio = record.audio_id ? await this.artifactStore.readAudioMetadata(record.audio_id) : null;
     if (record.status === 'FAILED') {
@@ -769,6 +1013,7 @@ export class AuthoritativeCaptureService {
       spans,
       candidates,
       guidance_context: guidanceContexts.at(-1) || null,
+      agent_state: chain.agent_state,
       reused: true,
       next_action: record.next_action,
     };

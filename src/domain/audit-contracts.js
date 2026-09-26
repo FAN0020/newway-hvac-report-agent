@@ -21,6 +21,7 @@ const EVENT_TYPES = Object.freeze([
   'RECOVERABLE_ERROR_RECORDED',
   'SESSION_RECOVERED',
   'TECHNICIAN_CONFIRMATION',
+  'AUTHORITATIVE_CONTEXT_INGESTED',
 ]);
 
 export function createAuditEvent(input = {}) {

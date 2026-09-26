@@ -8,6 +8,7 @@ import {
   enumValue,
   evidenceRefs,
   requiredString,
+  stringArray,
 } from './contract-utils.js';
 
 const CLAIM_KINDS = Object.freeze(['VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE']);
@@ -61,6 +62,12 @@ function candidateBody(input, supportType, confirmation = {}) {
   }
   const sourceRef = input.source_ref ? requiredString(input.source_ref, 'source_ref', code) : null;
   rejectGuidanceReferences(references, sourceRef);
+  const resolution = input.resolution === undefined || input.resolution === null ? null : {
+    resolution_id: requiredString(input.resolution.resolution_id, 'resolution.resolution_id', code),
+    issue_ids: stringArray(input.resolution.issue_ids || [], 'resolution.issue_ids', { code }),
+    resolved_candidate_ids: stringArray(input.resolution.resolved_candidate_ids || [], 'resolution.resolved_candidate_ids', { code }),
+    answer_kind: requiredString(input.resolution.answer_kind, 'resolution.answer_kind', code),
+  };
   return {
     contract: 'FieldCandidate',
     contract_version: '1',
@@ -85,6 +92,7 @@ function candidateBody(input, supportType, confirmation = {}) {
       ['domain', 'context_id', 'context_version', 'scope_id'],
       code,
     ),
+    resolution,
     ...confirmation,
   };
 }
@@ -150,25 +158,48 @@ export function createReportField(input = {}) {
     }
     return copy(candidate);
   });
+  const candidateIds = new Set(candidates.map((candidate) => candidate.candidate_id));
+  const subset = (values, name) => stringArray(values || [], name, { code }).map((id) => {
+    if (!candidateIds.has(id)) throw new ContractValidationError(`${name} contains an unknown candidate.`, code);
+    return id;
+  });
+  const activeCandidateIds = input.active_candidate_ids === undefined
+    ? candidates.map((candidate) => candidate.candidate_id)
+    : subset(input.active_candidate_ids, 'active_candidate_ids');
+  const supersededCandidateIds = subset(input.superseded_candidate_ids, 'superseded_candidate_ids');
+  const invalidCandidateIds = new Set(subset(input.invalid_candidate_ids, 'invalid_candidate_ids'));
+  const active = candidates.filter((candidate) => activeCandidateIds.includes(candidate.candidate_id));
   let state = 'UNKNOWN';
   let value = null;
+  let unit = null;
   let selectedCandidateIds = [];
-  if (candidates.length) {
-    const distinctClaims = new Set(candidates.map((candidate) => canonicalJson(candidate.claim)));
+  if (active.length) {
+    const reliable = active.filter((candidate) => candidate.support_type !== 'AI_INFERENCE');
+    const considered = reliable.length ? reliable : active;
+    const distinctClaims = new Set(considered.map((candidate) => canonicalJson(candidate.claim)));
     if (distinctClaims.size > 1) {
       state = 'CONFLICT';
-    } else if (candidates.some((candidate) => candidate.assessment === 'INVALID')) {
+    } else if (considered.some((candidate) => candidate.assessment === 'INVALID' || invalidCandidateIds.has(candidate.candidate_id))) {
       state = 'INVALID';
-    } else if (candidates.some((candidate) => candidate.assessment === 'UNCERTAIN')) {
+    } else if (considered.some((candidate) => candidate.assessment === 'UNCERTAIN')) {
       state = 'UNCERTAIN';
     } else {
-      const claim = candidates[0].claim;
+      const claim = considered[0].claim;
       if (claim.kind === 'EXPLICIT_NONE') state = 'EXPLICIT_NONE';
       else if (claim.kind === 'NOT_APPLICABLE') state = 'NOT_APPLICABLE';
-      else if (candidates.every((candidate) => candidate.support_type === 'AI_INFERENCE')) state = 'INFERRED';
+      else if (considered.every((candidate) => candidate.support_type === 'AI_INFERENCE')) state = 'INFERRED';
       else state = 'KNOWN_VALUE';
-      value = claim.kind === 'VALUE' ? copy(claim.value) : null;
-      selectedCandidateIds = candidates.map((candidate) => candidate.candidate_id);
+      if (claim.kind === 'VALUE') {
+        const composite = claim.value && typeof claim.value === 'object' && !Array.isArray(claim.value)
+          && Object.hasOwn(claim.value, 'value')
+          ? claim.value
+          : { value: claim.value, unit: considered[0].unit };
+        value = copy(composite.value);
+        unit = composite.unit || considered[0].unit || null;
+      }
+      selectedCandidateIds = considered
+        .filter((candidate) => canonicalJson(candidate.claim) === canonicalJson(claim))
+        .map((candidate) => candidate.candidate_id);
     }
   }
   if (!FIELD_STATES.includes(state)) throw new ContractValidationError(`Unknown field state: ${state}.`, code);
@@ -179,7 +210,10 @@ export function createReportField(input = {}) {
     field_id: fieldId,
     state,
     value,
+    unit,
     candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+    active_candidate_ids: activeCandidateIds,
+    superseded_candidate_ids: supersededCandidateIds,
     selected_candidate_ids: selectedCandidateIds,
     candidates,
   });
