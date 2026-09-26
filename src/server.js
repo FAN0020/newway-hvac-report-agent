@@ -28,9 +28,7 @@ import { toolEnvelope } from './tools/tool-envelope.js';
 import { validateReportDraft } from './tools/validate-report-draft.js';
 import { validateReportInput } from './tools/validate-report-input.js';
 import { hashValue } from './tools/report-integrity.js';
-import { buildTemplateReport } from './tools/build-template-report.js';
 import { extractV2Facts } from './tools/extract-v2-facts.js';
-import { captureAudioForReport, completeHvacAudioReport } from './workflows/audio-capture-report.js';
 import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
 import { createRetriever } from './v2/retrieval.js';
@@ -68,7 +66,6 @@ const reports = new ReportStore({ root: dataRoot });
 const templates = new TemplateStore({ root: path.join(dataRoot, 'templates') });
 const whisper = new WhisperProvider({ runtimeRoot, tempRoot });
 const ollama = new OllamaProvider();
-const defaultServices = Object.freeze({ artifacts, reports, templates, whisper, ollama });
 
 // V2 wiring: one upload store and one lazily-loaded scope registry shared by
 // every /api/v2/* route. Uploads land under data/v2-uploads (auto-mkdir in
@@ -130,20 +127,7 @@ async function readRawBody(request, limit = maxUploadBytes) {
   return readBody(request, limit);
 }
 
-async function resolvePublishedTemplate(templateId, templateStore) {
-  const id = String(templateId || '').trim();
-  try {
-    return templateFor(id);
-  } catch {
-    const custom = await templateStore.listPublished();
-    const selected = custom.find((item) => item.templateId === id);
-    if (selected) return selected;
-  }
-  throw Object.assign(new Error('Template version was not found.'), { code: 'TEMPLATE_NOT_FOUND', status: 404 });
-}
-
-async function handleApiRequest(request, response, url, traceId, config, services = defaultServices) {
-  const { artifacts, reports, templates, whisper, ollama } = services;
+async function handleApi(request, response, url, traceId, config) {
   if (request.method === 'GET' && url.pathname === '/api/templates') {
     const custom = await templates.listPublished();
     writeJson(response, 200, toolEnvelope('list_templates', traceId, 'PASS', {
@@ -163,66 +147,85 @@ async function handleApiRequest(request, response, url, traceId, config, service
     return;
   }
 
-  if (request.method === 'POST' && url.pathname === '/api/capture-reports/audio') {
-    if (!String(request.headers['content-type'] || '').startsWith('audio/wav')) {
-      throw Object.assign(new Error('Upload Content-Type must be audio/wav.'), { code: 'UNSUPPORTED_MEDIA_TYPE', status: 415 });
-    }
-    const template = await resolvePublishedTemplate(request.headers['x-template-id'], templates);
-    const result = await captureAudioForReport({
-      wavBuffer: await readBody(request, maxAudioBytes),
-      template,
-      reportSessionId: request.headers['x-report-session-id'],
-      artifactStore: artifacts,
-      reportStore: reports,
-      whisperProvider: whisper,
-      normalizationProvider: ollama,
-      normalizationModel: String(process.env.HVAC_OLLAMA_MODEL || ''),
-      model: request.headers['x-stt-model'],
-      language: request.headers['x-stt-language'],
-      attempt: request.headers['x-transcription-attempt'],
-      idempotencyKey: request.headers['idempotency-key'],
-      traceId,
-    });
-    writeJson(response, 201, result);
-    return;
-  }
-
-  if (request.method === 'POST' && url.pathname === '/api/capture-reports/hvac/complete') {
-    const input = await readJson(request);
-    if (Object.hasOwn(input, 'corrected_text') || Object.hasOwn(input, 'corrections') || Object.hasOwn(input, 'facts')) {
-      throw Object.assign(new Error('Corrected text, correction objects, and facts are server-controlled.'), { code: 'UNTRUSTED_CAPTURE_INPUT', status: 400 });
-    }
-    const template = await resolvePublishedTemplate(input.template_id, templates);
-    const model = String(process.env.HVAC_OLLAMA_MODEL || '');
-    const result = await completeHvacAudioReport({
-      template,
-      reportSessionId: input.report_session_id,
-      transcriptArtifactId: input.transcript_artifact_id,
-      candidateBundleHash: input.candidate_bundle_hash,
-      decisions: input.decisions,
-      technicianId: input.technician_id,
-      technicianName: input.technician_name,
-      artifactStore: artifacts,
-      reportStore: reports,
-      factsProvider: input.use_llm === false || !model ? undefined : ollama,
-      factsModel: model,
-      traceId,
-    });
-    writeJson(response, 200, result);
-    return;
-  }
-
   if (request.method === 'POST' && url.pathname === '/api/template-reports/build') {
     const input = await readJson(request);
-    const selectedTemplate = await resolvePublishedTemplate(input.template_id, templates);
-    const result = await buildTemplateReport({
-      template: selectedTemplate,
-      facts: input.facts,
-      reportSessionId: input.report_session_id,
-      traceId,
-      reportStore: reports,
-    });
-    writeJson(response, 200, toolEnvelope('build_template_report', traceId, result.status, result.data));
+    const templateId = String(input.template_id || '').trim();
+    let selectedTemplate;
+    try {
+      selectedTemplate = templateFor(templateId);
+    } catch {
+      selectedTemplate = (await templates.listPublished()).find((item) => item.templateId === templateId);
+    }
+    if (!selectedTemplate) throw Object.assign(new Error('Template version was not found.'), { code: 'TEMPLATE_NOT_FOUND', status: 404 });
+    const facts = Array.isArray(input.facts) ? input.facts : [];
+    const definitions = selectedTemplate.schema.fields;
+    const matches = (pattern, candidate) => pattern.endsWith('.*') ? candidate.startsWith(pattern.slice(0, -1)) : pattern === candidate;
+    const accepted = facts.filter((fact) => definitions.some((definition) => matches(definition.id, String(fact.field || ''))));
+    const unsupported = facts.filter((fact) => !definitions.some((definition) => matches(definition.id, String(fact.field || ''))));
+    const state = new Map();
+    for (const fact of accepted) state.set(String(fact.field), fact);
+    const provided = (definition) => {
+      const candidates = [...state.entries()].filter(([fieldId]) => matches(definition.id, fieldId)).map(([, fact]) => fact);
+      return candidates.some((fact) => fact.value !== null && fact.value !== undefined && String(fact.value).trim() !== '' && fact.value !== 'NOT_CHECKED');
+    };
+    const missing = definitions.filter((definition) => definition.required && !provided(definition)).map((definition) => definition.id);
+    const violations = [
+      ...missing.map((field) => ({ class: 'SCHEMA_REQUIRED_FIELD_MISSING', field, message: `${field} requires technician evidence or explicit input.` })),
+      ...unsupported.map((fact) => ({ class: 'SCHEMA_UNSUPPORTED_FIELD', field: fact.field, message: `${fact.field} is outside this template version.` })),
+    ];
+    for (const definition of definitions) {
+      const fact = [...state.entries()].find(([fieldId]) => matches(definition.id, fieldId))?.[1];
+      if (!fact) continue;
+      const support = String(fact.support_status || '').toUpperCase();
+      const sources = Array.isArray(fact.source_refs) ? fact.source_refs : [];
+      if ((definition.critical || definition.requiresTechnicianConfirmation) && support !== 'CONFIRMED_BY_TECHNICIAN') {
+        violations.push({ class: 'SCHEMA_FIELD_NEEDS_CONFIRMATION', field: definition.id, message: `${definition.id} requires technician confirmation.` });
+      }
+      if (sources.length > 0 && sources.every((source) => /^(knowledge|context|rag):/iu.test(String(source)))) {
+        violations.push({ class: 'CONTEXT_NOT_JOB_EVIDENCE', field: definition.id, message: 'Template context cannot assert a job fact.' });
+      }
+      const allowed = definition.allowedValues || definition.allowedStatuses;
+      if (allowed && !allowed.includes(String(fact.value))) violations.push({ class: 'SCHEMA_INVALID_VALUE', field: definition.id, message: `${fact.value} is not allowed for ${definition.id}.` });
+    }
+    const sections = [...new Set(definitions.map((definition) => definition.section))].map((section, index) => ({
+      id: `section_${index + 1}`,
+      title: section,
+      content: definitions.filter((definition) => definition.section === section).map((definition) => {
+        const fact = [...state.entries()].find(([fieldId]) => matches(definition.id, fieldId))?.[1];
+        return { field: definition.id, label: definition.label, value: fact?.value ?? null, status: fact ? 'SUPPORTED' : 'MISSING' };
+      }),
+    }));
+    const reportSessionId = String(input.report_session_id || `server_${traceId}`).slice(0, 160);
+    const stateSnapshot = { session_id: reportSessionId, schema_id: selectedTemplate.schema.id, schema_version: selectedTemplate.schema.version, fields: Object.fromEntries([...state].map(([key, fact]) => [key, fact.value])), unsupported_fields: unsupported.map((fact) => fact.field) };
+    const draft = {
+      report_id: `report_${hashValue({ templateId, reportSessionId, accepted }).slice(7, 19)}`,
+      report_version: 1,
+      report_session_id: reportSessionId,
+      template_id: selectedTemplate.templateId,
+      template_name: selectedTemplate.name,
+      template_version: selectedTemplate.templateVersion,
+      schema_id: selectedTemplate.schema.id,
+      schema_version: selectedTemplate.schema.version,
+      context_corpus_id: selectedTemplate.contextCorpus.id,
+      context_version: selectedTemplate.contextCorpus.version,
+      renderer_id: selectedTemplate.rendererMapping.id,
+      renderer_version: selectedTemplate.rendererMapping.version,
+      facts_hash: hashValue(accepted),
+      structured_state_hash: hashValue(stateSnapshot),
+      sections,
+      missing_required_fields: missing,
+      provenance: selectedTemplate.provenance,
+      disclaimer: { text: 'Prototype form. Technician confirmation covers only this exact version. Template context is not evidence that work occurred.' },
+    };
+    const status = violations.length ? 'NEEDS_CONFIRMATION' : 'PASS';
+    const validation = { trace_id: traceId, status, data: { can_enter_technician_review: violations.length === 0, gates: { violations } } };
+    const validationReceipt = await reports.recordStructuredValidation({ draft, validation, facts: accepted });
+    writeJson(response, 200, toolEnvelope('build_template_report', traceId, status, {
+      structured_job_state: stateSnapshot,
+      draft,
+      validation_receipt: validationReceipt,
+      gates: { violations },
+    }));
     return;
   }
 
@@ -803,16 +806,7 @@ function denyRequest(response, traceId, status, code) {
   }, { error_code: code }));
 }
 
-export function createServer({ config = resolveServerConfig(), services = {} } = {}) {
-  const runtimeServices = Object.freeze({ ...defaultServices, ...services });
-  const handleApi = (request, response, url, traceId, config) => handleApiRequest(
-    request,
-    response,
-    url,
-    traceId,
-    config,
-    runtimeServices,
-  );
+export function createServer({ config = resolveServerConfig() } = {}) {
   return http.createServer(async (request, response) => {
     const traceId = `trace_${crypto.randomUUID()}`;
     const url = new URL(request.url, 'http://server.invalid');
