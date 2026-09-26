@@ -5,23 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#162b25">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>Newway Reports</title>
+  <title>Field Report</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="template-app" class="template-app">
     <aside class="template-sidebar" aria-label="Primary navigation">
-      <button class="template-brand" data-template-nav="choose" aria-label="Newway Reports home"><span>N</span><strong>Newway<small>Maintenance reports</small></strong></button>
+      <button class="template-brand" data-template-nav="choose" aria-label="Field Report home"><span>FR</span><strong>Field Report<small>Maintenance reporting</small></strong></button>
       <nav aria-label="Technician">
         <p>Technician</p>
+        <button class="template-nav" data-template-nav="reports"><span>▦</span> Reports</button>
         <button class="template-nav active" data-template-nav="choose"><span>＋</span> New report</button>
       </nav>
       <nav aria-label="Manager">
         <p>Manager</p>
         <button class="template-nav" data-template-nav="templates"><span>▦</span> Templates</button>
-        <button class="template-nav" data-template-nav="setup"><span>⌁</span> Template setup</button>
       </nav>
-      <div class="template-sidebar-note"><strong>Local workspace</strong><span>Prototype templates are clearly labelled.</span></div>
+      <div class="template-sidebar-note"><strong>Local workspace</strong></div>
     </aside>
 
     <main class="template-main">
@@ -31,36 +31,35 @@
         <div class="template-trust"><span></span><strong id="template-runtime-status">Connecting locally…</strong></div>
       </header>
 
+      <section id="template-reports" class="template-view" hidden aria-labelledby="template-reports-title">
+        <div class="template-hero"><div><p class="eyebrow">REPORTS</p><h2 id="template-reports-title">Reports</h2></div><button class="primary" data-template-nav="choose">＋ New report</button></div>
+        <div id="template-report-list" class="manager-template-list"></div>
+      </section>
+
       <section id="template-choose" class="template-view active" aria-labelledby="choose-title">
         <div class="template-hero"><div><p class="eyebrow">NEW REPORT</p><h2 id="choose-title">Choose the form you need</h2><p>Each report stays bound to the selected template, schema, context, and renderer version.</p></div><label class="template-search"><span>⌕</span><input id="template-search" type="search" placeholder="Search templates" aria-label="Search templates"></label></div>
         <div id="template-catalog" class="template-catalog" aria-live="polite"></div>
       </section>
 
       <section id="template-workspace" class="template-view" hidden aria-labelledby="workspace-title">
-        <div class="workspace-binding"><button class="back-link" data-template-nav="choose">← Templates</button><div><p class="eyebrow">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-description"></p></div><div class="binding-badges"><span id="workspace-provenance"></span><span id="workspace-version"></span></div></div>
-        <div class="template-workspace-grid">
-          <div class="template-workspace-main">
-            <section class="template-panel input-panel">
-              <div class="section-heading"><div><p class="eyebrow">CAPTURE</p><h3>Add what was observed</h3><p>Voice, typed text, and uploads can propose field values. Nothing becomes OK, passed, or complete from silence.</p></div></div>
-              <label class="field-label" for="workspace-statement">Technician statement</label>
-              <textarea id="workspace-statement" rows="4" placeholder="Describe the asset, observations, work performed, tests, and handover status."></textarea>
-              <div class="workspace-input-actions"><button id="workspace-analyze" class="primary">Analyze statement</button><label class="file-button secondary">Upload text<input id="workspace-text-upload" type="file" accept=".txt,.md,.csv,text/plain"></label><label class="file-button secondary">Upload audio<input id="workspace-audio-upload" type="file" accept="audio/wav,.wav"></label></div>
-              <p id="workspace-input-status" class="live-status" role="status">Manual field entry is always available.</p>
-            </section>
-            <form id="workspace-fields" class="workspace-fields"></form>
-          </div>
-          <aside class="workspace-rail">
-            <section class="template-panel readiness-card">
-              <p class="eyebrow">REPORT STATUS</p><div id="readiness-state" class="readiness-state">NEEDS INFORMATION</div>
-              <div class="readiness-meter"><span id="readiness-meter-fill"></span></div>
-              <p id="readiness-summary">Choose a template to begin.</p>
-              <div id="inline-resolve" class="inline-resolve"></div>
-              <label class="confirm-check"><input id="workspace-confirm-check" type="checkbox"> I reviewed the source evidence and every value in this exact report version.</label>
-              <button id="workspace-confirm" class="primary wide-action" disabled>Validate &amp; confirm</button>
-              <p id="workspace-confirm-status" class="live-status" role="status"></p>
-            </section>
-            <details class="template-panel context-panel"><summary>Template context boundary</summary><p id="workspace-context"></p><div id="workspace-context-sources"></div></details>
-          </aside>
+        <div class="workspace-binding"><button class="back-link" data-template-nav="choose">← Templates</button><div><p class="eyebrow" id="workspace-company">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-description"></p></div><div class="workspace-status" aria-live="polite"><strong id="report-required-count">0 / 0 required</strong><span id="report-state">Needs information</span><span class="workspace-progress" aria-hidden="true"><i id="readiness-meter-fill"></i></span></div></div>
+        <div class="template-workspace-main">
+          <section class="report-composer" aria-labelledby="composer-title">
+            <h3 id="composer-title">Tell us what happened</h3>
+            <div class="workspace-composer">
+              <textarea id="workspace-statement" rows="3" placeholder="Describe the work, findings, tests, and handover status."></textarea>
+              <button id="workspace-microphone" class="composer-microphone" type="button" aria-label="Start recording" aria-pressed="false"><span aria-hidden="true">●</span><b id="workspace-microphone-label">Record</b></button>
+            </div>
+            <div class="composer-footer"><span id="workspace-recording-time" class="recording-time" hidden>Recording 0:00</span><div class="workspace-input-actions"><button id="workspace-analyze" class="text-button" type="button">Update report</button><label class="file-button text-button">Upload recording<input id="workspace-audio-upload" type="file" accept="audio/wav,.wav"></label><label class="file-button text-button">Add supporting document<input id="workspace-text-upload" type="file" accept=".txt,.md,.csv,text/plain"></label><button id="workspace-retry" class="text-button" type="button" hidden>Try again</button></div></div>
+            <p id="workspace-input-status" class="live-status" role="status" aria-live="polite"></p>
+          </section>
+          <form id="workspace-fields" class="workspace-fields"></form>
+          <section class="report-confirmation">
+            <label class="confirm-check"><input id="workspace-confirm-check" type="checkbox"> I reviewed the evidence and every value in this report.</label>
+            <button id="workspace-confirm" class="primary" disabled>Confirm report</button>
+            <p id="workspace-confirm-status" class="live-status" role="status"></p>
+          </section>
+          <details class="workspace-details"><summary>Template details &amp; evidence</summary><p id="workspace-metadata"></p><p id="workspace-context"></p><div id="workspace-context-sources"></div></details>
         </div>
       </section>
 
@@ -95,7 +94,7 @@
 
   <div class="app-shell" hidden inert aria-hidden="true">
     <aside id="primary-sidebar" class="sidebar" aria-label="Primary navigation">
-      <a class="brand" href="#reports" data-nav="reports" aria-label="Newway Reports home"><span class="brand-mark">N</span><span><strong>Newway</strong><small>Service reports</small></span></a>
+      <a class="brand" href="#reports" data-nav="reports" aria-label="Field Report home"><span class="brand-mark">FR</span><span><strong>Field Report</strong><small>Maintenance reporting</small></span></a>
       <nav><button class="nav-item active" data-nav="reports"><span>▦</span> Reports</button><button class="nav-item" data-nav="new-report"><span>＋</span> New report</button></nav>
       <nav class="secondary-nav" aria-label="Secondary navigation"><button class="nav-item" data-nav="knowledge"><span>⌕</span> Knowledge</button><button class="nav-item" data-nav="settings"><span>⚙</span> Settings</button><button class="nav-item" data-nav="help"><span>?</span> Help &amp; demo</button></nav>
       <div class="sidebar-foot"><div class="demo-chip">Demo mode · not production</div><span id="network-mode">Checking access mode…</span></div>
@@ -105,7 +104,7 @@
       <header class="topbar">
         <button id="mobile-menu" class="icon-button" aria-label="Open navigation" aria-controls="primary-sidebar" aria-expanded="false">☰</button>
         <div><p class="eyebrow" id="page-eyebrow">REPORT WORKSPACE</p><h1 id="page-title">Reports</h1></div>
-        <div class="topbar-actions"><span class="connection-dot" aria-hidden="true"></span><span id="topbar-status">Local workspace</span><button class="avatar" data-nav="settings" aria-label="Open settings">NW</button></div>
+        <div class="topbar-actions"><span class="connection-dot" aria-hidden="true"></span><span id="topbar-status">Local workspace</span><button class="avatar" data-nav="settings" aria-label="Open settings">FR</button></div>
       </header>
       <div id="network-warning" class="network-warning" role="note">For trusted local or LAN demo use only.</div>
       <section id="auth-gate" class="auth-card" aria-labelledby="auth-title">

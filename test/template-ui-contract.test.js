@@ -34,8 +34,10 @@ test('visible app imports the shared runtime and uses generic template routes', 
 
 test('workspace renders template fields and inline missing/critical resolution without positive defaults', async () => {
   const [client, html] = await Promise.all([fs.readFile('web/template-app.js', 'utf8'), fs.readFile('web/index.html', 'utf8')]);
-  assert.match(client, /createResolveQueue\(state\.session\)/);
+  assert.match(client, /fieldStatusPresentation\(fieldState, field\)/);
+  assert.match(client, /groupTemplateFields\(state\.activeTemplate\.schema\.fields\)/);
   assert.match(client, /normalized !== 'NOT_CHECKED'/);
   assert.match(client, /CONFIRMED_BY_TECHNICIAN/);
-  assert.match(html, /Nothing becomes OK, passed, or complete from silence/i);
+  assert.match(html, /id="report-required-count"/);
+  assert.doesNotMatch(html.slice(html.indexOf('id="template-workspace"'), html.indexOf('id="template-manager"')), /Nothing becomes OK, passed, or complete from silence/i);
 });

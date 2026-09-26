@@ -82,6 +82,16 @@ Automated contracts cover:
 
 Actual browser QA covers the chooser, Bus Door workspace, Rail Track workspace, missing state, critical/conflict state, READY, CONFIRMED, manager list, Template Setup, and mobile chooser/workspace. Evidence is stored locally under `output/visual-qa/`.
 
+## Report Workspace refinement (2026-09-26)
+
+The technician surface now presents the selected schema as the report itself rather than as a separate capture panel followed by a checklist. Template sections and display order drive compact desktop rows and single-column mobile fields. Checklist triplets (`status`, `observation`, and `action`) render as one report row, while required, supported, confirmation-required, and conflicting states appear beside the affected field.
+
+Voice and typed input share one compact composer. The microphone control is attached to the statement area; stopping a recording persists WAV evidence, transcribes it, runs extraction and schema mapping, and refreshes the report without a separate Transcribe action. Typed edits are also preserved as immutable manual transcript artifacts with edited-artifact provenance. After exact-version confirmation, the report fields and every input path are locked.
+
+The primary identity is the domain-neutral **Field Report** brand. Newway and SBS Transit remain only as contextual organization labels for their respective templates. Technician navigation is limited to Reports and New report; manager navigation is limited to Templates, with Template Setup entered from New template.
+
+The browser visual matrix includes desktop and 390 px mobile layouts, empty/partial/ready/confirmed report states, recording and processing feedback, real extraction-produced critical and conflict states, manager Templates and Template Setup, keyboard focus, and a clean browser console. Recording/processing screenshots use a browser media-device stub for repeatable visual-state inspection; recorder encoding and error paths remain covered by automated tests, while a physical microphone was not exercised in this run.
+
 ## Known limitations and deferred work
 
 - Arbitrary DOCX/PDF layout reconstruction and schema extraction are deliberately not claimed. Source files are preserved and schema definition is manual.
