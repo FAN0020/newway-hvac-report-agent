@@ -30,3 +30,11 @@ The sibling `local_dictator-main` project was used only as a read-only technical
 The optional preparation script downloads/builds `whisper.cpp` `b4938` and preserves its upstream license in the runtime directory. The script and model download were not executed in Batch 1. The Base model hash is pinned to `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe`.
 
 Ollama itself and any selected Ollama model remain separately installed software. The model license must be checked before distribution.
+
+## Template catalog research pack
+
+Date: 2026-09-26
+
+The SBS Transit Expanded Template Research Pack 2 was read as user-supplied prototype/research material. Seven derived predefined schema entries retain each source DOCX filename and SHA-256 in `web/template-catalog.js`. They are labelled `research-derived prototype` and `official: false`; the UI states that they are not official operator forms.
+
+Public SBS Transit, LTA, and Singapore Standards pages are stored only as external context-source links and short usage metadata. Restricted LTA content and full paywalled/copyrighted standards were not copied or ingested. These sources may help terminology or rules but cannot assert maintenance-job facts.

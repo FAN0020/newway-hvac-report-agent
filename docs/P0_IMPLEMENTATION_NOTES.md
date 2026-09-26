@@ -59,4 +59,8 @@ This is an additive P0 adapter. The current domain extractors, HVAC receipt chai
 - Knowledge displays retrieval warnings from the tool envelope's `data.warnings` field.
 - Completion-state evidence is explicitly technician-confirmed before SBS builders receive it.
 
-P1/P2 work such as arbitrary template parsing, a Template Setup Agent/editor/publisher, layout reconstruction, full SBS editor depth, OCR, multi-user collaboration, and production identity remains outside this implementation.
+## Template-driven catalog extension (2026-09-26)
+
+The technician surface now uses `Choose Template → Report Workspace → Confirm`; Resolve items are inline with the rendered schema. The manager surface uses `Templates → Template Setup → Publish`. HVAC and seven SBS prototype templates share one immutable binding and finalization contract. See `docs/TEMPLATE_CATALOG_IMPLEMENTATION.md` for registered identities, context isolation, upload truth states, tests, and limitations.
+
+Arbitrary DOCX/PDF layout reconstruction, robust schema extraction, OCR, multi-user collaboration, organization authorization, and production identity remain outside this implementation. Uploaded artifacts are preserved and require manual schema review rather than a simulated parser.
