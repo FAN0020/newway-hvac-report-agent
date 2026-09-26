@@ -94,8 +94,19 @@ function flushWorklet(node, timeoutMs = 1500) {
   });
 }
 
+export function resolveWorkletModuleUrl(locationHref = globalThis.location?.href || 'http://localhost/') {
+  return new URL('/pcm-capture-worklet.js', locationHref).href;
+}
+
 export class PcmWavRecorder {
-  constructor() {
+  constructor({
+    mediaDevices = globalThis.navigator?.mediaDevices,
+    createAudioContext = () => new globalThis.AudioContext(),
+    locationHref = globalThis.location?.href,
+  } = {}) {
+    this.mediaDevices = mediaDevices;
+    this.createAudioContext = createAudioContext;
+    this.locationHref = locationHref;
     this.stream = null;
     this.context = null;
     this.source = null;
@@ -105,36 +116,55 @@ export class PcmWavRecorder {
   }
 
   async start() {
-    this.stream = await requestMicrophone(
-      (constraints) => navigator.mediaDevices.getUserMedia(constraints),
-      { audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false },
-    );
-    this.context = new AudioContext();
-    await this.context.audioWorklet.addModule('/pcm-capture-worklet.js');
-    this.source = this.context.createMediaStreamSource(this.stream);
-    this.node = new AudioWorkletNode(this.context, 'hvac-pcm-capture');
-    this.sink = this.context.createGain();
-    this.sink.gain.value = 0;
-    this.node.port.onmessage = (event) => {
-      if (event.data?.type === 'samples') this.chunks.push(event.data.samples);
-    };
-    this.source.connect(this.node);
-    this.node.connect(this.sink);
-    this.sink.connect(this.context.destination);
-    return { sampleRate: this.context.sampleRate };
+    if (!this.mediaDevices?.getUserMedia) throw new Error('Microphone capture is unavailable in this browser.');
+    this.chunks = [];
+    try {
+      this.stream = await requestMicrophone(
+        (constraints) => this.mediaDevices.getUserMedia(constraints),
+        { audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false },
+      );
+      this.context = this.createAudioContext();
+      await this.context.audioWorklet.addModule(resolveWorkletModuleUrl(this.locationHref));
+      this.source = this.context.createMediaStreamSource(this.stream);
+      this.node = new globalThis.AudioWorkletNode(this.context, 'hvac-pcm-capture');
+      this.sink = this.context.createGain();
+      this.sink.gain.value = 0;
+      this.node.port.onmessage = (event) => {
+        if (event.data?.type === 'samples') this.chunks.push(event.data.samples);
+      };
+      this.source.connect(this.node);
+      this.node.connect(this.sink);
+      this.sink.connect(this.context.destination);
+      return { sampleRate: this.context.sampleRate };
+    } catch (error) {
+      await this.release();
+      throw error;
+    }
+  }
+
+  async release() {
+    this.stream?.getTracks?.().forEach((track) => track.stop());
+    for (const item of [this.source, this.node, this.sink]) {
+      try { item?.disconnect?.(); } catch { /* already disconnected */ }
+    }
+    if (this.context && this.context.state !== 'closed') {
+      try { await this.context.close(); } catch { /* best-effort cleanup */ }
+    }
+    this.stream = null;
+    this.context = null;
+    this.source = null;
+    this.node = null;
+    this.sink = null;
   }
 
   async stop() {
     if (!this.node || !this.context) throw new Error('Recorder is not active.');
-    await flushWorklet(this.node);
-    const wav = encodeMonoPcmWav(this.chunks, this.context.sampleRate);
-    this.stream.getTracks().forEach((track) => track.stop());
-    this.source.disconnect();
-    this.node.disconnect();
-    this.sink.disconnect();
-    await this.context.close();
-    this.stream = null;
-    this.context = null;
-    return wav;
+    const sampleRate = this.context.sampleRate;
+    try {
+      await flushWorklet(this.node);
+      return encodeMonoPcmWav(this.chunks, sampleRate);
+    } finally {
+      await this.release();
+    }
   }
 }

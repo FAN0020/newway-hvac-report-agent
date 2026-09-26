@@ -386,6 +386,7 @@ async function handleApi(request, response, url, traceId, config) {
     }
     const uploader = String(request.headers['x-uploader'] || '').trim() || 'demo-technician';
     const scenario = String(request.headers['x-scenario'] || '').trim() || 'demo';
+    const reportSessionId = String(request.headers['x-report-session-id'] || '').trim().slice(0, 160);
     const mimeType = String(request.headers['x-mime-type'] || '').trim() || undefined;
     const buffer = await readRawBody(request);
     const record = await ingestDocument({
@@ -396,7 +397,15 @@ async function handleApi(request, response, url, traceId, config) {
       metadata: { uploader, source: 'user-upload', scenario },
       store: v2UploadStore,
     });
-    writeJson(response, 201, toolEnvelope('v2_upload', traceId, 'PASS', { upload: record }));
+    const reportBinding = reportSessionId ? {
+      report_session_id: reportSessionId,
+      scope_id: scopeId,
+      upload_id: record.upload_id,
+    } : undefined;
+    writeJson(response, 201, toolEnvelope('v2_upload', traceId, 'PASS', {
+      upload: record,
+      ...(reportBinding ? { report_binding: reportBinding } : {}),
+    }));
     return;
   }
 

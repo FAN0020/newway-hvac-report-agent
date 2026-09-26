@@ -120,6 +120,37 @@ function fieldMatches(pattern, fieldId) { return isWildcard(pattern) ? fieldId.s
 function hasValue(value) { return value !== null && value !== undefined && !(typeof value === "string" && value.trim() === ""); }
 function emptyFieldState(fieldId, definition = {}) { return { fieldId, definition: copy(definition), value: null, unit: null, status: "MISSING", support: [], candidates: [] }; }
 
+const CAPTURE_STATE_VALUES = Object.freeze({
+  inputMode: new Set(["none", "recording", "uploaded_audio", "manual"]),
+  audioState: new Set(["idle", "recording", "ready", "uploading", "failed"]),
+  transcriptionState: new Set(["idle", "processing", "complete", "failed"]),
+  documentState: new Set(["idle", "uploading", "processing", "ready", "failed"]),
+  processingState: new Set(["idle", "extracting", "validating", "complete", "failed"]),
+  statementState: new Set(["empty", "available"]),
+});
+
+function initialCaptureState() {
+  return {
+    inputMode: "none",
+    audioState: "idle",
+    transcriptionState: "idle",
+    documentState: "idle",
+    processingState: "idle",
+    statementState: "empty",
+    audioError: null,
+    transcriptionError: null,
+    documentError: null,
+    processingError: null,
+    integrityError: null,
+    audioBlob: null,
+    audioId: null,
+    previewUrl: null,
+    attachment: null,
+    language: "auto",
+    model: "base",
+  };
+}
+
 function definitionEntry(schemaToSearch, fieldId) {
   if (schemaToSearch.fieldDefinitions[fieldId]) return [fieldId, schemaToSearch.fieldDefinitions[fieldId]];
   return Object.entries(schemaToSearch.fieldDefinitions).find(([candidate]) => isWildcard(candidate) && fieldId.startsWith(candidate.slice(0, -1))) || null;
@@ -139,11 +170,48 @@ export function createReportSession({ id, reportType, jobContext = {} } = {}) {
     id: id || sessionId(), scope: reportSchema.scope, reportType: reportSchema.reportType,
     schemaId: reportSchema.id, schemaVersion: reportSchema.version, status: "DRAFT", view: "capture", revision: 0,
     createdAt, updatedAt: createdAt, jobContext: copy(jobContext),
-    capture: { audioBlob: null, audioId: null, previewUrl: null, attachment: null, language: "auto", model: "base" },
+    capture: initialCaptureState(),
     manualFields: {}, processing: { status: "idle", error: null }, complete: { summary: "", meta: "", copyableText: "" },
     evidence: [], sources: [], transcript: { original: "", normalized: "", hash: null }, transcriptArtifact: null, originalTranscriptArtifact: null, transcriptHistory: [], corrections: [], correctionCandidates: [], correctionDecisions: [],
     facts: [], unsupportedFacts: [], structuredState: {}, fieldStates, completeness: null, unresolvedItems: [], resolveQueue: [], resolveAnswers: {}, resolveFlow: { total: 0, completed: 0 },
     reportDraft: null, reportDocument: null, validation: null, confirmation: null, exportState: { saved: false, files: [], error: null },
+  };
+}
+
+export function updateCaptureState(session, patch = {}) {
+  if (!session?.capture) throw new TypeError("A ReportSession with Capture state is required.");
+  for (const [key, value] of Object.entries(patch)) {
+    if (CAPTURE_STATE_VALUES[key] && !CAPTURE_STATE_VALUES[key].has(value)) {
+      throw new TypeError(`Invalid Capture ${key}: ${value}`);
+    }
+  }
+  Object.assign(session.capture, copy(patch));
+  session.updatedAt = new Date().toISOString();
+  return session;
+}
+
+export function captureReadiness(session, { statement } = {}) {
+  const capture = session?.capture || initialCaptureState();
+  const usableStatement = String(
+    statement
+      ?? session?.transcriptArtifact?.raw_text
+      ?? session?.transcript?.original
+      ?? "",
+  ).trim();
+  const fatalIntegrityError = capture.integrityError || null;
+  const pendingRequiredOperation = ["extracting", "validating"].includes(capture.processingState)
+    || (capture.inputMode !== "manual" && capture.transcriptionState === "processing");
+  const hasUsableStatement = usableStatement.length > 0;
+  let reason = "ready";
+  if (fatalIntegrityError) reason = "integrity_error";
+  else if (pendingRequiredOperation) reason = "required_processing";
+  else if (!hasUsableStatement) reason = "statement_required";
+  return {
+    canContinue: reason === "ready",
+    hasUsableStatement,
+    pendingRequiredOperation,
+    fatalIntegrityError,
+    reason,
   };
 }
 
