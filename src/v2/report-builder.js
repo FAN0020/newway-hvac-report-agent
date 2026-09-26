@@ -305,6 +305,11 @@ const RETURN_TO_SERVICE_WORDS = Object.freeze([
 
 /** Negation words (08 class 1). */
 const NEGATION_RE = /(未|没有|did\s+not|\bnot\b)/i;
+const NEGATED_RETURN_TO_SERVICE_RE = /(?:暂时?|尚)?未\s*(?:恢复运行|恢复服务|回役)|没有\s*(?:恢复运行|恢复服务|回役)|\b(?:did\s+not|never)\s+(?:return(?:ed)?\s+to\s+service|go\s+back\s+in\s+service)|\bnot\s+(?:been\s+)?(?:return(?:ed)?\s+to\s+service|back\s+in\s+service)/iu;
+
+function isNegatedReturnToService(text) {
+  return NEGATED_RETURN_TO_SERVICE_RE.test(String(text ?? ''));
+}
 
 /** Service-action fields that must never be populated from knowledge (08 class 9). */
 const SERVICE_ACTION_FIELDS = Object.freeze(new Set([
@@ -633,7 +638,8 @@ export function checkHardGates({ scopeId, facts = [] } = {}) {
     // technician confirmation.
     if (isSafetyField && status !== SUPPORT_STATUSES.CONFIRMED_BY_TECHNICIAN) {
       const low = text.toLowerCase();
-      if (RETURN_TO_SERVICE_WORDS.some((word) => low.includes(word.toLowerCase()))) {
+      if (RETURN_TO_SERVICE_WORDS.some((word) => low.includes(word.toLowerCase()))
+        && !isNegatedReturnToService(text)) {
         push('INCORRECT_SAFETY_RETURN_TO_SERVICE', field,
           `Return-to-service/safety assertion "${text}" on ${field} lacks CONFIRMED_BY_TECHNICIAN support.`);
       }

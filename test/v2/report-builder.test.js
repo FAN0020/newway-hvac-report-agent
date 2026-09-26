@@ -262,6 +262,16 @@ test('checkHardGates: INCORRECT_SAFETY_RETURN_TO_SERVICE fires only without tech
   assert.ok(!ok.violations.some((v) => v.class === 'INCORRECT_SAFETY_RETURN_TO_SERVICE'));
 });
 
+test('checkHardGates: a negated return-to-service statement never triggers positive confirmation', () => {
+  for (const value of ['暂未恢复运行', '未回役', 'not returned to service', 'not back in service']) {
+    const result = checkHardGates({
+      scopeId: 'OILFIELD',
+      facts: [{ field: 'safety.assertion', value, support_status: 'DIRECT_TRANSCRIPT' }],
+    });
+    assert.ok(!result.violations.some((item) => item.class === 'INCORRECT_SAFETY_RETURN_TO_SERVICE'), value);
+  }
+});
+
 test('checkHardGates: INCORRECT_COMPLETION_STATE outside the shared enum', () => {
   const bad = checkHardGates({ scopeId: 'SBS_RAIL', facts: [{ field: 'completion.state', value: 'scrapped', support_status: 'DIRECT_TRANSCRIPT' }] });
   assert.ok(bad.violations.some((v) => v.class === 'INCORRECT_COMPLETION_STATE' && v.field === 'completion.state'));

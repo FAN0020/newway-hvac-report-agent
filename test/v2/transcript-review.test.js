@@ -79,6 +79,14 @@ test('industrial spoken correction and return-to-service require confirmation', 
   assert.ok(review.confirmation_questions.some((item) => item.field === 'safety.assertion'));
 });
 
+test('industrial negated return-to-service does not request positive authorisation', () => {
+  const review = reviewV2Transcript({
+    scopeId: 'OILFIELD',
+    rawText: '设备暂未恢复运行，已创建后续维修工单。',
+  });
+  assert.ok(!review.confirmation_questions.some((item) => item.question_id === 'industrial_return_to_service_confirmation'));
+});
+
 test('Rail module 40 ASR variant is reviewable as module faulty', () => {
   const review = reviewV2Transcript({
     scopeId: 'SBS_RAIL',
