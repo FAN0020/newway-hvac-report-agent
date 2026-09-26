@@ -34,7 +34,7 @@ test('server protects all API paths before dispatch and keeps local bootstrap ou
   const server = await fs.readFile('src/server.js', 'utf8');
   const apiBranch = server.slice(server.indexOf("if (url.pathname.startsWith('/api/'))"), server.indexOf("} else if (request.method === 'POST' && url.pathname === '/session-bootstrap')"));
   assert.match(apiBranch, /authorizeApiRequest\(request, config\)/);
-  assert.match(apiBranch, /handleApi\(request, response, url, traceId, config\)/);
+  assert.match(apiBranch, /handleApi\(request, response, url, traceId, config, resolvedServices\)/);
   assert.match(server, /canBootstrapLocalSession\(request, config\)/);
   assert.doesNotMatch(server, /access-control-allow-origin/i);
 });

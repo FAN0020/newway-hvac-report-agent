@@ -63,6 +63,16 @@ export function createEvidenceSpan(input = {}) {
 export function createTranscriptArtifact(input = {}) {
   const code = 'INVALID_TRANSCRIPT_ARTIFACT';
   const rawText = requiredString(input.raw_text, 'raw_text', code);
+  const sourceHash = requiredString(input.source_hash, 'source_hash', code);
+  if (!/^sha256:[a-f0-9]{64}$/u.test(sourceHash)) {
+    throw new ContractValidationError('source_hash must be a SHA-256 digest.', code);
+  }
+  const normalizeBinding = (value, label, keys) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new ContractValidationError(`${label} is required.`, code);
+    }
+    return Object.fromEntries(keys.map((key) => [key, requiredString(value[key], `${label}.${key}`, code)]));
+  };
   const segments = (input.segments || []).map((segment, index) => {
     const start = Number(segment?.start_ms);
     const end = Number(segment?.end_ms);
@@ -76,10 +86,15 @@ export function createTranscriptArtifact(input = {}) {
     contract_version: '1',
     session_id: requiredString(input.session_id, 'session_id', code),
     source_evidence_id: requiredString(input.source_evidence_id, 'source_evidence_id', code),
+    source_hash: sourceHash,
     raw_text: rawText,
     text_hash: hashContract(rawText),
     language: String(input.language || 'und'),
-    provider_ref: String(input.provider_ref || 'unknown'),
+    provider: requiredString(input.provider, 'provider', code),
+    model: requiredString(input.model, 'model', code),
+    processing_version: requiredString(input.processing_version, 'processing_version', code),
+    template_binding: normalizeBinding(input.template_binding, 'template_binding', ['template_id', 'template_version']),
+    context_binding: normalizeBinding(input.context_binding, 'context_binding', ['context_id', 'context_version', 'scope_id']),
     created_at: requiredTimestamp(input.created_at, 'created_at', code),
     segments,
   };
@@ -89,17 +104,45 @@ export function createTranscriptArtifact(input = {}) {
 export function createTranscriptReview(input = {}) {
   const code = 'INVALID_TRANSCRIPT_REVIEW';
   const status = enumValue(input.status, REVIEW_STATUSES, 'status', code);
+  const transcriptText = String(input.transcript_text ?? '');
+  const items = (input.items || []).map((item, index) => {
+    const start = Number(item?.source_span?.start);
+    const end = Number(item?.source_span?.end);
+    const quote = String(item?.source_span?.quote ?? '');
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start
+      || quote.length !== end - start || transcriptText.slice(start, end) !== quote) {
+      throw new ContractValidationError(`items[${index}] requires an exact transcript source span.`, code);
+    }
+    return {
+      review_item_id: requiredString(item.review_item_id, `items[${index}].review_item_id`, code),
+      kind: enumValue(item.kind, ['CORRECTION', 'CONFIRMATION'], `items[${index}].kind`, code),
+      material: item.material === true,
+      source_span: { start, end, quote },
+      proposed_text: item.proposed_text === null || item.proposed_text === undefined ? null : requiredString(item.proposed_text, `items[${index}].proposed_text`, code),
+      category: requiredString(item.category || 'CRITICAL_TERMINOLOGY', `items[${index}].category`, code),
+      reason: requiredString(item.reason, `items[${index}].reason`, code),
+    };
+  });
   const decisions = (input.decisions || []).map((decision, index) => ({
     review_item_id: requiredString(decision?.review_item_id, `decisions[${index}].review_item_id`, code),
     decision: enumValue(decision?.decision, REVIEW_DECISIONS, `decisions[${index}].decision`, code),
     ...(decision?.corrected_text !== undefined ? { corrected_text: String(decision.corrected_text) } : {}),
   }));
+  if (items.length) {
+    const itemIds = new Set(items.map((item) => item.review_item_id));
+    const decisionIds = new Set(decisions.map((decision) => decision.review_item_id));
+    if (itemIds.size !== items.length || (status === 'PENDING' && decisions.length !== 0)
+      || (status === 'REVIEWED' && (decisionIds.size !== itemIds.size || [...itemIds].some((id) => !decisionIds.has(id))))) {
+      throw new ContractValidationError('TranscriptReview decisions must match every unique review item exactly once.', code);
+    }
+  }
   const body = {
     contract: 'TranscriptReview',
     contract_version: '1',
     session_id: requiredString(input.session_id, 'session_id', code),
     transcript_id: requiredString(input.transcript_id, 'transcript_id', code),
     status,
+    items,
     decisions,
     reviewer_principal_ref: status === 'REVIEWED'
       ? requiredString(input.reviewer_principal_ref, 'reviewer_principal_ref', code)

@@ -57,24 +57,37 @@ const MAX_TEXT_LENGTH = 20_000;
  * @returns {string[]}
  */
 export function splitSentences(text) {
+  return sentenceSpans(text).map((span) => span.text);
+}
+
+function sentenceSpans(text) {
   const raw = String(text ?? '');
   if (raw.trim() === '') return [];
   const sentences = [];
   let buffer = '';
+  let bufferStart = 0;
   const flush = () => {
-    const cleaned = buffer.replace(/[。！？!?；;.]+$/u, '').trim();
-    if (cleaned !== '') sentences.push(cleaned);
+    const withoutTerminator = buffer.replace(/[。！？!?；;.]+$/u, '');
+    const leading = withoutTerminator.length - withoutTerminator.trimStart().length;
+    const cleaned = withoutTerminator.trim();
+    if (cleaned !== '') {
+      const start = bufferStart + leading;
+      sentences.push({ start, end: start + cleaned.length, text: cleaned });
+    }
     buffer = '';
   };
   for (let i = 0; i < raw.length; i += 1) {
     const ch = raw[i];
     if (ch === '\n' || ch === '\r') {
       flush();
+      bufferStart = i + 1;
       continue;
     }
+    if (buffer === '') bufferStart = i;
     buffer += ch;
     if (/[。！？!?；;]/u.test(ch)) {
       flush();
+      bufferStart = i + 1;
       continue;
     }
     if (ch === '.') {
@@ -83,7 +96,10 @@ export function splitSentences(text) {
       const prevIsDigit = /\d/u.test(prev);
       const nextIsDigit = /\d/u.test(next);
       const nextIsBoundary = next === '' || /\s/u.test(next);
-      if (!(prevIsDigit && nextIsDigit) && nextIsBoundary) flush();
+      if (!(prevIsDigit && nextIsDigit) && nextIsBoundary) {
+        flush();
+        bufferStart = i + 1;
+      }
     }
   }
   flush();
@@ -452,7 +468,8 @@ export async function extractV2Facts({ contextId, rawText, registry } = {}) {
   const facts = [];
   const warnings = [];
   const seen = new Set();
-  for (const sentence of splitSentences(text)) {
+  for (const sentenceSpan of sentenceSpans(text)) {
+    const sentence = sentenceSpan.text;
     const candidates = factsFromSentence(sentence, scopeId, vocab);
     if (candidates.length === 0) {
       warnings.push(`Unrecognized: ${sentence}`);
@@ -485,6 +502,7 @@ export async function extractV2Facts({ contextId, rawText, registry } = {}) {
         ...(candidate.unit !== undefined ? { unit: candidate.unit } : {}),
         support_status: SUPPORT_STATUSES.DIRECT_TRANSCRIPT,
         source: 'manual',
+        source_span: { ...sentenceSpan },
         critical: isCriticalField({ scopeId, field: candidate.field }),
       };
       const key = `${fact.field}|${String(fact.value)}|${fact.unit ?? ''}`;

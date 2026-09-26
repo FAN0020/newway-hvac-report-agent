@@ -34,6 +34,7 @@ export class StaleRevisionError extends Error {
     super(`Stale ReportSession revision: expected ${expectedRevision}, current revision is ${actualRevision}.`);
     this.name = 'StaleRevisionError';
     this.code = 'STALE_REVISION';
+    this.status = 409;
     this.expected_revision = expectedRevision;
     this.actual_revision = actualRevision;
   }
@@ -44,6 +45,7 @@ export class InvalidTransitionError extends Error {
     super(`ReportSession cannot transition from ${fromPhase} to ${toPhase}.`);
     this.name = 'InvalidTransitionError';
     this.code = code;
+    this.status = 409;
     this.from_phase = fromPhase;
     this.to_phase = toPhase;
   }
@@ -76,6 +78,11 @@ export function createReportSession(input = {}) {
     created_at: createdAt,
     updated_at: createdAt,
     audit_event_ids: [],
+    evidence_ids: [],
+    transcript_ids: [],
+    transcript_review_ids: [],
+    evidence_span_ids: [],
+    field_candidate_ids: [],
     recovery_phase: null,
     last_error: null,
   });
@@ -110,7 +117,7 @@ export function transitionReportSession(session, command = {}) {
   if (!SESSION_PHASES.includes(toPhase)) throw new InvalidTransitionError(session.phase, toPhase);
   const occurredAt = requiredTimestamp(command.occurred_at, 'occurred_at', 'INVALID_PHASE_TRANSITION');
   const nextRevision = session.revision + 1;
-  let eventType = 'PHASE_TRANSITION';
+  let eventType = command.event_type || 'PHASE_TRANSITION';
   let recoveryPhase = null;
   let lastError = null;
 
@@ -134,6 +141,7 @@ export function transitionReportSession(session, command = {}) {
     event_type: eventType,
     occurred_at: occurredAt,
     payload: {
+      ...copy(command.details || {}),
       from_phase: session.phase,
       to_phase: toPhase,
       ...(lastError ? { error: lastError, recovery_phase: recoveryPhase } : {}),

@@ -48,8 +48,11 @@ function validatePersistedSession(session) {
     throw new ContractValidationError('revision must be a non-negative integer.', code);
   }
   if (!SESSION_PHASES.includes(session.phase)) throw new ContractValidationError('phase is invalid.', code);
-  if (!Array.isArray(session.audit_event_ids) || session.audit_event_ids.length > session.revision) {
-    throw new ContractValidationError('audit_event_ids cannot exceed the session revision.', code);
+  if (!Array.isArray(session.audit_event_ids) || session.audit_event_ids.length > session.revision + 1) {
+    throw new ContractValidationError('audit_event_ids cannot exceed the creation event plus the session revision.', code);
+  }
+  for (const key of ['evidence_ids', 'transcript_ids', 'transcript_review_ids', 'evidence_span_ids', 'field_candidate_ids']) {
+    if (!Array.isArray(session[key])) throw new ContractValidationError(`${key} must be an array.`, code);
   }
   requiredString(session.template_binding?.template_id, 'template_binding.template_id', code);
   requiredString(session.template_binding?.template_version, 'template_binding.template_version', code);

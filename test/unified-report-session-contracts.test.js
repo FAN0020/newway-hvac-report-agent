@@ -65,9 +65,21 @@ test('evidence, spans, transcripts, and transcript reviews preserve immutable pr
   const transcript = createTranscriptArtifact({
     session_id: 'session_contract_1',
     source_evidence_id: audio.evidence_id,
+    source_hash: audio.source_hash,
     raw_text: 'Replaced the door actuator.',
     language: 'en',
-    provider_ref: 'local-whisper/base',
+    provider: 'local-whisper',
+    model: 'base',
+    processing_version: 'authoritative-capture.v1',
+    template_binding: {
+      template_id: 'bus-defect-rectification-corrective-maintenance',
+      template_version: '1.0.0',
+    },
+    context_binding: {
+      context_id: 'SBS/BUS',
+      context_version: 'scope-registry.v1',
+      scope_id: 'SBS_BUS',
+    },
     created_at: createdAt,
     segments: [{ start_ms: 0, end_ms: 1400, text: 'Replaced the door actuator.' }],
   });
@@ -115,6 +127,7 @@ test('evidence, spans, transcripts, and transcript reviews preserve immutable pr
   assert.throws(() => createTranscriptArtifact({
     session_id: 'session_contract_1',
     source_evidence_id: audio.evidence_id,
+    source_hash: audio.source_hash,
     raw_text: '',
     created_at: createdAt,
   }), { code: 'INVALID_TRANSCRIPT_ARTIFACT' });
@@ -125,6 +138,38 @@ test('evidence, spans, transcripts, and transcript reviews preserve immutable pr
     storage_ref: 'artifact://audio/audio_123.wav',
     created_at: createdAt,
   }), { code: 'CONTENT_ID_MISMATCH' });
+});
+
+test('TranscriptArtifact directly binds source identity, session, template, context, and processing metadata', async () => {
+  const { createTranscriptArtifact } = await import('../src/domain/index.js');
+  const transcript = createTranscriptArtifact({
+    session_id: 'session_contract_binding',
+    source_evidence_id: 'evidence_audio_binding',
+    source_hash: `sha256:${'b'.repeat(64)}`,
+    raw_text: 'Bus MAN A95 had a door fault.',
+    language: 'en',
+    provider: 'whisper.cpp',
+    model: 'base.en',
+    processing_version: 'authoritative-capture.v1',
+    template_binding: {
+      template_id: 'bus-defect-rectification-corrective-maintenance',
+      template_version: '1.0.0',
+    },
+    context_binding: {
+      context_id: 'SBS/BUS',
+      context_version: '1.0.0',
+      scope_id: 'SBS_BUS',
+    },
+    created_at: '2026-09-27T05:10:00.000Z',
+    segments: [{ start_ms: 0, end_ms: 1300, text: 'Bus MAN A95 had a door fault.' }],
+  });
+
+  assert.equal(transcript.source_hash, `sha256:${'b'.repeat(64)}`);
+  assert.equal(transcript.template_binding.template_version, '1.0.0');
+  assert.equal(transcript.context_binding.scope_id, 'SBS_BUS');
+  assert.equal(transcript.provider, 'whisper.cpp');
+  assert.equal(transcript.model, 'base.en');
+  assert.equal(transcript.processing_version, 'authoritative-capture.v1');
 });
 
 test('GuidanceContext is structurally separate and permanently ineligible as job evidence', async () => {

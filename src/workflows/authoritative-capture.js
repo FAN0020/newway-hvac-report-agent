@@ -1,0 +1,685 @@
+import crypto from 'node:crypto';
+import {
+  assertExpectedRevision,
+  createEvidence,
+  createEvidenceSpan,
+  createFieldCandidate,
+  createTranscriptArtifact,
+  createTranscriptReview,
+  hashContract,
+} from '../domain/index.js';
+import { extractServiceFacts } from '../tools/extract-service-facts.js';
+import { extractV2Facts } from '../tools/extract-v2-facts.js';
+import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
+import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
+import { mapFactsForTemplate, templateFor } from '../../web/template-catalog.js';
+
+const PROCESSING_VERSION = 'authoritative-capture.v1';
+const CONTEXT_BY_SCOPE = Object.freeze({
+  HVAC: 'HVAC',
+  SBS_BUS: 'SBS/BUS',
+  SBS_RAIL: 'SBS/RAIL',
+  OILFIELD: 'OILFIELD',
+  POWER_GRID: 'POWER/GRID',
+});
+
+function workflowError(message, code, status = 400) {
+  return Object.assign(new Error(message), { code, status });
+}
+
+function digest(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function reportBinding(session) {
+  return {
+    report_session_id: session.session_id,
+    template_id: session.template_binding.template_id,
+    template_version: session.template_binding.template_version,
+    context_id: session.context_binding.context_id,
+    context_version: session.context_binding.context_version,
+    scope_id: session.context_binding.scope_id,
+  };
+}
+
+function transcriptInput({ session, evidence, rawText, language, provider, model, segments, createdAt }) {
+  return {
+    session_id: session.session_id,
+    source_evidence_id: evidence.evidence_id,
+    source_hash: evidence.source_hash,
+    raw_text: rawText,
+    language,
+    provider,
+    model,
+    processing_version: PROCESSING_VERSION,
+    template_binding: session.template_binding,
+    context_binding: session.context_binding,
+    created_at: createdAt,
+    segments,
+  };
+}
+
+function exactFactSpan(fact, rawText) {
+  const span = fact.source_span;
+  if (!span || rawText.slice(span.start, span.end) !== span.text) {
+    throw workflowError('Extractor returned fact provenance that does not match the transcript.', 'INVALID_EXTRACTED_PROVENANCE', 409);
+  }
+  return span;
+}
+
+function correctedTextProjection(rawText, items, decisions) {
+  const accepted = new Set(decisions.filter((item) => item.decision === 'ACCEPT').map((item) => item.review_item_id));
+  const suggestions = items
+    .filter((item) => item.kind === 'CORRECTION' && accepted.has(item.review_item_id))
+    .map((item) => ({
+      correction_id: item.review_item_id,
+      start: item.source_span.start,
+      end: item.source_span.end,
+      source_text: item.source_span.quote,
+      suggested_text: item.proposed_text,
+    }))
+    .sort((a, b) => a.start - b.start);
+  const effectiveText = applyConfirmedTranscriptCorrections(rawText, suggestions, suggestions.map((item) => item.correction_id));
+  const pieces = [];
+  let rawCursor = 0;
+  let effectiveCursor = 0;
+  const appendRaw = (start, end) => {
+    if (end <= start) return;
+    const length = end - start;
+    pieces.push({ type: 'RAW', effective_start: effectiveCursor, effective_end: effectiveCursor + length, raw_start: start, raw_end: end });
+    effectiveCursor += length;
+  };
+  for (const suggestion of suggestions) {
+    appendRaw(rawCursor, suggestion.start);
+    const length = suggestion.suggested_text.length;
+    pieces.push({
+      type: 'REPLACEMENT',
+      effective_start: effectiveCursor,
+      effective_end: effectiveCursor + length,
+      raw_start: suggestion.start,
+      raw_end: suggestion.end,
+    });
+    effectiveCursor += length;
+    rawCursor = suggestion.end;
+  }
+  appendRaw(rawCursor, rawText.length);
+  const mapSpan = (span) => {
+    const overlapping = pieces.filter((piece) => span.start < piece.effective_end && span.end > piece.effective_start);
+    if (!overlapping.length) throw workflowError('Corrected transcript span cannot be mapped to raw evidence.', 'INVALID_EXTRACTED_PROVENANCE', 409);
+    const rawStarts = overlapping.map((piece) => piece.type === 'RAW'
+      ? piece.raw_start + Math.max(0, span.start - piece.effective_start)
+      : piece.raw_start);
+    const rawEnds = overlapping.map((piece) => piece.type === 'RAW'
+      ? piece.raw_start + Math.min(piece.effective_end, span.end) - piece.effective_start
+      : piece.raw_end);
+    const start = Math.min(...rawStarts);
+    const end = Math.max(...rawEnds);
+    return { start, end, text: rawText.slice(start, end) };
+  };
+  return { effectiveText, mapSpan };
+}
+
+export class AuthoritativeCaptureService {
+  constructor({ artifactStore, sessionStore, whisperProvider, clock = () => new Date().toISOString() } = {}) {
+    if (!artifactStore || !sessionStore || !whisperProvider?.transcribe) {
+      throw new TypeError('Artifact, ReportSession, and Whisper services are required.');
+    }
+    this.artifactStore = artifactStore;
+    this.sessionStore = sessionStore;
+    this.whisperProvider = whisperProvider;
+    this.clock = clock;
+  }
+
+  async createSession({ template_id: templateId, template_version: templateVersion, job_context_ref: jobContextRef } = {}) {
+    let template;
+    try {
+      template = templateFor(templateId);
+    } catch {
+      throw workflowError('Published template was not found.', 'TEMPLATE_NOT_FOUND', 404);
+    }
+    if (template.templateVersion !== String(templateVersion || '')) {
+      throw workflowError('Requested template version does not match the published template.', 'TEMPLATE_VERSION_MISMATCH', 409);
+    }
+    const scopeId = template.domain;
+    return this.sessionStore.create({
+      session_id: `session_${crypto.randomUUID()}`,
+      template_binding: { template_id: template.templateId, template_version: template.templateVersion },
+      context_binding: {
+        context_id: CONTEXT_BY_SCOPE[scopeId],
+        context_version: template.contextCorpus.version,
+        scope_id: scopeId,
+      },
+      job_context_ref: jobContextRef,
+      created_at: this.clock(),
+    });
+  }
+
+  async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [] }) {
+    const template = templateFor(session.template_binding.template_id);
+    let facts;
+    if (session.context_binding.scope_id === 'HVAC') {
+      const extracted = await extractServiceFacts({
+        transcript: { artifact_id: transcript.transcript_id, raw_text: transcript.raw_text },
+        confirmedCorrections,
+      });
+      if (extracted.status !== 'PASS') throw workflowError('HVAC candidate extraction failed.', extracted.error_code || 'CANDIDATE_EXTRACTION_FAILED', 409);
+      facts = extracted.data.facts;
+    } else {
+      facts = (await extractV2Facts({
+        contextId: session.context_binding.context_id,
+        rawText: extractionText,
+      })).facts;
+    }
+    const accepted = mapFactsForTemplate(template.templateId, facts).facts;
+    const spans = [];
+    const candidates = [];
+    for (const fact of accepted) {
+      const extractedSource = exactFactSpan(fact, extractionText);
+      const source = mapSourceSpan(extractedSource);
+      const span = createEvidenceSpan({
+        evidence_id: transcript.transcript_id,
+        start_offset: source.start,
+        end_offset: source.end,
+        quote: source.text,
+        source_text: transcript.raw_text,
+      });
+      const candidate = createFieldCandidate({
+        session_id: session.session_id,
+        field_id: fact.field,
+        claim: { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: fact.value, unit: fact.unit } },
+        support_type: supportType,
+        assessment: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'VALID',
+        evidence_refs: [{ evidence_id: transcript.transcript_id, span_id: span.span_id }],
+        source_ref: transcript.transcript_id,
+      });
+      await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
+      await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
+      spans.push(span);
+      candidates.push(candidate);
+    }
+    return { spans, candidates };
+  }
+
+  async reviewItems(session, transcript) {
+    if (session.context_binding.scope_id === 'HVAC') {
+      const review = await buildTranscriptCorrectionCandidates({ rawText: transcript.raw_text });
+      return review.candidates.map((candidate) => ({
+        review_item_id: candidate.candidate_id,
+        kind: 'CORRECTION',
+        material: true,
+        source_span: {
+          start: candidate.source_span.start,
+          end: candidate.source_span.end,
+          quote: candidate.source_span.text,
+        },
+        proposed_text: candidate.candidate,
+        category: candidate.risk || 'CRITICAL_TERMINOLOGY',
+        reason: candidate.reason,
+      }));
+    }
+    const review = reviewV2Transcript({ scopeId: session.context_binding.scope_id, rawText: transcript.raw_text });
+    const corrections = review.correction_suggestions.map((item) => ({
+      review_item_id: item.correction_id,
+      kind: 'CORRECTION',
+      material: true,
+      source_span: { start: item.start, end: item.end, quote: item.source_text },
+      proposed_text: item.suggested_text,
+      category: item.category,
+      reason: item.reason,
+    }));
+    const confirmations = review.confirmation_questions.flatMap((item) => {
+      const quote = String(item.source_text || '');
+      const start = transcript.raw_text.indexOf(quote);
+      if (!quote || start < 0) return [];
+      return [{
+        review_item_id: item.question_id,
+        kind: 'CONFIRMATION',
+        material: true,
+        source_span: { start, end: start + quote.length, quote },
+        proposed_text: null,
+        category: item.field || 'CRITICAL_TERMINOLOGY',
+        reason: item.reason,
+      }];
+    });
+    return [...corrections, ...confirmations];
+  }
+
+  async finishTranscript({ session, evidence, transcript, supportType }) {
+    await this.sessionStore.putRecord('transcripts', transcript.transcript_id, transcript);
+    const items = await this.reviewItems(session, transcript);
+    if (items.length) {
+      const review = createTranscriptReview({
+        session_id: session.session_id,
+        transcript_id: transcript.transcript_id,
+        transcript_text: transcript.raw_text,
+        status: 'PENDING',
+        items,
+        decisions: [],
+      });
+      await this.sessionStore.putRecord('transcript-reviews', review.review_id, review);
+      const pending = await this.sessionStore.transition({
+        session_id: session.session_id,
+        expected_revision: session.revision,
+        to_phase: 'CORRECTION_IF_NEEDED',
+        event_type: 'TRANSCRIPT_REVIEW_REQUESTED',
+        occurred_at: this.clock(),
+        details: { transcript_id: transcript.transcript_id, transcript_review_id: review.review_id },
+        additions: {
+          transcript_ids: [transcript.transcript_id],
+          transcript_review_ids: [review.review_id],
+        },
+      });
+      return {
+        session: pending.session,
+        evidence,
+        transcript,
+        review,
+        spans: [],
+        candidates: [],
+        reused: false,
+        next_action: 'REVIEW_TRANSCRIPT',
+      };
+    }
+    const { spans, candidates } = await this.extractCandidates({ session, transcript, supportType });
+    const completed = await this.sessionStore.transition({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      to_phase: 'RESOLVE',
+      event_type: 'STRUCTURED_CANDIDATES_CREATED',
+      occurred_at: this.clock(),
+      details: {
+        transcript_id: transcript.transcript_id,
+        field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+      },
+      additions: {
+        transcript_ids: [transcript.transcript_id],
+        evidence_span_ids: spans.map((span) => span.span_id),
+        field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+      },
+    });
+    return {
+      session: completed.session,
+      evidence,
+      transcript,
+      review: null,
+      spans,
+      candidates,
+      reused: false,
+      next_action: 'RESOLVE_REPORT_FIELDS',
+    };
+  }
+
+  async decideTranscriptReview({ session_id: sessionId, expected_revision: expectedRevision, review_id: reviewId, decisions } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (session.phase !== 'CORRECTION_IF_NEEDED' || !session.transcript_review_ids.includes(String(reviewId))) {
+      throw workflowError('Transcript review belongs to another ReportSession or phase.', 'TRANSCRIPT_REVIEW_BINDING_MISMATCH', 409);
+    }
+    const pending = await this.sessionStore.readRecord('transcript-reviews', reviewId);
+    if (pending.session_id !== session.session_id || pending.status !== 'PENDING') {
+      throw workflowError('Transcript review belongs to another ReportSession or is no longer pending.', 'TRANSCRIPT_REVIEW_BINDING_MISMATCH', 409);
+    }
+    const transcript = await this.sessionStore.readRecord('transcripts', pending.transcript_id);
+    if (transcript.session_id !== session.session_id) {
+      throw workflowError('Transcript belongs to another ReportSession.', 'CAPTURE_BINDING_MISMATCH', 409);
+    }
+    const itemMap = new Map(pending.items.map((item) => [item.review_item_id, item]));
+    if (!Array.isArray(decisions) || decisions.length !== itemMap.size) {
+      throw workflowError('Every transcript review item requires exactly one decision.', 'INCOMPLETE_TRANSCRIPT_REVIEW', 400);
+    }
+    const normalized = decisions.map((decision) => {
+      const item = itemMap.get(String(decision?.review_item_id || ''));
+      const value = String(decision?.decision || '');
+      if (!item || !['ACCEPT', 'REJECT', 'NO_CHANGE'].includes(value)) {
+        throw workflowError('Transcript review decision is invalid.', 'INVALID_TRANSCRIPT_REVIEW_DECISION', 400);
+      }
+      return {
+        review_item_id: item.review_item_id,
+        decision: value,
+        ...(value === 'ACCEPT' && item.kind === 'CORRECTION' ? { corrected_text: item.proposed_text } : {}),
+      };
+    });
+    if (new Set(normalized.map((item) => item.review_item_id)).size !== itemMap.size) {
+      throw workflowError('Transcript review decisions contain duplicates.', 'INVALID_TRANSCRIPT_REVIEW_DECISION', 400);
+    }
+    const review = createTranscriptReview({
+      session_id: session.session_id,
+      transcript_id: transcript.transcript_id,
+      transcript_text: transcript.raw_text,
+      status: 'REVIEWED',
+      items: pending.items,
+      decisions: normalized,
+      reviewer_principal_ref: 'principal:demo-technician',
+      reviewed_at: this.clock(),
+    });
+    await this.sessionStore.putRecord('transcript-reviews', review.review_id, review);
+    const projection = correctedTextProjection(transcript.raw_text, pending.items, normalized);
+    const confirmedCorrections = normalized.flatMap((decision) => {
+      const item = itemMap.get(decision.review_item_id);
+      if (decision.decision !== 'ACCEPT' || item.kind !== 'CORRECTION') return [];
+      return [{
+        correction_id: item.review_item_id,
+        source_span: { start: item.source_span.start, end: item.source_span.end, text: item.source_span.quote },
+        candidate: item.proposed_text,
+        status: 'CONFIRMED_BY_TECHNICIAN',
+      }];
+    });
+    const supportType = transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE';
+    const { spans, candidates } = await this.extractCandidates({
+      session,
+      transcript,
+      supportType,
+      extractionText: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
+      mapSourceSpan: session.context_binding.scope_id === 'HVAC' ? (span) => span : projection.mapSpan,
+      confirmedCorrections,
+    });
+    const completed = await this.sessionStore.transition({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      to_phase: 'RESOLVE',
+      event_type: 'TRANSCRIPT_REVIEW_DECIDED',
+      occurred_at: this.clock(),
+      details: {
+        transcript_id: transcript.transcript_id,
+        transcript_review_id: review.review_id,
+        field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+      },
+      additions: {
+        transcript_review_ids: [review.review_id],
+        evidence_span_ids: spans.map((span) => span.span_id),
+        field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+      },
+    });
+    const record = await this.sessionStore.readCaptureByEvidence(transcript.source_evidence_id).catch(() => null);
+    if (record) {
+      await this.sessionStore.saveCapture({
+        ...record,
+        status: 'SUCCEEDED',
+        review_id: review.review_id,
+        transcript_id: transcript.transcript_id,
+        evidence_span_ids: spans.map((span) => span.span_id),
+        field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
+        next_action: 'RESOLVE_REPORT_FIELDS',
+        failure: null,
+      });
+    }
+    return {
+      session: completed.session,
+      evidence: await this.sessionStore.readRecord('evidence', transcript.source_evidence_id),
+      transcript,
+      review,
+      spans,
+      candidates,
+      reused: false,
+      next_action: 'RESOLVE_REPORT_FIELDS',
+    };
+  }
+
+  captureIdentity({ session, sourceHash, model, language }) {
+    return hashContract({
+      source_hash: sourceHash,
+      report_session_id: session.session_id,
+      template_id: session.template_binding.template_id,
+      template_version: session.template_binding.template_version,
+      stt_model: model,
+      stt_language: language,
+      processing_version: PROCESSING_VERSION,
+    }).slice(7);
+  }
+
+  async reuseCapture(record) {
+    const session = await this.sessionStore.load(record.session_id);
+    const evidence = await this.sessionStore.readRecord('evidence', record.evidence_id);
+    const audio = record.audio_id ? await this.artifactStore.readAudioMetadata(record.audio_id) : null;
+    if (record.status === 'FAILED') {
+      return {
+        session,
+        audio,
+        evidence,
+        transcript: null,
+        review: null,
+        spans: [],
+        candidates: [],
+        failure: record.failure,
+        reused: true,
+        next_action: 'RETRY_TRANSCRIPTION',
+      };
+    }
+    const transcript = await this.sessionStore.readRecord('transcripts', record.transcript_id);
+    const review = record.review_id
+      ? await this.sessionStore.readRecord('transcript-reviews', record.review_id)
+      : null;
+    const spans = await Promise.all((record.evidence_span_ids || []).map((id) => this.sessionStore.readRecord('evidence-spans', id)));
+    const candidates = await Promise.all((record.field_candidate_ids || []).map((id) => this.sessionStore.readRecord('field-candidates', id)));
+    return {
+      session,
+      audio,
+      evidence,
+      transcript,
+      review,
+      spans,
+      candidates,
+      reused: true,
+      next_action: record.next_action,
+    };
+  }
+
+  async transcribeAudioRecord({ record, session, evidence }) {
+    try {
+      const result = await this.whisperProvider.transcribe(this.artifactStore.audioPath(record.audio_id), {
+        model: record.model,
+        language: record.language,
+      });
+      const transcript = createTranscriptArtifact(transcriptInput({
+        session,
+        evidence,
+        rawText: result.raw_text,
+        language: result.language || record.language || 'und',
+        provider: result.provider || 'whisper',
+        model: result.model || record.model,
+        segments: Array.isArray(result.segments) ? result.segments : [],
+        createdAt: this.clock(),
+      }));
+      const completed = await this.finishTranscript({ session, evidence, transcript, supportType: 'TRANSCRIPT_EVIDENCE' });
+      await this.sessionStore.saveCapture({
+        ...record,
+        status: 'SUCCEEDED',
+        transcript_id: transcript.transcript_id,
+        review_id: completed.review?.review_id || null,
+        evidence_span_ids: completed.spans.map((span) => span.span_id),
+        field_candidate_ids: completed.candidates.map((candidate) => candidate.candidate_id),
+        next_action: completed.next_action,
+        failure: null,
+      });
+      return { audio: await this.artifactStore.readAudioMetadata(record.audio_id), ...completed };
+    } catch (error) {
+      const current = await this.sessionStore.load(record.session_id);
+      if (current.phase !== 'PROCESSING') throw error;
+      const failed = await this.sessionStore.transition({
+        session_id: record.session_id,
+        expected_revision: current.revision,
+        to_phase: 'RECOVERABLE_ERROR',
+        occurred_at: this.clock(),
+        error: {
+          code: error?.code || 'TRANSCRIPTION_FAILED',
+          message: 'Transcription failed; immutable audio remains available for retry.',
+        },
+        details: { evidence_id: evidence.evidence_id, retry_action: 'RETRY_TRANSCRIPTION' },
+      });
+      const failure = {
+        code: error?.code || 'TRANSCRIPTION_FAILED',
+        message: Number(error?.status) >= 500
+          ? 'Transcription failed; immutable audio remains available for retry.'
+          : String(error?.message || 'Transcription failed.'),
+      };
+      await this.sessionStore.saveCapture({ ...record, status: 'FAILED', failure, next_action: 'RETRY_TRANSCRIPTION' });
+      return {
+        session: failed.session,
+        audio: await this.artifactStore.readAudioMetadata(record.audio_id),
+        evidence,
+        transcript: null,
+        review: null,
+        spans: [],
+        candidates: [],
+        failure,
+        reused: false,
+        next_action: 'RETRY_TRANSCRIPTION',
+      };
+    }
+  }
+
+  async beginCapture({ sessionId, expectedRevision, evidence, source }) {
+    await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
+    const captured = await this.sessionStore.transition({
+      session_id: sessionId,
+      expected_revision: expectedRevision,
+      to_phase: 'CAPTURE',
+      event_type: 'EVIDENCE_CAPTURED',
+      occurred_at: this.clock(),
+      details: { source, evidence_id: evidence.evidence_id },
+      additions: { evidence_ids: [evidence.evidence_id] },
+    });
+    return this.sessionStore.transition({
+      session_id: sessionId,
+      expected_revision: captured.session.revision,
+      to_phase: 'PROCESSING',
+      event_type: 'PROCESSING_STARTED',
+      occurred_at: this.clock(),
+      details: { evidence_id: evidence.evidence_id, processing_version: PROCESSING_VERSION },
+    });
+  }
+
+  async captureText({ session_id: sessionId, expected_revision: expectedRevision, text, language = 'und', idempotency_key: idempotencyKey } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    const rawText = String(text || '').trim();
+    if (!rawText) throw workflowError('Technician text is required.', 'TECHNICIAN_TEXT_REQUIRED');
+    if (rawText.length > 20_000) throw workflowError('Technician text exceeds 20000 characters.', 'TECHNICIAN_TEXT_TOO_LARGE', 413);
+    const sourceDigest = digest(Buffer.from(rawText, 'utf8'));
+    const normalizedLanguage = String(language || 'und');
+    const identityHash = this.captureIdentity({
+      session,
+      sourceHash: `sha256:${sourceDigest}`,
+      model: 'manual-entry',
+      language: normalizedLanguage,
+    });
+    const existing = await this.sessionStore.claimCapture({ identity_hash: identityHash, idempotency_key: idempotencyKey });
+    if (existing) return this.reuseCapture(existing);
+    const storageRef = await this.sessionStore.putTextSource(sourceDigest, rawText);
+    const evidence = createEvidence({
+      evidence_type: 'MANUAL_INPUT',
+      source_hash: `sha256:${sourceDigest}`,
+      storage_ref: storageRef,
+      created_at: this.clock(),
+      metadata: { language: normalizedLanguage, report_binding: reportBinding(session) },
+    });
+    const record = {
+      identity_hash: identityHash,
+      session_id: session.session_id,
+      source_hash: evidence.source_hash,
+      audio_id: null,
+      evidence_id: evidence.evidence_id,
+      model: 'manual-entry',
+      language: normalizedLanguage,
+      processing_version: PROCESSING_VERSION,
+      status: 'CAPTURED',
+      transcript_id: null,
+      review_id: null,
+      evidence_span_ids: [],
+      field_candidate_ids: [],
+      next_action: 'PROCESS_TEXT',
+      failure: null,
+    };
+    await this.sessionStore.saveCapture(record);
+    const processing = await this.beginCapture({ sessionId, expectedRevision, evidence, source: 'TECHNICIAN_TEXT' });
+    const transcript = createTranscriptArtifact(transcriptInput({
+      session: processing.session,
+      evidence,
+      rawText,
+      language: normalizedLanguage,
+      provider: 'technician-text',
+      model: 'manual-entry',
+      segments: [],
+      createdAt: this.clock(),
+    }));
+    const completed = await this.finishTranscript({ session: processing.session, evidence, transcript, supportType: 'MANUAL_TECHNICIAN_INPUT' });
+    await this.sessionStore.saveCapture({
+      ...record,
+      status: 'SUCCEEDED',
+      transcript_id: transcript.transcript_id,
+      review_id: completed.review?.review_id || null,
+      evidence_span_ids: completed.spans.map((span) => span.span_id),
+      field_candidate_ids: completed.candidates.map((candidate) => candidate.candidate_id),
+      next_action: completed.next_action,
+      failure: null,
+    });
+    return completed;
+  }
+
+  async captureAudio({ session_id: sessionId, expected_revision: expectedRevision, wav_buffer: wavBuffer, model = 'base', language = 'auto', idempotency_key: idempotencyKey } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (!Buffer.isBuffer(wavBuffer)) throw workflowError('Audio must be supplied as WAV bytes.', 'INVALID_WAV');
+    const audio = await this.artifactStore.putAudio(wavBuffer);
+    const normalizedModel = String(model || 'base');
+    const normalizedLanguage = String(language || 'auto');
+    const identityHash = this.captureIdentity({
+      session,
+      sourceHash: audio.source_hash,
+      model: normalizedModel,
+      language: normalizedLanguage,
+    });
+    const existing = await this.sessionStore.claimCapture({ identity_hash: identityHash, idempotency_key: idempotencyKey });
+    if (existing) return this.reuseCapture(existing);
+    const evidence = createEvidence({
+      evidence_type: 'AUDIO',
+      source_hash: audio.source_hash,
+      storage_ref: `artifact://audio/${audio.audio_id}.wav`,
+      created_at: this.clock(),
+      metadata: { bytes: audio.bytes, wav: audio.wav, report_binding: reportBinding(session) },
+    });
+    const record = {
+      identity_hash: identityHash,
+      session_id: session.session_id,
+      source_hash: audio.source_hash,
+      audio_id: audio.audio_id,
+      evidence_id: evidence.evidence_id,
+      model: normalizedModel,
+      language: normalizedLanguage,
+      processing_version: PROCESSING_VERSION,
+      status: 'CAPTURED',
+      transcript_id: null,
+      evidence_span_ids: [],
+      field_candidate_ids: [],
+      next_action: 'PROCESS_TRANSCRIPTION',
+      failure: null,
+    };
+    await this.sessionStore.saveCapture(record);
+    const processing = await this.beginCapture({ sessionId, expectedRevision, evidence, source: 'MICROPHONE_AUDIO' });
+    return this.transcribeAudioRecord({ record, session: processing.session, evidence });
+  }
+
+  async retryTranscription({ session_id: sessionId, expected_revision: expectedRevision, evidence_id: evidenceId } = {}) {
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    const record = await this.sessionStore.readCaptureByEvidence(evidenceId);
+    if (record.session_id !== session.session_id || !session.evidence_ids.includes(record.evidence_id)) {
+      throw workflowError('Capture evidence belongs to another ReportSession.', 'CAPTURE_BINDING_MISMATCH', 409);
+    }
+    if (record.status === 'SUCCEEDED') return this.reuseCapture(record);
+    if (session.phase !== 'RECOVERABLE_ERROR' || session.recovery_phase !== 'PROCESSING') {
+      throw workflowError('ReportSession is not awaiting a transcription retry.', 'TRANSCRIPTION_RETRY_NOT_AVAILABLE', 409);
+    }
+    const recovered = await this.sessionStore.transition({
+      session_id: session.session_id,
+      expected_revision: session.revision,
+      to_phase: 'PROCESSING',
+      occurred_at: this.clock(),
+      details: { evidence_id: record.evidence_id, retry_action: 'RETRY_TRANSCRIPTION' },
+    });
+    const evidence = await this.sessionStore.readRecord('evidence', record.evidence_id);
+    return this.transcribeAudioRecord({ record, session: recovered.session, evidence });
+  }
+}
+
+export const authoritativeCaptureVersion = PROCESSING_VERSION;

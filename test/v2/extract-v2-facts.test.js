@@ -98,6 +98,22 @@ test('BUS model MAN A95 maps to asset.bus_model and work.type', async () => {
   );
 });
 
+test('every extracted fact retains the exact source sentence span from the immutable transcript', async () => {
+  const rawText = 'Unrelated note. Bus MAN A95 had a door fault. Replaced the door control module.';
+  const { facts } = await extractV2Facts({ contextId: 'SBS/BUS', rawText, registry });
+
+  assert.ok(facts.length > 0);
+  for (const fact of facts) {
+    assert.equal(rawText.slice(fact.source_span.start, fact.source_span.end), fact.source_span.text);
+  }
+  const model = facts.find((fact) => fact.field === 'asset.bus_model');
+  assert.deepEqual(model.source_span, {
+    start: 16,
+    end: 44,
+    text: 'Bus MAN A95 had a door fault',
+  });
+});
+
 test('BUS dictated registration, return to service, and explicit safety statement are extracted', async () => {
   const { facts } = await extractV2Facts({
     contextId: 'SBS/BUS',

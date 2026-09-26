@@ -14,6 +14,7 @@ import {
 import { ArtifactStore } from './storage/artifacts.js';
 import { ReportStore } from './storage/reports.js';
 import { TemplateStore } from './storage/templates.js';
+import { ReportSessionStore } from './storage/report-sessions.js';
 import { WhisperProvider } from './providers/whisper.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { confirmReportDraft } from './tools/confirm-report-draft.js';
@@ -51,6 +52,7 @@ import {
   structuredStateSnapshot,
 } from '../web/report-runtime.js';
 import { listPredefinedTemplates, templateFor } from '../web/template-catalog.js';
+import { AuthoritativeCaptureService } from './workflows/authoritative-capture.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -66,6 +68,12 @@ const reports = new ReportStore({ root: dataRoot });
 const templates = new TemplateStore({ root: path.join(dataRoot, 'templates') });
 const whisper = new WhisperProvider({ runtimeRoot, tempRoot });
 const ollama = new OllamaProvider();
+const reportSessions = new ReportSessionStore({ root: path.join(dataRoot, 'report-session-authority') });
+const authoritativeCapture = new AuthoritativeCaptureService({
+  artifactStore: artifacts,
+  sessionStore: reportSessions,
+  whisperProvider: whisper,
+});
 
 // V2 wiring: one upload store and one lazily-loaded scope registry shared by
 // every /api/v2/* route. Uploads land under data/v2-uploads (auto-mkdir in
@@ -127,7 +135,107 @@ async function readRawBody(request, limit = maxUploadBytes) {
   return readBody(request, limit);
 }
 
-async function handleApi(request, response, url, traceId, config) {
+const UNTRUSTED_CAPTURE_FIELDS = new Set([
+  'session_id', 'revision', 'evidence_id', 'transcript_id', 'provenance', 'evidence_refs',
+  'field_state', 'field_states', 'support_type', 'support_status', 'confirmed_by_technician',
+  'confirmation', 'confirmation_receipt', 'server_receipt', 'reviewer_principal_ref', 'corrected_text',
+]);
+
+function rejectUntrustedAuthority(input, { allow = [] } = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return;
+  const allowed = new Set(allow);
+  const forged = Object.keys(input).find((key) => UNTRUSTED_CAPTURE_FIELDS.has(key) && !allowed.has(key));
+  if (forged) {
+    throw Object.assign(new Error(`Client field "${forged}" cannot establish server authority.`), {
+      code: 'UNTRUSTED_CAPTURE_INPUT', status: 400,
+    });
+  }
+}
+
+async function handleApi(request, response, url, traceId, config, services) {
+  const captureService = services.authoritativeCapture;
+  if (request.method === 'POST' && url.pathname === '/api/report-sessions') {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.createSession(input);
+    writeJson(response, 201, toolEnvelope('create_report_session', traceId, 'PASS', result));
+    return;
+  }
+
+  const sessionMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)$/u);
+  if (request.method === 'GET' && sessionMatch) {
+    const chain = await captureService.sessionStore.loadChain(decodeURIComponent(sessionMatch[1]));
+    writeJson(response, 200, toolEnvelope('get_report_session', traceId, 'PASS', chain));
+    return;
+  }
+
+  const textCaptureMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/capture\/text$/u);
+  if (request.method === 'POST' && textCaptureMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.captureText({
+      ...input,
+      session_id: decodeURIComponent(textCaptureMatch[1]),
+    });
+    writeJson(response, result.reused ? 200 : 201, toolEnvelope('capture_report_text', traceId, 'PASS', result));
+    return;
+  }
+
+  const audioCaptureMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/capture\/audio$/u);
+  if (request.method === 'POST' && audioCaptureMatch) {
+    if (!String(request.headers['content-type'] || '').startsWith('audio/wav')) {
+      throw Object.assign(new Error('Upload Content-Type must be audio/wav.'), { code: 'UNSUPPORTED_MEDIA_TYPE', status: 415 });
+    }
+    if (request.headers['x-evidence-id'] || request.headers['x-support-status'] || request.headers['x-field-state']
+      || request.headers['x-confirmation-receipt']) {
+      throw Object.assign(new Error('Client capture headers cannot establish server authority.'), {
+        code: 'UNTRUSTED_CAPTURE_INPUT', status: 400,
+      });
+    }
+    const result = await captureService.captureAudio({
+      session_id: decodeURIComponent(audioCaptureMatch[1]),
+      expected_revision: request.headers['x-expected-revision'],
+      wav_buffer: await readBody(request, maxAudioBytes),
+      model: request.headers['x-stt-model'],
+      language: request.headers['x-stt-language'],
+      idempotency_key: request.headers['idempotency-key'],
+    });
+    const status = result.failure ? 'RETRYABLE_ERROR' : 'PASS';
+    writeJson(response, result.reused ? 200 : result.failure ? 202 : 201, toolEnvelope('capture_report_audio', traceId, status, result, {
+      retryable: Boolean(result.failure),
+      error_code: result.failure?.code,
+    }));
+    return;
+  }
+
+  const retryMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/transcription\/retry$/u);
+  if (request.method === 'POST' && retryMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input, { allow: ['evidence_id'] });
+    const result = await captureService.retryTranscription({
+      ...input,
+      session_id: decodeURIComponent(retryMatch[1]),
+    });
+    writeJson(response, 200, toolEnvelope('retry_report_transcription', traceId, result.failure ? 'RETRYABLE_ERROR' : 'PASS', result, {
+      retryable: Boolean(result.failure),
+      error_code: result.failure?.code,
+    }));
+    return;
+  }
+
+  const reviewMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/transcript-reviews\/([^/]+)\/decide$/u);
+  if (request.method === 'POST' && reviewMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.decideTranscriptReview({
+      ...input,
+      session_id: decodeURIComponent(reviewMatch[1]),
+      review_id: decodeURIComponent(reviewMatch[2]),
+    });
+    writeJson(response, 200, toolEnvelope('decide_transcript_review', traceId, 'PASS', result));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/templates') {
     const custom = await templates.listPublished();
     writeJson(response, 200, toolEnvelope('list_templates', traceId, 'PASS', {
@@ -806,7 +914,8 @@ function denyRequest(response, traceId, status, code) {
   }, { error_code: code }));
 }
 
-export function createServer({ config = resolveServerConfig() } = {}) {
+export function createServer({ config = resolveServerConfig(), services = {} } = {}) {
+  const resolvedServices = { authoritativeCapture, ...services };
   return http.createServer(async (request, response) => {
     const traceId = `trace_${crypto.randomUUID()}`;
     const url = new URL(request.url, 'http://server.invalid');
@@ -817,7 +926,7 @@ export function createServer({ config = resolveServerConfig() } = {}) {
           denyRequest(response, traceId, authorization.status, authorization.code);
           return;
         }
-        await handleApi(request, response, url, traceId, config);
+        await handleApi(request, response, url, traceId, config, resolvedServices);
       } else if (request.method === 'POST' && url.pathname === '/session-bootstrap') {
         if (!canBootstrapLocalSession(request, config)) {
           denyRequest(response, traceId, 403, 'REQUEST_DENIED');
