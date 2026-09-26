@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "component-evaluation.v1",
+  "title": "Provisional component evaluation result",
+  "type": "object",
+  "required": ["contract_version", "generated_at", "label_status", "frozen_gold", "source", "runtime", "summary", "results"],
+  "properties": {
+    "contract_version": { "const": "component-evaluation.v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "label_status": { "const": "PROVISIONAL_SYNTHETIC_SEED" },
+    "frozen_gold": { "const": false },
+    "source": { "type": "object", "required": ["case_set_version", "manifest_sha256", "fixture_sha256"] },
+    "runtime": { "type": "object" },
+    "summary": { "type": "object" },
+    "results": { "type": "array", "items": { "$ref": "#/$defs/result" } }
+  },
+  "$defs": {
+    "result": {
+      "type": "object",
+      "required": ["contract_version", "component", "case_id", "scope", "scenario", "status"],
+      "properties": {
+        "contract_version": { "const": "component-result.v1" },
+        "component": { "enum": ["asr", "correction", "facts", "missing"] },
+        "case_id": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["HVAC", "SBS_BUS", "SBS_RAIL", "OILFIELD", "POWER_GRID"] },
+        "scenario": { "enum": ["normal", "confusable_term", "negation_missing"] },
+        "status": { "enum": ["RUN", "NOT_RUN", "NOT_SUPPORTED", "ERROR"] },
+        "input": { "type": "object" },
+        "expected": { "type": "object" },
+        "prediction": { "type": "object" },
+        "metrics": { "type": "object" },
+        "hard_gate_failures": { "type": "array", "items": { "type": "object", "required": ["category"] } },
+        "reason": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "RUN" } } }, "then": { "required": ["input", "prediction", "metrics", "hard_gate_failures"] } },
+        { "if": { "properties": { "status": { "enum": ["NOT_RUN", "NOT_SUPPORTED", "ERROR"] } } }, "then": { "required": ["reason"] } }
+      ]
+    }
+  }
+}

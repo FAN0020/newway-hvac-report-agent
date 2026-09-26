@@ -1,0 +1,33 @@
+{
+  "schema_version": "component-fixtures.v1",
+  "label_status": "SYNTHETIC_SEED_ONLY",
+  "correction": [
+    {"case_id":"HVAC-TERM-002","raw_text":"机组 AC 105 的运行电容是三十五微法，未更换电容。","expected_text":"机组 AC 105 的运行电容是35 µF，未更换电容。","critical":{"term":["运行电容"],"number_unit":["35 µF"],"equipment_id":["AC 105"],"negation":["未更换"],"action":["更换电容"]}},
+    {"case_id":"SBS-BUS-TERM-002","raw_text":"Fictional bus SG3051Z is MAN 9-5. I adjusted the brake, not the steering.","expected_text":"Fictional bus SG3051Z is MAN A95. I adjusted the brake, not the steering.","critical":{"term":["MAN A95"],"number_unit":[],"equipment_id":["SG3051Z"],"negation":["not the steering"],"action":["adjusted the brake"]}},
+    {"case_id":"SBS-RAIL-TERM-002","raw_text":"Fictional Z751A train has a door control model. I inspected it but did not replace it.","expected_text":"Fictional C751A train has a door control module. I inspected it but did not replace it.","critical":{"term":["C751A","door control module"],"number_unit":[],"equipment_id":["C751A"],"negation":["did not replace"],"action":["I inspected it"]}}
+  ],
+  "fact_fields": {
+    "HVAC-NORMAL-001":["inspection_findings","work_performed","test_results","completion_status"],
+    "HVAC-TERM-002":["equipment","inspection_findings","measurements"],
+    "HVAC-MISSING-003":["inspection_findings","unresolved_issues","completion_status"],
+    "SBS-BUS-NORMAL-001":["asset.registration_no","asset.bus_model","inspection_findings","parts.part_number","parts.replaced","work_performed","test.result","completion.state"],
+    "SBS-BUS-TERM-002":["asset.registration_no","asset.bus_model","measurement.pressure","work_performed"],
+    "SBS-BUS-MISSING-003":["asset.registration_no","work.description","inspection_findings","completion.state"],
+    "SBS-RAIL-NORMAL-001":["asset.stock_class","asset.train_set","asset.car","asset.subsystem","inspection_findings","parts.part_number","parts.replaced","work_performed","test.result","completion.state"],
+    "SBS-RAIL-TERM-002":["asset.line","asset.stock_class","asset.train_set","inspection_findings","parts.part_number","measurement.wear"],
+    "SBS-RAIL-MISSING-003":["asset.stock_class","asset.train_set","asset.subsystem","work.description","inspection_findings","completion.state"],
+    "OILFIELD-NORMAL-001":["asset.equipment","work.type","inspection.item","inspection.observation","completion.state","measurement.value"],
+    "OILFIELD-TERM-002":["asset.equipment","measurement.pressure","inspection.observation"],
+    "OILFIELD-MISSING-003":["asset.equipment","inspection.observation","completion.state"],
+    "POWER-GRID-NORMAL-001":["asset.equipment","inspection.item","measurement.breakdown_voltage","measurement.temperature","completion.state"],
+    "POWER-GRID-TERM-002":["asset.equipment","inspection.item","measurement.resistivity"],
+    "POWER-GRID-MISSING-003":["asset.equipment","inspection.item","completion.state"]
+  },
+  "missing": [
+    {"case_id":"HVAC-NORMAL-001","facts":[{"field":"customer_complaint","value":"no cooling","support_status":"DIRECT_TRANSCRIPT"},{"field":"inspection_findings","value":"blocked drain","support_status":"DIRECT_TRANSCRIPT"}],"expected":["work_performed","test_results","completion_status"]},
+    {"case_id":"SBS-BUS-NORMAL-001","facts":[{"field":"asset.registration_no","value":"SG3050Z","support_status":"DIRECT_TRANSCRIPT"},{"field":"work.type","value":"corrective","support_status":"DIRECT_TRANSCRIPT"}],"expected":["inspection_findings","work_performed","tests_results","completion_state","safety_hv_notes","compliance_audit","provenance"]},
+    {"case_id":"SBS-RAIL-NORMAL-001","facts":[{"field":"asset.train_set","value":"C751A 7001/7002","support_status":"DIRECT_TRANSCRIPT"},{"field":"work.type","value":"corrective","support_status":"DIRECT_TRANSCRIPT"}],"expected":["trigger_findings","work_performed","tests_results","track_access_record","completion_state_return_to_service","safety_ops_notes","reliability_compliance","provenance"]},
+    {"case_id":"OILFIELD-NORMAL-001","facts":[{"field":"asset.equipment","value":"pipeline","support_status":"DIRECT_TRANSCRIPT"},{"field":"work.type","value":"inspection","support_status":"DIRECT_TRANSCRIPT"}],"expected":["inspection_basis","observations_measurements","findings_result","completion_safety","provenance"]},
+    {"case_id":"POWER-GRID-NORMAL-001","facts":[{"field":"asset.equipment","value":"transformer","support_status":"DIRECT_TRANSCRIPT"},{"field":"work.type","value":"inspection","support_status":"DIRECT_TRANSCRIPT"}],"expected":["inspection_basis","observations_measurements","findings_result","completion_safety","provenance"]}
+  ]
+}
