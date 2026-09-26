@@ -291,6 +291,17 @@ test('ReportSession owns capture, manual, processing and complete-page state', (
   const session = runtime.createReportSession({ reportType: 'HVAC', id: 'session_hvac' });
   assert.deepEqual(session.manualFields, {});
   assert.deepEqual(session.capture, {
+    inputMode: 'none',
+    audioState: 'idle',
+    transcriptionState: 'idle',
+    documentState: 'idle',
+    processingState: 'idle',
+    statementState: 'empty',
+    audioError: null,
+    transcriptionError: null,
+    documentError: null,
+    processingError: null,
+    integrityError: null,
     audioBlob: null,
     audioId: null,
     previewUrl: null,
@@ -300,6 +311,69 @@ test('ReportSession owns capture, manual, processing and complete-page state', (
   });
   assert.deepEqual(session.processing, { status: 'idle', error: null });
   assert.deepEqual(session.complete, { summary: '', meta: '', copyableText: '' });
+});
+
+test('Capture readiness accepts manual evidence independently of failed optional inputs', () => {
+  assert.equal(typeof runtime.captureReadiness, 'function');
+  const session = runtime.createReportSession({ reportType: 'sbs_bus_maintenance', id: 'capture_manual' });
+  Object.assign(session.capture, {
+    inputMode: 'manual',
+    audioState: 'failed',
+    transcriptionState: 'failed',
+    documentState: 'failed',
+    statementState: 'available',
+    audioError: 'Microphone unavailable',
+    transcriptionError: 'Whisper unavailable',
+    documentError: 'Local service unavailable',
+  });
+
+  assert.deepEqual(runtime.captureReadiness(session, { statement: '  Replaced the observed door actuator.  ' }), {
+    canContinue: true,
+    hasUsableStatement: true,
+    pendingRequiredOperation: false,
+    fatalIntegrityError: null,
+    reason: 'ready',
+  });
+});
+
+test('Capture readiness blocks empty, processing and integrity-failed sessions without treating documents as required', () => {
+  const session = runtime.createReportSession({ reportType: 'sbs_rail_maintenance', id: 'capture_gate' });
+  assert.equal(runtime.captureReadiness(session).canContinue, false);
+  assert.equal(runtime.captureReadiness(session).reason, 'statement_required');
+
+  Object.assign(session.capture, {
+    inputMode: 'uploaded_audio',
+    transcriptionState: 'processing',
+    statementState: 'empty',
+    documentState: 'uploading',
+  });
+  assert.equal(runtime.captureReadiness(session).reason, 'required_processing');
+
+  Object.assign(session.capture, {
+    inputMode: 'manual',
+    transcriptionState: 'failed',
+    statementState: 'available',
+    integrityError: 'Evidence binding mismatch',
+  });
+  const blocked = runtime.captureReadiness(session, { statement: 'Observed rail door fault.' });
+  assert.equal(blocked.canContinue, false);
+  assert.equal(blocked.reason, 'integrity_error');
+
+  session.capture.integrityError = null;
+  session.capture.documentState = 'failed';
+  assert.equal(runtime.captureReadiness(session, { statement: 'Observed rail door fault.' }).canContinue, true);
+});
+
+test('Capture transitions validate explicit states and keep unrelated subsystem failures isolated', () => {
+  assert.equal(typeof runtime.updateCaptureState, 'function');
+  const session = runtime.createReportSession({ reportType: 'HVAC', id: 'capture_states' });
+  runtime.updateCaptureState(session, { inputMode: 'recording', audioState: 'recording' });
+  runtime.updateCaptureState(session, { audioState: 'ready', transcriptionState: 'processing' });
+  runtime.updateCaptureState(session, { transcriptionState: 'failed', transcriptionError: 'Runtime unavailable' });
+  runtime.updateCaptureState(session, { inputMode: 'manual', statementState: 'available' });
+  assert.equal(session.capture.documentState, 'idle');
+  assert.equal(runtime.captureReadiness(session, { statement: 'Manual evidence.' }).canContinue, true);
+  assert.throws(() => runtime.updateCaptureState(session, { audioState: 'invented' }), /Invalid Capture audioState/);
 });
 
 test('session runtime rejects an older request in the same session and scope', () => {

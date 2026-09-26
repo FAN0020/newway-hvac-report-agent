@@ -86,6 +86,14 @@ test('browser shell icon is served without a console-visible 404', async () => {
   assert.match(response.headers.get('content-type') || '', /^image\/svg\+xml/);
 });
 
+test('AudioWorklet module is available from the real app origin with executable JavaScript MIME', async () => {
+  const response = await fetch(`${base}/pcm-capture-worklet.js`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /^text\/javascript/);
+  const source = await response.text();
+  assert.match(source, /registerProcessor\(['"]hvac-pcm-capture['"]/);
+});
+
 test('GET /api/v2/scopes lists three scopes with HVAC upload_allowed=false', async () => {
   const { status, body } = await json(api('/api/v2/scopes'));
   assert.equal(status, 200);
@@ -122,6 +130,25 @@ test('POST /api/v2/uploads ingests a txt into SBS_BUS as READY', async () => {
   assert.equal(body.data.upload.provenance.scenario, 'v2-server-test');
   assert.match(body.data.upload.sha256, /^[a-f0-9]{64}$/);
   assert.ok(body.data.upload.indexed.token_count > 0);
+});
+
+test('Capture upload response binds the supporting document to the initiating ReportSession and scope', async () => {
+  const { status, body } = await json(api('/api/v2/uploads', {
+    method: 'POST',
+    body: Buffer.from('Bus report supporting note.', 'utf8'),
+    headers: {
+      'x-file-name': 'bus-session-note.txt',
+      'x-scope-id': 'SBS_BUS',
+      'x-report-session-id': 'report_session_bus_42',
+      'x-scenario': 'report-capture',
+    },
+  }));
+  assert.equal(status, 201);
+  assert.deepEqual(body.data.report_binding, {
+    report_session_id: 'report_session_bus_42',
+    scope_id: 'SBS_BUS',
+    upload_id: body.data.upload.upload_id,
+  });
 });
 
 test('POST /api/v2/uploads records an unsupported .dwg as FAILED', async () => {

@@ -7,6 +7,7 @@ import {
   applyTranscriptArtifact,
   beginResolveFlow,
   bindSessionConfirmation,
+  captureReadiness,
   confirmationViewState,
   correctionDecisionPayload,
   createReportSession,
@@ -24,6 +25,7 @@ import {
   resolveProgress,
   schemaFor,
   transcriptSourceLabel,
+  updateCaptureState,
 } from './report-runtime.js';
 
 const ids = [
@@ -335,6 +337,26 @@ function saveTransientFromDom() {
     technicianName,
     technicianId,
   });
+  const statementAvailable = Boolean(el['manual-transcript'].value.trim());
+  if (activeSession.capture.manualEntryOpen || activeSession.capture.inputMode === 'manual') {
+    updateCaptureState(activeSession, {
+      inputMode: 'manual',
+      statementState: statementAvailable ? 'available' : 'empty',
+    });
+  }
+}
+
+function reportStatement(session = activeSession) {
+  if (!session) return '';
+  if (activeSession?.id === session.id) return el['manual-transcript'].value;
+  return runtime.getTransient(session.id).statement || session.transcriptArtifact?.raw_text || '';
+}
+
+function refreshCaptureReadiness(session = activeSession, statement = reportStatement(session)) {
+  if (!session) return { canContinue: false, reason: 'statement_required' };
+  const readiness = captureReadiness(session, { statement });
+  if (activeSession?.id === session.id) el['use-manual'].disabled = !readiness.canContinue;
+  return readiness;
 }
 
 function restoreTransientToDom() {
@@ -356,14 +378,16 @@ function restoreSessionUi() {
   el['audio-preview'].hidden = !capture?.previewUrl;
   el['audio-preview'].src = capture?.previewUrl || '';
   el.transcribe.disabled = true;
-  const transcriptionFailed = activeSession?.processing.status === 'error' && /^Transcription failed:/i.test(activeSession.processing.error || '');
+  const transcriptionFailed = capture?.transcriptionState === 'failed';
   el.retry.hidden = !transcriptionFailed;
   el.retry.disabled = !transcriptionFailed;
   const ownsRecording = Boolean(recorder && recordingSessionId === activeSession?.id);
   const anotherReportRecording = Boolean(recorder && recordingSessionId !== activeSession?.id);
   el['recording-status'].textContent = ownsRecording
     ? `Recording… ${formatElapsed(Date.now() - recordingStartedAt)}`
-    : (anotherReportRecording ? 'A recording is active in another report.' : (activeSession?.processing.error || (artifact ? 'Statement ready.' : (capture?.audioBlob ? 'Audio ready for transcription.' : 'Ready to record.'))));
+    : (anotherReportRecording
+      ? 'A recording is active in another report.'
+      : (capture?.audioError || capture?.transcriptionError || (artifact ? 'Statement ready.' : (capture?.audioBlob ? 'Audio ready for transcription.' : 'Ready to record.'))));
   el['manual-entry'].hidden = !capture?.manualEntryOpen;
   el['statement-ready'].hidden = !artifact;
   el['statement-source'].textContent = artifact ? transcriptSourceLabel(artifact) : 'Captured statement';
@@ -371,7 +395,13 @@ function restoreSessionUi() {
   el['statement-preview'].hidden = true;
   el['view-statement'].setAttribute('aria-expanded', 'false');
   el['manual-source-hint'].textContent = artifact ? 'Saving changes creates a new edited transcript and keeps this source immutable.' : 'Typed text is stored as manual input.';
-  el['transcription-status'].textContent = activeSession?.processing.status === 'processing' ? 'Processing…' : (artifact ? 'Statement ready.' : 'Waiting for a statement.');
+  el['transcription-status'].textContent = capture?.transcriptionState === 'processing'
+    ? 'Transcribing locally…'
+    : (capture?.transcriptionState === 'failed'
+      ? "Couldn't transcribe this recording. Try again or type instead."
+      : (["extracting", "validating"].includes(capture?.processingState)
+        ? 'Organising report…'
+        : (artifact ? 'Statement ready.' : 'Waiting for a statement.')));
   el['start-recording'].hidden = ownsRecording;
   el['start-recording'].disabled = anotherReportRecording;
   el['start-recording'].classList.toggle('recording', ownsRecording);
@@ -386,7 +416,7 @@ function restoreSessionUi() {
   el['save-report'].disabled = !activeSession?.confirmation;
   el['export-report'].disabled = !activeSession?.confirmation;
   renderCompleteState(activeSession);
-  el['use-manual'].disabled = !(artifact || el['manual-transcript'].value.trim());
+  refreshCaptureReadiness(activeSession);
   el['use-manual'].textContent = 'Continue';
   el['confirm-corrections'].disabled = false;
 }
@@ -405,11 +435,13 @@ function activateSession(session) {
   if (activeSession) saveTransientFromDom();
   activeSession = session;
   runtime.activate(session);
+  el['audio-file'].value = '';
+  el['v2-upload-file'].value = '';
   resetCurrentReferences();
   restoreTransientToDom();
   restoreSessionUi();
   updateCaptureContext();
-  if (session.capture.audioBlob && !session.transcriptArtifact && session.processing.status === 'idle') transcribe(1, session);
+  if (session.capture.audioBlob && !session.transcriptArtifact && session.capture.transcriptionState === 'idle') transcribe(1, session);
 }
 
 function createNewReport(reportType, { demo = false } = {}) {
@@ -434,9 +466,16 @@ function updateCaptureContext() {
   el['manual-transcript'].placeholder = schema.statementPlaceholder;
   el['sbs-source-row'].hidden = activeSession.scope === 'HVAC';
   const lastReference = activeSession.evidence?.at(-1);
-  el['v2-upload-status'].textContent = activeSession.scope === 'HVAC' ? '' : (lastReference
-    ? `${lastReference.filename || 'Supporting document'} is attached as reference material only; it is not proof that work occurred.`
-    : 'Optional reference material for this report scope; it is not proof that work occurred.');
+  const documentStatus = activeSession.capture.documentState;
+  el['v2-upload-status'].textContent = activeSession.scope === 'HVAC' ? '' : (
+    documentStatus === 'uploading' || documentStatus === 'processing'
+      ? 'Attaching and processing the supporting document…'
+      : (documentStatus === 'failed'
+        ? `${activeSession.capture.documentError || "Couldn't attach this document."} Your statement can still continue.`
+        : (lastReference
+          ? `${lastReference.filename || 'Supporting document'} is attached as reference material only; it is not proof that work occurred.`
+          : 'Optional reference material for this report scope; it is not proof that work occurred.'))
+  );
   el['topbar-status'].textContent = `${activeSession.demo ? 'Demo · ' : ''}${schema.name} · scope locked`;
 }
 
@@ -542,6 +581,13 @@ function invalidateConfirmationIfMaterialChanged(message) {
 
 function acceptTranscript(artifact, message, session = activeSession) {
   applyTranscriptArtifact(session, artifact);
+  const manualSource = ['MANUAL_TRANSCRIPT', 'MANUAL_INPUT', 'EDITED_TRANSCRIPT'].includes(String(artifact.input_mode || '').toUpperCase());
+  updateCaptureState(session, {
+    inputMode: manualSource ? 'manual' : (session.capture.audioOrigin === 'upload' ? 'uploaded_audio' : 'recording'),
+    transcriptionState: manualSource ? session.capture.transcriptionState : 'complete',
+    statementState: 'available',
+    transcriptionError: null,
+  });
   runtime.setTransient(session.id, { ...runtime.getTransient(session.id), statement: artifact.raw_text });
   session.capture.manualEntryOpen = false;
   session.audit ||= [];
@@ -559,7 +605,7 @@ function acceptTranscript(artifact, message, session = activeSession) {
   el.retry.hidden = true;
   el.retry.disabled = true;
   el['recording-status'].textContent = 'Statement ready.';
-  el['use-manual'].disabled = false;
+  refreshCaptureReadiness(session, artifact.raw_text);
   el['transcription-status'].textContent = message;
 }
 
@@ -570,6 +616,13 @@ function selectAudio(blob, message, session = activeSession) {
   capture.audioId = null;
   if (capture.previewUrl) URL.revokeObjectURL(capture.previewUrl);
   capture.previewUrl = URL.createObjectURL(blob);
+  updateCaptureState(session, {
+    inputMode: capture.audioOrigin === 'upload' ? 'uploaded_audio' : 'recording',
+    audioState: 'ready',
+    transcriptionState: 'idle',
+    audioError: null,
+    transcriptionError: null,
+  });
   if (activeSession?.id !== session.id) return;
   el.retry.hidden = true;
   el.retry.disabled = true;
@@ -601,13 +654,18 @@ async function finishRecording() {
   }
   try {
     const wav = await ownedRecorder.stop();
+    targetSession.capture.audioOrigin = 'recording';
     selectAudio(wav, `Recording captured · ${Math.round(wav.size / 1024)} KB`, targetSession);
     recorder = null;
     recordingSessionId = null;
     if (activeSession?.id === targetSession?.id) await transcribe(1, targetSession);
   } catch (error) {
+    if (targetSession) updateCaptureState(targetSession, {
+      audioState: 'failed',
+      audioError: `Couldn't finish this recording: ${error.message}`,
+    });
     if (activeSession?.id === targetSession?.id) {
-      el['recording-status'].textContent = `Could not finish the recording: ${error.message}`;
+      el['recording-status'].textContent = targetSession.capture.audioError;
       el['transcription-status'].textContent = 'Use Type instead or upload a valid WAV recording.';
     }
   } finally {
@@ -624,9 +682,11 @@ async function finishRecording() {
 
 async function uploadIfNeeded(session, requestToken) {
   if (session.capture.audioId) return session.capture.audioId;
+  updateCaptureState(session, { audioState: 'uploading', audioError: null });
   const result = await apiRaw('/api/audio', session.capture.audioBlob, { 'content-type': 'audio/wav' });
   if (!runtime.accepts(requestToken)) return null;
   session.capture.audioId = result.data.audio_id;
+  updateCaptureState(session, { audioState: 'ready' });
   return session.capture.audioId;
 }
 
@@ -638,6 +698,11 @@ async function transcribe(attempt, session = activeSession) {
     session.capture.model = el.model.value;
   }
   session.processing = { status: 'processing', error: null };
+  updateCaptureState(session, {
+    transcriptionState: 'processing',
+    transcriptionError: null,
+    processingState: 'idle',
+  });
   if (activeSession?.id === session.id) {
     el['start-recording'].hidden = false;
     el['start-recording'].disabled = true;
@@ -662,13 +727,17 @@ async function transcribe(attempt, session = activeSession) {
   } catch (error) {
     if (runtime.accepts(requestToken)) {
       session.processing = { status: 'error', error: `Transcription failed: ${error.message}` };
+      updateCaptureState(session, {
+        transcriptionState: 'failed',
+        transcriptionError: "Couldn't transcribe this recording.",
+      });
       if (activeSession?.id === session.id) {
         const reason = String(error.message || 'Transcription failed').replace(/[.!?。！？]+$/u, '');
-        el['recording-status'].textContent = 'Transcription failed.';
-        el['transcription-status'].textContent = `Transcription failed (${error.result?.error_code || 'UNKNOWN'}): ${reason}. Retry once or type instead.`;
+        el['recording-status'].textContent = session.capture.transcriptionError;
+        el['transcription-status'].textContent = `Couldn't transcribe this recording (${error.result?.error_code || 'UNKNOWN'}): ${reason}. Try again or type instead.`;
         el.retry.hidden = false;
         el.retry.disabled = attempt >= 2;
-        el['use-manual'].disabled = !el['manual-transcript'].value.trim();
+        refreshCaptureReadiness(session);
       }
     }
   } finally {
@@ -777,6 +846,7 @@ function collectCurrentResolveDecision() {
 async function prepareHvacResolve() {
   if (!activeSession || !currentTranscript) return;
   const session = activeSession;
+  updateCaptureState(session, { processingState: 'validating', processingError: null });
   const requestToken = runtime.beginRequest(session.id, 'prepare-hvac-resolve');
   const normalization = await api('/api/normalizations', { transcript_artifact_id: currentTranscript.artifact_id });
   if (!runtime.accepts(requestToken)) return;
@@ -787,6 +857,7 @@ async function prepareHvacResolve() {
   session.resolveAnswers = {};
   session.unresolvedItems = createResolveQueue({ correctionCandidates: session.correctionCandidates, missingFields: [], conflicts: [] });
   session.processing = { status: 'idle', error: null };
+  updateCaptureState(session, { processingState: 'complete' });
   el['transcription-status'].textContent = 'Statement ready.';
   addAudit('Terminology candidates prepared', `${session.correctionCandidates.length} candidates`);
   if (!session.unresolvedItems.length) {
@@ -821,6 +892,7 @@ async function processSbsStatement(raw, requestToken) {
     edited_from_artifact_id: editedFromArtifactId,
   };
   acceptTranscript(artifact, 'Manual statement captured.');
+  updateCaptureState(session, { processingState: 'extracting', processingError: null });
   const extracted = await api('/api/v2/facts/extract', { context_id: meta.contextId, raw_text: raw });
   if (!runtime.accepts(requestToken)) return;
   currentFacts = extracted.data.facts || [];
@@ -828,9 +900,11 @@ async function processSbsStatement(raw, requestToken) {
   session.resolveAnswers = {};
   session.unresolvedItems = createResolveQueue(session);
   session.processing = { status: 'idle', error: null };
+  updateCaptureState(session, { processingState: 'validating' });
   el['transcription-status'].textContent = 'Statement ready.';
   addAudit('Facts extracted', `${currentFacts.length} grounded facts`);
   if (session.unresolvedItems.length) {
+    updateCaptureState(session, { processingState: 'complete' });
     renderGenericResolve(session.unresolvedItems, { reset: true });
     navigate('resolve');
   } else {
@@ -841,6 +915,7 @@ async function processSbsStatement(raw, requestToken) {
 async function buildSbsReport(existingToken, resolveMissing = false) {
   const session = activeSession;
   const requestToken = existingToken || runtime.beginRequest(session.id, 'build-sbs-report');
+  updateCaptureState(session, { processingState: 'validating', processingError: null });
   const authoritativeFacts = factsFromStructuredState(session);
   const result = await api('/api/v2/reports/build', { context_id: scopeMeta[session.scope].contextId, report_session_id: session.id, facts: authoritativeFacts, knowledge_hits: session.knowledgeHits || [] }, { allowToolFailure: true });
   if (!runtime.accepts(requestToken)) return;
@@ -865,10 +940,12 @@ async function buildSbsReport(existingToken, resolveMissing = false) {
     }));
     renderGenericResolve(session.unresolvedItems, { reset: true });
     addAudit('Missing information queued for explicit review', `${missingSections.length} report sections`);
+    updateCaptureState(session, { processingState: 'complete' });
     navigate('resolve');
     return;
   }
   session.status = 'REVIEW';
+  updateCaptureState(session, { processingState: 'complete' });
   invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
   addAudit('Report built and validated', result.status);
   renderReview();
@@ -879,6 +956,7 @@ async function generateHvacReport() {
   const session = activeSession;
   const requestToken = runtime.beginRequest(session.id, 'generate-hvac-report');
   session.processing = { status: 'processing', error: null };
+  updateCaptureState(session, { processingState: 'extracting', processingError: null });
   const extracted = await api('/api/facts/extract', { correction_receipt_id: currentCorrectionReceipt.correction_receipt_id, manual_fields: session.manualFields, use_llm: ollamaReady });
   if (!runtime.accepts(requestToken)) return;
   currentFacts = extracted.data.facts;
@@ -902,6 +980,7 @@ async function generateHvacReport() {
     }));
     renderGenericResolve(session.unresolvedItems, { reset: true });
     addAudit('Missing information queued for explicit review', `${followUps.length} follow-up questions`);
+    updateCaptureState(session, { processingState: 'complete' });
     navigate('resolve');
     return;
   }
@@ -920,6 +999,7 @@ async function generateHvacReport() {
   session.inputValidation = inputValidation;
   session.status = 'REVIEW';
   session.processing = { status: 'idle', error: null };
+  updateCaptureState(session, { processingState: 'complete' });
   invalidateConfirmationIfMaterialChanged('The report content changed; validation and confirmation are required again.');
   addAudit('Report built and independently validated', currentValidation.status);
   renderReview();
@@ -1029,17 +1109,44 @@ async function uploadSbsDocument(file) {
   const session = activeSession;
   const scopeAtStart = session.scope;
   const requestToken = runtime.beginRequest(session.id, 'upload-reference');
+  updateCaptureState(session, { documentState: 'uploading', documentError: null });
   el['v2-upload-status'].textContent = `Uploading ${file.name}…`;
   try {
-    const result = await apiRaw('/api/v2/uploads', file, { 'x-file-name': file.name, 'x-scope-id': scopeAtStart, 'x-mime-type': file.type || 'application/octet-stream', 'x-uploader': el['v2-uploader'].value || 'demo-technician', 'x-scenario': 'report-capture', 'content-type': 'application/octet-stream' });
+    const result = await apiRaw('/api/v2/uploads', file, {
+      'x-file-name': file.name,
+      'x-scope-id': scopeAtStart,
+      'x-report-session-id': session.id,
+      'x-mime-type': file.type || 'application/octet-stream',
+      'x-uploader': el['v2-uploader'].value || 'demo-technician',
+      'x-scenario': 'report-capture',
+      'content-type': 'application/octet-stream',
+    });
     if (!runtime.accepts(requestToken)) return;
-    session.evidence.push(result.data.upload);
+    const binding = result.data.report_binding;
+    if (binding?.report_session_id !== session.id || binding?.scope_id !== scopeAtStart || binding?.upload_id !== result.data.upload?.upload_id) {
+      throw new Error('The server did not bind this document to the initiating report and scope.');
+    }
+    const attachment = { ...result.data.upload, report_session_id: session.id };
+    session.capture.attachment = { upload: attachment, binding };
+    session.evidence.push(attachment);
+    updateCaptureState(session, {
+      documentState: result.data.upload.status === 'READY' ? 'ready' : 'failed',
+      documentError: result.data.upload.status === 'READY' ? null : 'The selected document could not be processed.',
+    });
     invalidateConfirmationIfMaterialChanged('Report evidence changed; validation and confirmation are required again.');
     el['v2-upload-status'].textContent = result.data.upload.status === 'READY'
       ? `${file.name} is attached as reference material only; it is not proof that work occurred.`
       : `${file.name} could not be processed.`;
     addAudit('Reference document uploaded', `${file.name} · ${result.data.upload.status}`);
-  } catch (error) { if (runtime.accepts(requestToken)) el['v2-upload-status'].textContent = `Upload failed: ${error.message}`; }
+  } catch (error) { if (runtime.accepts(requestToken)) {
+    const unavailable = error instanceof TypeError || /failed to fetch|network/i.test(error.message || '');
+    const message = unavailable
+      ? "Couldn't attach this document. The local demo service is unavailable."
+      : `Couldn't attach this document: ${error.message}`;
+    updateCaptureState(session, { documentState: 'failed', documentError: message });
+    el['v2-upload-status'].textContent = `${message} Your statement can still continue.`;
+    refreshCaptureReadiness(session);
+  } }
 }
 
 function renderUploadRow(upload) {
@@ -1108,6 +1215,7 @@ el['fill-demo'].addEventListener('click', () => {
   activeSession.capture.manualEntryOpen = true;
   el['manual-entry'].hidden = false;
   el['manual-transcript'].value = examples[activeSession.scope] || demoNarration;
+  updateCaptureState(activeSession, { inputMode: 'manual', statementState: 'available' });
   runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), statement: el['manual-transcript'].value });
   el['use-manual'].disabled = false;
   el['manual-source-hint'].textContent = 'Synthetic demo text is stored as manual input only if you continue.';
@@ -1175,8 +1283,16 @@ el['start-another-report'].addEventListener('click', () => navigate('new-report'
 el['start-recording'].addEventListener('click', async () => {
   if (recorder) return;
   const session = activeSession;
+  if (!session) return;
   el['start-recording'].disabled = true;
   recordingSessionId = session?.id;
+  updateCaptureState(session, {
+    inputMode: 'recording',
+    audioState: 'recording',
+    transcriptionState: 'idle',
+    audioError: null,
+    transcriptionError: null,
+  });
   el['recording-status'].textContent = 'Waiting for microphone permission…';
   try {
     recorder = new PcmWavRecorder();
@@ -1195,10 +1311,15 @@ el['start-recording'].addEventListener('click', async () => {
   } catch (error) {
     recorder = null;
     recordingSessionId = null;
+    updateCaptureState(session, {
+      audioState: 'failed',
+      audioError: `Couldn't start recording: ${error.message}`,
+    });
     if (activeSession?.id === session?.id) {
-      el['recording-status'].textContent = `Microphone permission or capture failed: ${error.message}`;
+      el['recording-status'].textContent = session.capture.audioError;
       el['transcription-status'].textContent = 'Use Type instead or upload a valid WAV recording.';
       el['start-recording'].disabled = false;
+      refreshCaptureReadiness(session);
     }
   }
 });
@@ -1207,20 +1328,38 @@ el['audio-file'].addEventListener('change', async () => {
   const file = el['audio-file'].files?.[0];
   if (!file) return;
   if (!file.name.toLowerCase().endsWith('.wav') && file.type !== 'audio/wav') {
+    updateCaptureState(activeSession, { audioState: 'failed', audioError: 'Choose a valid WAV recording.' });
     el['recording-status'].textContent = 'Choose a valid WAV recording.';
     el['transcription-status'].textContent = 'The selected file was not sent.';
+    el['audio-file'].value = '';
     return;
   }
   activeSession.capture.audioOrigin = 'upload';
   selectAudio(file, `Uploaded ${file.name}`);
-  await transcribe(1);
+  try { await transcribe(1); }
+  finally { el['audio-file'].value = ''; }
 });
 el.retry.addEventListener('click', async () => transcribe(2));
 el['type-instead'].addEventListener('click', () => {
   if (!activeSession) return;
+  runtime.beginRequest(activeSession.id, 'transcribe');
+  activeSession.processing = { status: 'idle', error: null };
+  updateCaptureState(activeSession, {
+    inputMode: 'manual',
+    transcriptionState: 'idle',
+    transcriptionError: null,
+    statementState: el['manual-transcript'].value.trim() ? 'available' : 'empty',
+  });
   activeSession.capture.manualEntryOpen = true;
   el['manual-entry'].hidden = false;
   el['manual-source-hint'].textContent = activeSession.transcriptArtifact ? 'Saving changes creates a new edited transcript and keeps the prior source immutable.' : 'Typed text is stored as manual input.';
+  el.retry.hidden = true;
+  el.retry.disabled = true;
+  el['start-recording'].hidden = false;
+  el['start-recording'].disabled = false;
+  el['recording-status'].textContent = activeSession.capture.audioBlob ? 'Audio kept · manual entry selected.' : 'Manual entry selected.';
+  el['transcription-status'].textContent = 'Enter the observed service statement, then continue.';
+  refreshCaptureReadiness(activeSession);
   el['manual-transcript'].focus();
 });
 el['view-statement'].addEventListener('click', () => {
@@ -1231,14 +1370,33 @@ el['view-statement'].addEventListener('click', () => {
 });
 el['edit-statement'].addEventListener('click', () => {
   if (!activeSession) return;
+  runtime.beginRequest(activeSession.id, 'transcribe');
+  activeSession.processing = { status: 'idle', error: null };
   activeSession.capture.manualEntryOpen = true;
   el['manual-entry'].hidden = false;
   el['manual-transcript'].value = activeSession.transcriptArtifact?.raw_text || el['manual-transcript'].value;
+  updateCaptureState(activeSession, {
+    inputMode: 'manual',
+    transcriptionState: 'idle',
+    transcriptionError: null,
+    statementState: el['manual-transcript'].value.trim() ? 'available' : 'empty',
+  });
   el['manual-source-hint'].textContent = 'Saving changes creates a new edited transcript and keeps the prior source immutable.';
+  el['start-recording'].hidden = false;
+  el['start-recording'].disabled = false;
+  el['recording-status'].textContent = 'Manual edit selected.';
+  el['transcription-status'].textContent = 'Review the edited statement, then continue.';
+  refreshCaptureReadiness(activeSession);
   el['manual-transcript'].focus();
 });
 el['manual-transcript'].addEventListener('input', () => {
-  el['use-manual'].disabled = !el['manual-transcript'].value.trim() || activeSession?.processing.status === 'processing';
+  if (!activeSession) return;
+  updateCaptureState(activeSession, {
+    inputMode: 'manual',
+    statementState: el['manual-transcript'].value.trim() ? 'available' : 'empty',
+  });
+  runtime.setTransient(activeSession.id, { ...runtime.getTransient(activeSession.id), statement: el['manual-transcript'].value });
+  refreshCaptureReadiness(activeSession);
 });
 function syncTechnicianIdentity(name, id) {
   if (!activeSession) return;
@@ -1253,11 +1411,23 @@ for (const id of ['technician-name', 'technician-id']) el[id].addEventListener('
   el['review-identity-summary'].textContent = activeSession.jobContext.technicianName && activeSession.jobContext.technicianId
     ? `${activeSession.jobContext.technicianName} · ${activeSession.jobContext.technicianId}` : 'Technician not set';
 });
-el['v2-upload-file'].addEventListener('change', () => { const file = el['v2-upload-file'].files?.[0]; if (file) uploadSbsDocument(file); });
+el['v2-upload-file'].addEventListener('change', async () => {
+  const file = el['v2-upload-file'].files?.[0];
+  if (!file) return;
+  try { await uploadSbsDocument(file); }
+  finally { el['v2-upload-file'].value = ''; }
+});
 
 el['use-manual'].addEventListener('click', async () => {
   const raw = el['manual-transcript'].value.trim();
-  if (!activeSession || !raw) { el['transcription-status'].textContent = 'Enter or record a service statement first.'; return; }
+  if (!activeSession) return;
+  const readiness = refreshCaptureReadiness(activeSession, raw);
+  if (!readiness.canContinue) {
+    el['transcription-status'].textContent = readiness.reason === 'required_processing'
+      ? 'Wait for the required Capture processing to finish.'
+      : (readiness.reason === 'integrity_error' ? 'Capture evidence integrity must be resolved before continuing.' : 'Enter or record a service statement first.');
+    return;
+  }
   saveTransientFromDom();
   if (!activeSession.jobContext?.technicianName || !activeSession.jobContext?.technicianId) {
     el['capture-identity'].open = true;
@@ -1269,6 +1439,7 @@ el['use-manual'].addEventListener('click', async () => {
   const requestToken = runtime.beginRequest(activeSession.id, 'process-statement');
   const session = activeSession;
   session.processing = { status: 'processing', error: null };
+  updateCaptureState(session, { processingState: 'extracting', processingError: null });
   el['use-manual'].disabled = true; el['use-manual'].textContent = 'Organising report…'; el['transcription-status'].textContent = 'Organising report…';
   try {
     if (activeSession.scope === 'HVAC') {
@@ -1287,8 +1458,12 @@ el['use-manual'].addEventListener('click', async () => {
       el['transcription-status'].textContent = 'Checking required information…';
       await processSbsStatement(raw, requestToken);
     }
-  } catch (error) { if (runtime.accepts(requestToken)) { session.processing = { status: 'error', error: error.message }; el['transcription-status'].textContent = `Could not prepare the report (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`; } }
-  finally { if (runtime.accepts(requestToken)) { el['use-manual'].disabled = false; el['use-manual'].textContent = 'Continue'; } }
+  } catch (error) { if (runtime.accepts(requestToken)) {
+    session.processing = { status: 'error', error: error.message };
+    updateCaptureState(session, { processingState: 'failed', processingError: error.message });
+    el['transcription-status'].textContent = `Could not prepare the report (${error.result?.error_code || 'UNKNOWN'}): ${error.message}`;
+  } }
+  finally { if (runtime.accepts(requestToken)) { el['use-manual'].textContent = 'Continue'; refreshCaptureReadiness(session); } }
 });
 el['build-report'].addEventListener('click', prepareHvacResolve);
 
