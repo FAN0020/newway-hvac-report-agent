@@ -6,7 +6,6 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const defaultRegistryPath = path.join(projectRoot, 'data', 'knowledge', 'v2', 'scope-registry.v1.json');
 
 const UPLOAD_SCOPE_PREFIX = 'USER_UPLOADED:';
-const CONTEXT_KEYS = ['SBS/BUS', 'SBS/RAIL', 'HVAC'];
 
 /**
  * Raised when a candidate scope is consulted from a context that does not
@@ -92,7 +91,8 @@ export function resolveContext(contextId, registry) {
   const context = String(contextId ?? '');
   const scopeId = registry?.context_ids?.[context];
   if (!scopeId) {
-    throw new Error(`Unknown V2 context "${context}". Expected one of: ${CONTEXT_KEYS.join(', ')}.`);
+    const contextKeys = Object.keys(registry?.context_ids || {});
+    throw new Error(`Unknown V2 context "${context}". Expected one of: ${contextKeys.join(', ')}.`);
   }
   const entry = scopeEntry(scopeId, registry);
   return {

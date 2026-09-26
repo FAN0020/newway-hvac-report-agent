@@ -346,10 +346,37 @@ export function chunkText(text, { maxChars = 1200, overlap = 100 } = {}) {
  * @returns {string[]}
  */
 export function tokenize(value) {
-  return String(value ?? '')
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
+  const tokens = [];
+  const source = String(value ?? '').toLowerCase();
+  // Preserve decimal measurement tokens before punctuation splitting. This
+  // distinguishes nearby standards paragraphs containing 0.8 m / 0.85 from
+  // unrelated paragraphs that merely contain many other numbers.
+  for (const match of source.matchAll(/\d+(?:[.,]\d+)?\s*(?:kv|mm|km|cm|m|%|bar|kpa|mpa|°c|℃|千米|公里|毫米|厘米|米)/giu)) {
+    tokens.push(match[0]
+      .replace(/\s+/g, '')
+      .replace(/千米|公里/gu, 'km')
+      .replace(/毫米/gu, 'mm')
+      .replace(/厘米/gu, 'cm')
+      .replace(/米/gu, 'm')
+      .replace(/℃/gu, '°c'));
+  }
+  const runs = source.match(/[\p{Script=Han}]+|[\p{L}\p{N}]+/gu) || [];
+  for (const run of runs) {
+    if (!/^[\p{Script=Han}]+$/u.test(run)) {
+      tokens.push(run);
+      continue;
+    }
+    // Chinese text has no whitespace word boundaries. Retain the full run
+    // and add character bigrams so a short dictated phrase can match the
+    // same phrase inside a much longer standards paragraph.
+    tokens.push(run);
+    if (run.length > 1) {
+      for (let index = 0; index < run.length - 1; index += 1) {
+        tokens.push(run.slice(index, index + 2));
+      }
+    }
+  }
+  return tokens;
 }
 
 /**

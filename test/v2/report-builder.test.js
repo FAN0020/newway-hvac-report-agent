@@ -12,9 +12,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BUS_REPORT_SECTIONS,
+  INDUSTRIAL_REPORT_SECTIONS,
   RAIL_REPORT_SECTIONS,
   assertNoServiceFactInvention,
   buildBusReportSections,
+  buildIndustrialReportSections,
   buildRailReportSections,
   checkHardGates,
   planV2Report,
@@ -28,11 +30,30 @@ import {
 const PLACEHOLDER = 'Not provided / pending confirmation';
 
 test('module imports resolve real fact-schemas.js exports (contract surface)', () => {
-  assert.deepEqual(SUPPORTED_V2_SCOPES, ['SBS_BUS', 'SBS_RAIL']);
+  assert.deepEqual(SUPPORTED_V2_SCOPES, ['SBS_BUS', 'SBS_RAIL', 'OILFIELD', 'POWER_GRID']);
   assert.equal(SUPPORT_STATUSES.DIRECT_TRANSCRIPT, 'DIRECT_TRANSCRIPT');
   assert.equal(SUPPORT_STATUSES.UNCERTAIN, 'UNCERTAIN');
   assert.equal(isCriticalField({ scopeId: 'SBS_BUS', field: 'completion.state' }), true);
   assert.equal(isCriticalField({ scopeId: 'SBS_RAIL', field: 'test.result' }), true);
+  assert.equal(isCriticalField({ scopeId: 'OILFIELD', field: 'inspection.result' }), true);
+});
+
+test('industrial report uses the shared evidence-grounded inspection structure', () => {
+  assert.deepEqual(INDUSTRIAL_REPORT_SECTIONS.map((section) => section.id), [
+    'asset_identification', 'inspection_basis', 'inspection_scope',
+    'observations_measurements', 'findings_result', 'work_performed',
+    'verification', 'completion_safety', 'provenance',
+  ]);
+  const report = buildIndustrialReportSections({
+    scopeId: 'POWER_GRID',
+    factsReceiptId: 'facts:power:1',
+    facts: [
+      { field: 'asset.equipment', value: '绝缘油', support_status: 'DIRECT_TRANSCRIPT', source: 'manual' },
+      { field: 'measurement.value', value: '62.97', unit: 'kV', support_status: 'DIRECT_TRANSCRIPT', source: 'manual' },
+    ],
+  });
+  assert.equal(report.reportVersion, 'v2-power-grid-1');
+  assert.ok(report.sections.find((section) => section.id === 'asset_identification').content.some((line) => line.includes('绝缘油')));
 });
 
 test('BUS_REPORT_SECTIONS defines exactly the 11 sections of 06 §2.2, in order, frozen', () => {
@@ -299,6 +320,21 @@ test('checkHardGates: identity fields never raise CHANGED_NUMBER_UNIT (identifie
   const fault = checkHardGates({ scopeId: 'SBS_BUS', facts: [{ field: 'work.fault_code', value: 'F3Z', support_status: 'DIRECT_TRANSCRIPT' }] });
   assert.ok(!fault.violations.some((v) => v.class === 'CHANGED_NUMBER_UNIT'),
     `fault code F3Z must not raise CHANGED_NUMBER_UNIT: ${JSON.stringify(fault.violations)}`);
+});
+
+test('checkHardGates: approval and work-order references are not parsed as measurements', () => {
+  const access = checkHardGates({ scopeId: 'SBS_RAIL', facts: [{
+    field: 'access.approval',
+    value: 'TAMS access approval TA-2026-091 confirmed',
+    support_status: 'CONFIRMED_BY_TECHNICIAN',
+  }] });
+  const workOrder = checkHardGates({ scopeId: 'SBS_BUS', facts: [{
+    field: 'work.work_order_id',
+    value: 'WO-2026-004 closed',
+    support_status: 'CONFIRMED_BY_TECHNICIAN',
+  }] });
+  assert.equal(access.violations.some((v) => v.class === 'CHANGED_NUMBER_UNIT'), false);
+  assert.equal(workOrder.violations.some((v) => v.class === 'CHANGED_NUMBER_UNIT'), false);
 });
 
 test('checkHardGates: non-identity measurement values still undergo the strict unit check', () => {

@@ -30,9 +30,12 @@ import { extractV2Facts } from './tools/extract-v2-facts.js';
 import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
 import { createRetriever } from './v2/retrieval.js';
+import { reviewV2Transcript } from './v2/transcript-review.js';
+import { buildFollowUpQuestions, buildGateConfirmationQuestions } from './v2/guided-reporting.js';
 import {
   assertNoServiceFactInvention,
   buildBusReportSections,
+  buildIndustrialReportSections,
   buildRailReportSections,
   checkHardGates,
   planV2Report,
@@ -412,14 +415,16 @@ async function handleApi(request, response, url, traceId, config) {
     if (resolved.scopeId === 'HVAC') {
       writeJson(response, 200, toolEnvelope('v2_facts_extract', traceId, 'FAIL', {}, {
         error_code: 'UNSUPPORTED_SCOPE',
-        warnings: [`Context "${contextId}" resolves to HVAC; deterministic V2 fact extraction is only available for SBS/BUS and SBS/RAIL (HVAC stays on the V1 flow).`],
+        warnings: [`Context "${contextId}" resolves to HVAC; deterministic V2 fact extraction is available for SBS/BUS, SBS/RAIL, OILFIELD, and POWER/GRID (HVAC stays on the V1 flow).`],
       }));
       return;
     }
     const result = await extractV2Facts({ contextId, rawText: input.raw_text, registry });
+    const transcriptReview = reviewV2Transcript({ scopeId: resolved.scopeId, rawText: input.raw_text });
     writeJson(response, 200, toolEnvelope('v2_facts_extract', traceId, 'PASS', {
       facts: result.facts,
       warnings: result.warnings,
+      transcript_review: transcriptReview,
       context_id: contextId,
     }));
     return;
@@ -433,29 +438,50 @@ async function handleApi(request, response, url, traceId, config) {
     if (resolved.scopeId === 'HVAC') {
       writeJson(response, 200, toolEnvelope('v2_report_build', traceId, 'FAIL', {}, {
         error_code: 'UNSUPPORTED_SCOPE',
-        warnings: [`Context "${contextId}" resolves to HVAC; V2 report building is only available for SBS/BUS and SBS/RAIL.`],
+        warnings: [`Context "${contextId}" resolves to HVAC; V2 report building is available for SBS/BUS, SBS/RAIL, OILFIELD, and POWER/GRID.`],
       }));
       return;
     }
     const facts = Array.isArray(input.facts) ? input.facts : [];
-    const factsReceiptId = input.facts_receipt_id ? String(input.facts_receipt_id) : undefined;
+    // V2 accepts technician-reviewed facts directly from the browser. Issue a
+    // deterministic, system-managed receipt for the exact fact bundle used to
+    // build this draft so provenance is always present and changes whenever a
+    // technician edits or confirms a fact.
+    const factsReceiptId = input.facts_receipt_id
+      ? String(input.facts_receipt_id)
+      : `v2facts_${crypto.createHash('sha256')
+        .update(JSON.stringify({ context_id: contextId, facts }))
+        .digest('hex')
+        .slice(0, 24)}`;
     const knowledgeHits = Array.isArray(input.knowledge_hits) ? input.knowledge_hits : [];
-    const build = resolved.scopeId === 'SBS_BUS' ? buildBusReportSections : buildRailReportSections;
-    const report = build({ facts, factsReceiptId });
+    const report = resolved.scopeId === 'SBS_BUS'
+      ? buildBusReportSections({ facts, factsReceiptId })
+      : resolved.scopeId === 'SBS_RAIL'
+        ? buildRailReportSections({ facts, factsReceiptId })
+        : buildIndustrialReportSections({ scopeId: resolved.scopeId, facts, factsReceiptId });
     const plan = planV2Report({ scopeId: resolved.scopeId, facts, factsReceiptId });
     const violations = [
       ...assertNoServiceFactInvention({ facts, knowledgeHits }),
       ...checkHardGates({ scopeId: resolved.scopeId, facts }).violations,
     ];
+    const followUpQuestions = [
+      ...buildFollowUpQuestions({
+      scopeId: resolved.scopeId,
+      missingSections: plan.missing_required_fields,
+      }),
+      ...buildGateConfirmationQuestions({ violations }),
+    ];
     writeJson(response, 200, toolEnvelope('v2_report_build', traceId, violations.length ? 'NEEDS_CONFIRMATION' : 'PASS', {
       report: {
         scope_id: resolved.scopeId,
         context_id: contextId,
+        facts_receipt_id: factsReceiptId,
         reportVersion: report.reportVersion,
         sections: report.sections,
         missing_required_fields: plan.missing_required_fields,
       },
       gates: { violations },
+      follow_up_questions: followUpQuestions,
     }, { retryable: false }));
     return;
   }

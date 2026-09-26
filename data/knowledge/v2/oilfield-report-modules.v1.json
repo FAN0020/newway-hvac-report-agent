@@ -1,0 +1,13 @@
+{
+  "schema_version":"industrial-report-modules.v1",
+  "knowledge_version":"2026-09-25",
+  "scope":"OILFIELD",
+  "records":[
+    {"id":"module_asset","name":"设施与位置","category":"report_module","description":"管道、管段、桩号、站场或被检查单位。"},
+    {"id":"module_basis","name":"检查依据","category":"report_module","description":"标准编号和条款，例如 GB 50253-2014。"},
+    {"id":"module_item","name":"检查项目","category":"report_module","description":"输油工艺、线路选择、管道敷设、HSE 或承包商管理。"},
+    {"id":"module_observation","name":"实际情况与测量","category":"report_module","description":"现场观察、距离、埋深、状态和测量单位。"},
+    {"id":"module_result","name":"检查结果与缺陷","category":"report_module","description":"符合、不符合、缺陷描述、风险与证据。"},
+    {"id":"module_action","name":"处置与复核","category":"report_module","description":"实际完成的处置、复测结果、完成状态和安全确认。"}
+  ]
+}

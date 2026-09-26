@@ -34,6 +34,8 @@
         <button type="button" class="scope-button active" data-scope-id="HVAC">HVAC</button>
         <button type="button" class="scope-button" data-scope-id="SBS_BUS">SBS·Bus</button>
         <button type="button" class="scope-button" data-scope-id="SBS_RAIL">SBS·Rail</button>
+        <button type="button" class="scope-button" data-scope-id="OILFIELD">Oilfield</button>
+        <button type="button" class="scope-button" data-scope-id="POWER_GRID">Power Grid</button>
       </div>
     </section>
 
@@ -218,9 +220,16 @@
 
       <section class="v2-zone" aria-labelledby="v2-facts-title">
         <div class="step" data-i18n="v2.facts.step">V2 · C · Facts and report</div>
-        <h2 id="v2-facts-title" data-i18n="v2.facts.title">SBS fact extraction and report preview</h2>
+        <h2 id="v2-facts-title" data-i18n="v2.facts.title">V2 fact extraction and report preview</h2>
         <label for="v2-facts-text" data-i18n="v2.facts.statement">Dictation or manual on-site statement</label>
         <textarea id="v2-facts-text" rows="8" data-i18n-placeholder="v2.facts.busPlaceholder" placeholder="e.g. (Bus): Vehicle plate SBS 1234, work type maintenance, replaced the left front door lock actuator, tested door opening/closing normal, completion status completed."></textarea>
+        <section id="v2-transcript-review" class="v2-follow-up" hidden aria-labelledby="v2-transcript-review-title">
+          <h3 id="v2-transcript-review-title" data-i18n="v2.facts.transcriptReviewTitle">Review speech recognition before extracting facts</h3>
+          <p class="hint" data-i18n="v2.facts.transcriptReviewHint">Domain terminology corrections are suggestions only. Select each correction you personally confirm. Planned or future actions are never converted into completed work automatically.</p>
+          <div id="v2-transcript-corrections" class="stack"></div>
+          <div id="v2-transcript-questions" class="stack"></div>
+          <button id="v2-transcript-apply" type="button" data-i18n="v2.facts.applyCorrections">Apply selected corrections and re-extract</button>
+        </section>
         <div class="controls">
           <button id="v2-facts-extract" type="button" data-i18n="v2.facts.extract">Extract facts</button>
           <button id="v2-report-build" type="button" disabled data-i18n="v2.facts.build">Build report</button>
@@ -235,6 +244,12 @@
           <p class="report-language-note"><strong data-i18n="report.languageLabel">Report language</strong>: <span data-i18n="report.sourceLanguage">Same as template or source</span></p>
           <p id="v2-report-banner" class="validator-banner" role="status"></p>
           <p id="v2-report-missing" class="v2-missing"></p>
+          <section id="v2-follow-up" class="v2-follow-up" hidden aria-labelledby="v2-follow-up-title">
+            <h3 id="v2-follow-up-title" data-i18n="v2.facts.followUpTitle">Complete the missing report information</h3>
+            <p class="hint" data-i18n="v2.facts.followUpHint">These questions come from the active report template. Answers are recorded as technician-confirmed facts; RAG does not fill them automatically.</p>
+            <div id="v2-follow-up-list" class="stack"></div>
+            <button id="v2-follow-up-apply" type="button" data-i18n="v2.facts.applyAnswers">Apply answers and rebuild report</button>
+          </section>
           <div id="v2-report-gates" class="stack"></div>
           <div id="v2-report-sections" class="report-paper"></div>
         </div>

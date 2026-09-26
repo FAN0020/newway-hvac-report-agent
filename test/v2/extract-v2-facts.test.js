@@ -97,6 +97,18 @@ test('BUS model MAN A95 maps to asset.bus_model and work.type', async () => {
   );
 });
 
+test('BUS dictated registration, return to service, and explicit safety statement are extracted', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'Registration SBS6025Z. The bus was returned to the service and no additional safety issue was observed.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.registration_no'), 'SBS6025Z');
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.equal(valueOf(facts, 'safety.assertion'), 'The bus was returned to the service and no additional safety issue was observed');
+  assert.equal(facts.find((fact) => fact.field === 'asset.registration_no').critical, true);
+});
+
 test('BUS measurement sentence yields measurement fact with unit', async () => {
   const { facts } = await extractV2Facts({
     contextId: 'SBS/BUS',
@@ -225,4 +237,73 @@ test('registry may be omitted (loaded internally)', async () => {
   });
   assert.equal(valueOf(facts, 'parts.part_number'), '轮胎');
   assert.equal(valueOf(facts, 'parts.replaced'), 'true');
+});
+
+test('Rail and Bus door-not-closing observations become findings and completed replacement becomes work performed', async () => {
+  const rail = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'Corrective maintenance on train set C751A Car 3. The passenger door would not close.',
+    registry,
+  });
+  assert.ok(rail.facts.some((fact) => fact.field === 'asset.car' && fact.value === 'Car 3'));
+  assert.ok(hasField(rail.facts, 'inspection_findings'));
+
+  const bus = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'The front passenger door would not close. I replaced the door control module.',
+    registry,
+  });
+  assert.ok(hasField(bus.facts, 'inspection_findings'));
+  assert.ok(hasField(bus.facts, 'work_performed'));
+});
+
+test('OILFIELD text extracts source-grounded pipeline inspection facts', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'OILFIELD',
+    rawText: '对原油输油管道东段开展安全检查。依据 GB50253-2014第4.2.3条，现场测得管顶覆土厚度0.7m，不符合要求，发现覆土不足隐患。已完成整改。复测通过。安全隔离已确认，检查完成。',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.equipment'), '原油输油管道');
+  assert.match(valueOf(facts, 'standard.reference'), /GB50253-2014/);
+  assert.ok(hasField(facts, 'inspection.item'));
+  assert.ok(hasField(facts, 'inspection.result'));
+  assert.ok(hasField(facts, 'defect.description'));
+  assert.ok(hasField(facts, 'work_performed'));
+  assert.ok(hasField(facts, 'test.result'));
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.ok(hasField(facts, 'safety.assertion'));
+});
+
+test('OILFIELD spoken transcript preserves metre values, completed remediation, and corrected standard', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'OILFIELD',
+    rawText: '检查依据为GB50235。错了，GB50253-2014第四点二点三条。管顶覆土厚度为0.7米，低于0.8米要求。已完成补土整改。复测覆土厚度为0.85米。',
+    registry,
+  });
+  const standards = facts.filter((fact) => fact.field === 'standard.reference').map((fact) => fact.value);
+  assert.deepEqual(standards, ['GB50253-2014']);
+  assert.deepEqual(
+    facts.filter((fact) => fact.field.startsWith('measurement.')).map((fact) => [fact.value, fact.unit]),
+    [['0.7', 'm'], ['0.8', 'm'], ['0.85', 'm']],
+  );
+  assert.ok(hasField(facts, 'work_performed'));
+});
+
+test('POWER_GRID text extracts insulating-oil test identity, values, and safety', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'POWER/GRID',
+    rawText: '对2号主变绝缘油进行检测，电压等级220kV。依据 GB 50150-2016。击穿电压平均值62.97kV，测试通过。环境温度21℃，湿度54%。检测完成，安全措施已确认。',
+    registry,
+  });
+  assert.ok(facts.some((fact) => fact.field === 'asset.equipment' && fact.value === '绝缘油'));
+  assert.equal(valueOf(facts, 'asset.voltage_level'), '220kV');
+  assert.match(valueOf(facts, 'standard.reference'), /GB 50150-2016/);
+  assert.ok(facts.some((fact) => fact.field.startsWith('measurement.') && fact.unit.toLowerCase() === 'kv'));
+  assert.equal(valueOf(facts, 'measurement.breakdown_voltage'), '62.97');
+  assert.equal(valueOf(facts, 'measurement.temperature'), '21');
+  assert.equal(valueOf(facts, 'measurement.humidity'), '54');
+  assert.equal(facts.filter((fact) => fact.field === 'asset.voltage_level').length, 1);
+  assert.ok(hasField(facts, 'test.result'));
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+  assert.ok(hasField(facts, 'safety.assertion'));
 });

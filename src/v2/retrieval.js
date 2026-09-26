@@ -155,13 +155,28 @@ async function uploadCandidates({ contextId, registry, uploadStore }) {
   return { candidates, warnings };
 }
 
-function scoreChunk(text, queryTerms) {
+function scoreChunk(text, queryTerms, rawQuery = '') {
   const terms = tokenize(text);
-  if (terms.length === 0 || queryTerms.length === 0) return 0;
+  if (terms.length === 0 || queryTerms.length === 0) return { score: 0, matchedTerms: [] };
   const termSet = new Set(terms);
-  let hits = 0;
-  for (const term of queryTerms) if (termSet.has(term)) hits += 1;
-  return hits / Math.sqrt(terms.length);
+  const uniqueQueryTerms = [...new Set(queryTerms)];
+  const matchedTerms = uniqueQueryTerms.filter((term) => termSet.has(term));
+  const coverage = matchedTerms.length / uniqueQueryTerms.length;
+  const density = matchedTerms.length / Math.sqrt(terms.length);
+  // Exact mixed letter/number identifiers (C751A, SBS6025J, GB50253) are
+  // substantially more discriminative than generic words such as "car" or
+  // "inspection". Reward exact identity matches so a nearby asset family
+  // cannot outrank the explicitly dictated identifier merely by being short.
+  const identifierTerms = uniqueQueryTerms.filter((term) => /[a-z]/iu.test(term) && /\d/u.test(term) && term.length >= 3);
+  const identifierMatches = identifierTerms.filter((term) => termSet.has(term));
+  const identifierBonus = identifierMatches.length * 0.35;
+  const normalizedQuery = String(rawQuery).toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalizedText = String(text).toLowerCase().replace(/\s+/g, ' ');
+  const phraseBonus = normalizedQuery.length >= 3 && normalizedText.includes(normalizedQuery) ? 0.5 : 0;
+  return {
+    score: coverage + (0.25 * density) + phraseBonus + identifierBonus,
+    matchedTerms,
+  };
 }
 
 /**
@@ -220,7 +235,10 @@ export function createRetriever({ registry, uploadStore, knowledgeRoot = default
     }
 
     const scored = combined
-      .map((candidate) => ({ ...candidate, score: scoreChunk(candidate.text, queryTerms) }))
+      .map((candidate) => {
+        const scoring = scoreChunk(candidate.text, queryTerms, query);
+        return { ...candidate, score: scoring.score, matched_terms: scoring.matchedTerms };
+      })
       .filter((candidate) => queryTerms.length === 0 || candidate.score > 0);
 
     scored.sort((a, b) => b.score - a.score || String(a.chunk_id).localeCompare(String(b.chunk_id)));
@@ -232,6 +250,7 @@ export function createRetriever({ registry, uploadStore, knowledgeRoot = default
       chunk_id: candidate.chunk_id,
       text: candidate.text,
       score: candidate.score,
+      matched_terms: Object.freeze([...(candidate.matched_terms || [])]),
       provenance: Object.freeze({ ...candidate.provenance }),
     }));
 

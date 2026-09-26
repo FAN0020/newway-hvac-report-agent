@@ -147,8 +147,15 @@ footer { padding: 28px 4px; color: var(--muted); font-size: .86rem; }
 .fact-table { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(160px, 2fr) 70px 170px auto; gap: 8px 12px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--line); font-size: .88rem; overflow-wrap: anywhere; }
 .fact-table.head { font-weight: 700; color: var(--muted); font-size: .78rem; border-bottom: 2px solid var(--line); }
 .fact-table:last-child { border-bottom: 0; }
+.v2-fact-input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.v2-confirm-fact { padding: 7px 10px; font-size: .76rem; white-space: nowrap; }
+.v2-confirm-fact:disabled { opacity: .6; cursor: default; }
 .badge-critical { display: inline-block; padding: 2px 9px; border-radius: 999px; background: var(--accent); color: white; font-size: .72rem; font-weight: 800; }
 .v2-missing { margin: 12px 0; padding: 10px 14px; border-left: 4px solid #d79a2c; background: #fff8df; color: #684915; line-height: 1.5; }
+.v2-follow-up { margin: 14px 0; padding: 16px; border: 1px solid #e1c57b; border-radius: 12px; background: #fffaf0; }
+.v2-follow-up-card { display: grid; gap: 7px; padding: 12px 0; border-bottom: 1px solid #eadab2; }
+.v2-follow-up-card:last-child { border-bottom: 0; }
+.v2-follow-up-card small { color: var(--muted); }
 .gate-item { margin: 8px 0; padding: 10px 12px; border-left: 4px solid var(--accent); background: #fff0ea; color: #8d3527; font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
 .gate-item code { font-size: .78rem; background: #f6ddd5; padding: 1px 6px; border-radius: 6px; }
 .v2-section-missing { color: #9a6b3b; }

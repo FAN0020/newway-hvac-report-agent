@@ -277,6 +277,13 @@ function acceptTranscript(artifact, messageKey) {
   el['artifact-output'].textContent = JSON.stringify(artifact, null, 2);
   setLocalizedText(el['transcription-status'], 'capture.sourceSaved', { message: translatedVariable(messageKey), provider: artifact.provider });
   el['build-report'].disabled = false;
+  // Real speech transcription now feeds the active SBS V2 workflow directly.
+  // The immutable source artifact remains visible in V1; V2 receives a reviewable
+  // copy so terminology corrections still require technician confirmation.
+  if (typeof v2 !== 'undefined' && v2?.contextId && v2.contextId.startsWith('SBS/') && v2El?.['v2-facts-text']) {
+    v2El['v2-facts-text'].value = artifact.raw_text;
+    v2SetStatus('v2-facts-status', 'Real speech transcript copied into the active SBS workflow. Review it, then extract facts.');
+  }
   ['correction-section', 'questions-section', 'evidence-section', 'report-section', 'confirm-section'].forEach((id) => { el[id].hidden = true; });
 }
 
@@ -624,6 +631,8 @@ const V2_SCOPE_DEFAULTS = Object.freeze({
   HVAC: Object.freeze({ contextId: 'HVAC', scopeId: 'HVAC', display: 'HVAC', v2: false }),
   SBS_BUS: Object.freeze({ contextId: 'SBS/BUS', scopeId: 'SBS_BUS', display: 'SBS / Bus', v2: true }),
   SBS_RAIL: Object.freeze({ contextId: 'SBS/RAIL', scopeId: 'SBS_RAIL', display: 'SBS / Rail', v2: true }),
+  OILFIELD: Object.freeze({ contextId: 'OILFIELD', scopeId: 'OILFIELD', display: 'Oilfield / Pipeline', v2: true }),
+  POWER_GRID: Object.freeze({ contextId: 'POWER/GRID', scopeId: 'POWER_GRID', display: 'Power Grid / Energy', v2: true }),
 });
 
 const v2Ids = [
@@ -633,8 +642,10 @@ const v2Ids = [
   'v2-retrieve-scope-hint', 'v2-retrieve-query', 'v2-retrieve-topk', 'v2-retrieve-submit',
   'v2-retrieve-status', 'v2-retrieve-warnings', 'v2-retrieve-results',
   'v2-facts-text', 'v2-facts-extract', 'v2-report-build', 'v2-facts-status',
+  'v2-transcript-review', 'v2-transcript-corrections', 'v2-transcript-questions', 'v2-transcript-apply',
   'v2-facts-table-wrap', 'v2-facts-table', 'v2-report-output', 'v2-report-banner',
-  'v2-report-missing', 'v2-report-gates', 'v2-report-sections', 'v2-demo-status',
+  'v2-report-missing', 'v2-follow-up', 'v2-follow-up-list', 'v2-follow-up-apply',
+  'v2-report-gates', 'v2-report-sections', 'v2-demo-status',
 ];
 const v2El = Object.fromEntries(v2Ids.map((id) => [id, document.getElementById(id)]));
 
@@ -646,6 +657,9 @@ const v2 = {
   scopesLoaded: false,
   facts: [],
   knowledgeHits: [],
+  followUpQuestions: [],
+  correctionSuggestions: [],
+  transcriptQuestions: [],
   reportResult: null,
   uploadTimer: null,
   reportBlocked: false,
@@ -684,12 +698,18 @@ function v2SetScopeHints() {
   setLocalizedText(v2El['v2-upload-scope-hint'], 'scope.uploadHint', { scope: v2.display });
   setLocalizedText(v2El['v2-retrieve-scope-hint'], 'scope.retrievalHint', {
     scope: v2.display,
-    otherScopes: translatedVariable(v2.scopeId === 'SBS_BUS' ? 'scope.otherBus' : 'scope.otherRail'),
+    otherScopes: translatedVariable('scope.otherScopes'),
   });
 }
 
 function v2UpdateStatementPlaceholder() {
-  const key = v2.scopeId === 'SBS_RAIL' ? 'v2.facts.railPlaceholder' : 'v2.facts.busPlaceholder';
+  const placeholderKeys = {
+    SBS_BUS: 'v2.facts.busPlaceholder',
+    SBS_RAIL: 'v2.facts.railPlaceholder',
+    OILFIELD: 'v2.facts.oilfieldPlaceholder',
+    POWER_GRID: 'v2.facts.powerGridPlaceholder',
+  };
+  const key = placeholderKeys[v2.scopeId] || 'v2.facts.busPlaceholder';
   v2El['v2-facts-text'].dataset.i18nPlaceholder = key;
   v2El['v2-facts-text'].placeholder = t(key);
 }
@@ -702,6 +722,9 @@ function v2SetScope(scopeId) {
   v2.display = info.display;
   v2.facts = [];
   v2.knowledgeHits = [];
+  v2.followUpQuestions = [];
+  v2.correctionSuggestions = [];
+  v2.transcriptQuestions = [];
   v2.reportResult = null;
   v2.reportBlocked = false;
   v2StopDemo();
@@ -718,6 +741,8 @@ function v2SetScope(scopeId) {
   if (!info.v2) return;
   v2El['v2-report-build'].disabled = true;
   v2El['v2-report-output'].hidden = true;
+  v2El['v2-follow-up'].hidden = true;
+  v2El['v2-transcript-review'].hidden = true;
   v2El['v2-facts-table-wrap'].hidden = true;
   v2El['v2-upload-record'].hidden = true;
   v2El['v2-upload-progress'].hidden = true;
@@ -947,6 +972,9 @@ function v2RenderRetrieveResults(results) {
     const prov = localizedNode('p', 'prov', 'v2.retrieval.provenance', {
       source: item.provenance?.file || item.doc_id || '—',
       uploader: item.provenance?.uploader ? translatedVariable('v2.retrieval.provenanceUploader', { uploader: item.provenance.uploader }) : '',
+      matched: Array.isArray(item.matched_terms) && item.matched_terms.length
+        ? translatedVariable('v2.retrieval.provenanceMatched', { terms: item.matched_terms.join(', ') })
+        : '',
     });
     card.append(head, text, prov);
     return card;
@@ -987,22 +1015,151 @@ function v2RenderFacts(facts) {
   }
   const head = node('div', 'fact-table head');
   head.append(
-    localizedNode('span', '', 'common.field'), localizedNode('span', '', 'common.value'),
-    localizedNode('span', '', 'common.unit'), localizedNode('span', '', 'common.supportStatus'), node('span', '', ''),
+    localizedNode('span', '', 'common.field'), localizedNode('span', '', 'v2.facts.editableValue'),
+    localizedNode('span', '', 'common.unit'), localizedNode('span', '', 'common.supportStatus'), localizedNode('span', '', 'v2.facts.review'),
   );
-  const rows = facts.map((fact) => {
+  const rows = facts.map((fact, index) => {
     const row = node('div', 'fact-table');
+    const input = document.createElement('input');
+    input.className = 'v2-fact-input';
+    input.value = typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value ?? '');
+    input.setAttribute('aria-label', t('v2.facts.valueFor', { field: localizedField(fact.field || `fact ${index + 1}`) }));
+    input.addEventListener('input', () => {
+      fact.value = input.value;
+      fact.support_status = 'MANUAL_ENTRY';
+      fact.source = 'technician:edit';
+      v2.reportBlocked = false;
+      v2El['v2-report-build'].disabled = false;
+    });
+    const confirm = localizedNode('button', 'v2-confirm-fact', fact.support_status === 'CONFIRMED_BY_TECHNICIAN' ? 'v2.facts.confirmed' : 'common.confirm');
+    confirm.type = 'button';
+    confirm.disabled = fact.support_status === 'CONFIRMED_BY_TECHNICIAN';
+    confirm.addEventListener('click', () => {
+      fact.value = input.value;
+      fact.support_status = 'CONFIRMED_BY_TECHNICIAN';
+      fact.source = 'technician:review';
+      v2.reportBlocked = false;
+      v2El['v2-report-build'].disabled = false;
+      v2RenderFacts(v2.facts);
+    });
     row.append(
-      localizedFieldNode('span', '', fact.field),
-      node('span', '', typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value ?? '—')),
+      localizedFieldNode('span', fact.critical ? 'badge-critical' : '', fact.field),
+      input,
       node('span', '', fact.unit || '—'),
       fact.support_status ? localizedNode('span', '', STATUS_KEYS[fact.support_status] || 'common.unknown') : node('span', '', '—'),
-      fact.critical ? localizedNode('span', 'badge-critical', 'common.critical') : node('span', '', ''),
+      confirm,
     );
     return row;
   });
   table.replaceChildren(head, ...rows);
 }
+
+function v2RenderFollowUps(questions) {
+  v2.followUpQuestions = Array.isArray(questions) ? questions : [];
+  const section = v2El['v2-follow-up'];
+  if (!v2.followUpQuestions.length) {
+    section.hidden = true;
+    v2El['v2-follow-up-list'].replaceChildren();
+    return;
+  }
+  const cards = v2.followUpQuestions.map((item) => {
+    const label = document.createElement('label');
+    label.className = 'v2-follow-up-card';
+    label.append(node('strong', '', item.question || item.field));
+    const input = document.createElement('textarea');
+    input.rows = 2;
+    input.dataset.field = item.field;
+    input.dataset.sectionId = item.section_id;
+    input.dataset.confirmationOnly = item.confirmation_only ? 'true' : 'false';
+    if (item.target_value) input.dataset.targetValue = item.target_value;
+    input.placeholder = t(item.confirmation_only ? 'v2.facts.confirmPlaceholder' : 'v2.facts.answerPlaceholder');
+    label.append(input, localizedNode('small', '', 'v2.facts.followUpMeta', {
+      section: localizedField(item.section_id),
+      field: localizedField(item.field),
+    }));
+    return label;
+  });
+  v2El['v2-follow-up-list'].replaceChildren(...cards);
+  section.hidden = false;
+}
+
+function v2RenderTranscriptReview(review) {
+  v2.correctionSuggestions = Array.isArray(review?.correction_suggestions) ? review.correction_suggestions : [];
+  v2.transcriptQuestions = Array.isArray(review?.confirmation_questions) ? review.confirmation_questions : [];
+  const section = v2El['v2-transcript-review'];
+  const corrections = v2.correctionSuggestions.map((item) => {
+    const label = document.createElement('label');
+    label.className = 'v2-follow-up-card';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.correctionId = item.correction_id;
+    label.append(
+      checkbox,
+      document.createTextNode(` “${item.source_text}” → “${item.suggested_text}”`),
+      node('small', '', `${item.confidence} · ${item.reason}`),
+    );
+    return label;
+  });
+  const questions = v2.transcriptQuestions.map((item) => {
+    const card = node('div', 'v2-follow-up-card');
+    card.append(localizedNode('strong', '', 'v2.facts.criticalClarification'), node('p', '', item.question), node('small', '', item.reason));
+    return card;
+  });
+  v2El['v2-transcript-corrections'].replaceChildren(...corrections);
+  v2El['v2-transcript-questions'].replaceChildren(...questions);
+  v2El['v2-transcript-apply'].hidden = corrections.length === 0;
+  section.hidden = corrections.length === 0 && questions.length === 0;
+}
+
+v2El['v2-transcript-apply'].addEventListener('click', () => {
+  const accepted = new Set([...v2El['v2-transcript-corrections'].querySelectorAll('input[data-correction-id]:checked')]
+    .map((input) => input.dataset.correctionId));
+  if (!accepted.size) {
+    v2SetStatus('v2-facts-status', 'v2.facts.selectCorrection');
+    return;
+  }
+  let text = v2El['v2-facts-text'].value;
+  const selected = v2.correctionSuggestions
+    .filter((item) => accepted.has(item.correction_id))
+    .sort((a, b) => b.start - a.start);
+  for (const item of selected) {
+    if (text.slice(item.start, item.end) !== item.source_text) continue;
+    text = `${text.slice(0, item.start)}${item.suggested_text}${text.slice(item.end)}`;
+  }
+  v2El['v2-facts-text'].value = text;
+  v2SetStatus('v2-facts-status', 'v2.facts.correctionsApplied', { count: selected.length });
+  v2El['v2-facts-extract'].click();
+});
+
+v2El['v2-follow-up-apply'].addEventListener('click', () => {
+  let applied = 0;
+  for (const input of v2El['v2-follow-up-list'].querySelectorAll('textarea[data-field]')) {
+    const value = input.value.trim();
+    if (!value) continue;
+    const field = input.dataset.field;
+    const confirmationOnly = input.dataset.confirmationOnly === 'true';
+    if (confirmationOnly && !/^(?:confirm(?:ed)?|yes|确认|是)$/iu.test(value)) continue;
+    const targetValue = input.dataset.targetValue || '';
+    const existing = v2.facts.find((fact) => fact.field === field && (!targetValue || String(fact.value) === targetValue));
+    if (confirmationOnly && !existing) continue;
+    const fact = existing || { field };
+    if (!confirmationOnly) fact.value = value;
+    fact.support_status = 'CONFIRMED_BY_TECHNICIAN';
+    fact.source = 'technician:follow-up';
+    fact.critical = field === 'completion.state' || field === 'test.result' || field.startsWith('safety.') || field === 'access.approval';
+    if (!existing) v2.facts.push(fact);
+    applied += 1;
+  }
+  if (!applied) {
+    v2SetStatus('v2-facts-status', 'v2.facts.answerFollowUp');
+    return;
+  }
+  v2.reportBlocked = false;
+  v2RenderFacts(v2.facts);
+  v2El['v2-facts-table-wrap'].hidden = false;
+  v2El['v2-report-build'].disabled = false;
+  v2El['v2-report-build'].click();
+});
 
 v2El['v2-facts-extract'].addEventListener('click', async () => {
   const raw = v2El['v2-facts-text'].value.trim();
@@ -1017,11 +1174,38 @@ v2El['v2-facts-extract'].addEventListener('click', async () => {
   try {
     const result = await api('/api/v2/facts/extract', { context_id: v2.contextId, raw_text: raw });
     v2.facts = Array.isArray(result.data?.facts) ? result.data.facts : [];
+    v2RenderTranscriptReview(result.data?.transcript_review || {});
     v2.reportBlocked = false;
     v2RenderFacts(v2.facts);
     v2El['v2-facts-table-wrap'].hidden = v2.facts.length === 0;
     v2El['v2-report-build'].disabled = v2.facts.length === 0;
-    v2SetStatus('v2-facts-status', 'v2.facts.extracted', { count: v2.facts.length });
+    let retrievalCount = 0;
+    try {
+      const focusedParts = v2.facts
+        .filter((fact) => /^(?:asset\.|standard\.|measurement\.|defect\.)/u.test(String(fact.field || '')))
+        .map((fact) => `${fact.value ?? ''}${fact.unit ? ` ${fact.unit}` : ''}`)
+        .filter(Boolean);
+      const retrievalQuery = [...new Set(focusedParts)].join(' ').slice(0, 1500) || raw;
+      const retrieval = await api('/api/v2/retrieve', {
+        context_id: v2.contextId,
+        query: retrievalQuery,
+        top_k: 3,
+        include_uploads: true,
+      });
+      const results = retrieval.data?.results || [];
+      retrievalCount = results.length;
+      v2.knowledgeHits = results.map((item) => item.text);
+      v2El['v2-retrieve-query'].value = retrievalQuery;
+      v2El['v2-retrieve-topk'].value = '3';
+      v2RenderRetrieveWarnings(retrieval.warnings || []);
+      v2RenderRetrieveResults(results);
+      v2SetStatus('v2-retrieve-status', 'v2.retrieval.automaticComplete', { count: retrievalCount });
+    } catch {
+      // Retrieval supports guidance but must never prevent fact extraction.
+      v2.knowledgeHits = [];
+      v2SetStatus('v2-retrieve-status', 'v2.retrieval.automaticUnavailable');
+    }
+    v2SetStatus('v2-facts-status', 'v2.facts.extractedWithRetrieval', { count: v2.facts.length, retrievalCount });
   } catch (error) {
     v2.facts = [];
     v2El['v2-report-build'].disabled = true;
@@ -1039,16 +1223,21 @@ function v2RenderReport(result) {
   const needsConfirm = result.status === 'NEEDS_CONFIRMATION' || violations.length > 0;
   v2El['v2-report-output'].hidden = false;
 
-  const banner = v2El['v2-report-banner'];
-  banner.className = `validator-banner ${needsConfirm ? 'fail' : 'pass'}`;
-  setLocalizedText(banner, needsConfirm ? 'v2.facts.hardGateBlocked' : 'v2.facts.hardGatePassed');
-
   const missing = Array.isArray(report.missing_required_fields) ? report.missing_required_fields : [];
+  const incomplete = missing.length > 0;
+
+  const banner = v2El['v2-report-banner'];
+  banner.className = `validator-banner ${needsConfirm ? 'fail' : incomplete ? '' : 'pass'}`;
+  setLocalizedText(banner, needsConfirm
+    ? 'v2.facts.hardGateBlocked'
+    : incomplete ? 'v2.facts.draftIncomplete' : 'v2.facts.hardGatePassedComplete');
+
   const missingBox = v2El['v2-report-missing'];
   setLocalizedText(missingBox, missing.length ? 'v2.facts.missingRequired' : 'v2.facts.allRequired', {
     fields: missing.map(localizedField).join(', '),
   });
   missingBox.hidden = missing.length === 0;
+  v2RenderFollowUps(result.data?.follow_up_questions || []);
 
   v2El['v2-report-gates'].replaceChildren(...(violations.length ? violations.map((violation) => {
     const item = node('p', 'gate-item');
@@ -1090,7 +1279,11 @@ v2El['v2-report-build'].addEventListener('click', async () => {
       v2SetStatus('v2-facts-status', 'v2.facts.hardGateBlocked');
       v2El['v2-report-build'].disabled = true;
     } else {
-      v2SetStatus('v2-facts-status', 'v2.facts.generated', { version: result.data?.report?.reportVersion || 'v2' });
+      const missingCount = result.data?.report?.missing_required_fields?.length || 0;
+      v2SetStatus('v2-facts-status', missingCount ? 'v2.facts.draftMissing' : 'v2.facts.generated', {
+        version: result.data?.report?.reportVersion || 'v2',
+        count: missingCount,
+      });
     }
   } catch (error) {
     v2SetStatus('v2-facts-status', 'v2.facts.buildFailed', { code: error.result?.error_code || 'UNKNOWN', message: error.message });

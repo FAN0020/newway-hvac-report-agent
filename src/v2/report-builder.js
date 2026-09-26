@@ -80,6 +80,19 @@ export const RAIL_REPORT_SECTIONS = Object.freeze([
   Object.freeze({ id: 'provenance', title: 'Provenance', required: true }),
 ]);
 
+/** Shared staged report for oilfield and power-grid inspections. */
+export const INDUSTRIAL_REPORT_SECTIONS = Object.freeze([
+  Object.freeze({ id: 'asset_identification', title: 'Asset and location', required: true }),
+  Object.freeze({ id: 'inspection_basis', title: 'Inspection basis', required: true }),
+  Object.freeze({ id: 'inspection_scope', title: 'Inspection or test item', required: true }),
+  Object.freeze({ id: 'observations_measurements', title: 'Observed condition and measurements', required: true }),
+  Object.freeze({ id: 'findings_result', title: 'Findings and result', required: true }),
+  Object.freeze({ id: 'work_performed', title: 'Work performed', required: false }),
+  Object.freeze({ id: 'verification', title: 'Verification or retest', required: false }),
+  Object.freeze({ id: 'completion_safety', title: 'Completion and safety confirmation', required: true }),
+  Object.freeze({ id: 'provenance', title: 'Provenance', required: true }),
+]);
+
 /**
  * Exact field → section mapping for Bus. Exact matches win over family
  * prefixes (e.g. `work.fault_code` → inspection_findings, not works_summary).
@@ -173,6 +186,31 @@ const RAIL_FAMILY_TO_SECTION = Object.freeze({
   'provenance.': 'provenance',
 });
 
+const INDUSTRIAL_EXACT_TO_SECTION = Object.freeze({
+  'work.type': 'inspection_scope',
+  'work.description': 'inspection_scope',
+  'standard.reference': 'inspection_basis',
+  'inspection.item': 'inspection_scope',
+  'inspection.observation': 'observations_measurements',
+  'inspection.result': 'findings_result',
+  'defect.description': 'findings_result',
+  'work_performed': 'work_performed',
+  'test.result': 'verification',
+  'completion.state': 'completion_safety',
+});
+
+const INDUSTRIAL_FAMILY_TO_SECTION = Object.freeze({
+  'asset.': 'asset_identification',
+  'standard.': 'inspection_basis',
+  'inspection.': 'findings_result',
+  'defect.': 'findings_result',
+  'measurement.': 'observations_measurements',
+  'test.': 'verification',
+  'completion.': 'completion_safety',
+  'safety.': 'completion_safety',
+  'provenance.': 'provenance',
+});
+
 /** Exact field labels (report rendering). */
 const BUS_LABELS = Object.freeze({
   'asset.registration_no': 'Registration No. (VRN)',
@@ -212,6 +250,22 @@ const RAIL_LABELS = Object.freeze({
   'access.approval': 'Track access approval',
   'completion.state': 'Completion state',
   'work_performed': 'Work performed',
+});
+
+const INDUSTRIAL_LABELS = Object.freeze({
+  'asset.equipment': 'Equipment / asset',
+  'asset.location': 'Location',
+  'asset.voltage_level': 'Voltage level',
+  'standard.reference': 'Standard / clause',
+  'inspection.item': 'Inspection item',
+  'inspection.observation': 'Observed condition',
+  'inspection.result': 'Inspection result',
+  'defect.description': 'Defect / abnormality',
+  'work.type': 'Work type',
+  'work.description': 'Work description',
+  'work_performed': 'Work performed',
+  'test.result': 'Verification result',
+  'completion.state': 'Completion state',
 });
 
 /** Family-prefix labels used when no exact label exists. */
@@ -274,18 +328,23 @@ const GARBLED_RE = /[\uFFFD\uFFFE\uFFFF]|\?\?\?|\u0000/;
  */
 const BUS_UNITS = Object.freeze(new Set(['km', '%', 'bar', 'kpa', 'mm', '°c', 'kwh', 'mwh', 'g/kwh', 'v', 'db']));
 const RAIL_UNITS = Object.freeze(new Set(['km', 'train-km', 'car-km', 'mm', 'v', '%', '°c', 'min']));
+const INDUSTRIAL_UNITS = Object.freeze(new Set(['kv', 'v', 'a', 'ma', 'm', 'mm', 'cm', 'km', '%', '°c', 'bar', 'kpa', 'mpa', 'ω·m', 'ohm·m', 'min']));
 
 const SECTIONS_BY_SCOPE = Object.freeze({
   SBS_BUS: BUS_REPORT_SECTIONS,
   SBS_RAIL: RAIL_REPORT_SECTIONS,
+  OILFIELD: INDUSTRIAL_REPORT_SECTIONS,
+  POWER_GRID: INDUSTRIAL_REPORT_SECTIONS,
 });
-const EXACT_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_EXACT_TO_SECTION, SBS_RAIL: RAIL_EXACT_TO_SECTION });
-const FAMILY_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_FAMILY_TO_SECTION, SBS_RAIL: RAIL_FAMILY_TO_SECTION });
-const LABELS_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_LABELS, SBS_RAIL: RAIL_LABELS });
-const UNITS_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_UNITS, SBS_RAIL: RAIL_UNITS });
+const EXACT_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_EXACT_TO_SECTION, SBS_RAIL: RAIL_EXACT_TO_SECTION, OILFIELD: INDUSTRIAL_EXACT_TO_SECTION, POWER_GRID: INDUSTRIAL_EXACT_TO_SECTION });
+const FAMILY_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_FAMILY_TO_SECTION, SBS_RAIL: RAIL_FAMILY_TO_SECTION, OILFIELD: INDUSTRIAL_FAMILY_TO_SECTION, POWER_GRID: INDUSTRIAL_FAMILY_TO_SECTION });
+const LABELS_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_LABELS, SBS_RAIL: RAIL_LABELS, OILFIELD: INDUSTRIAL_LABELS, POWER_GRID: INDUSTRIAL_LABELS });
+const UNITS_BY_SCOPE = Object.freeze({ SBS_BUS: BUS_UNITS, SBS_RAIL: RAIL_UNITS, OILFIELD: INDUSTRIAL_UNITS, POWER_GRID: INDUSTRIAL_UNITS });
 const FORBIDDEN_SOURCES_BY_SCOPE = Object.freeze({
-  SBS_BUS: Object.freeze(['SBS_RAIL', 'HVAC']),
-  SBS_RAIL: Object.freeze(['SBS_BUS', 'HVAC']),
+  SBS_BUS: Object.freeze(['SBS_RAIL', 'HVAC', 'OILFIELD', 'POWER_GRID']),
+  SBS_RAIL: Object.freeze(['SBS_BUS', 'HVAC', 'OILFIELD', 'POWER_GRID']),
+  OILFIELD: Object.freeze(['SBS_BUS', 'SBS_RAIL', 'HVAC', 'POWER_GRID']),
+  POWER_GRID: Object.freeze(['SBS_BUS', 'SBS_RAIL', 'HVAC', 'OILFIELD']),
 });
 
 /** Normalizes a unit token for dictionary lookup ('°C'/'℃' → '°c', lowercased). */
@@ -365,7 +424,9 @@ function buildReportSections({ scopeId, facts = [], factsReceiptId }) {
     if (!sectionId || !byId.has(sectionId)) continue;
     const label = labelFor(fact.field, scopeId);
     const unit = fact.unit ? ` ${fact.unit}` : '';
-    byId.get(sectionId).content.push(`${label}: ${renderValue(fact)}${unit}.`);
+    const rendered = `${renderValue(fact)}${unit}`;
+    const punctuation = /[.!?。！？]$/.test(rendered) ? '' : '.';
+    byId.get(sectionId).content.push(`${label}: ${rendered}${punctuation}`);
   }
   if (factsReceiptId) {
     const provenance = byId.get('provenance');
@@ -402,6 +463,16 @@ export function buildRailReportSections({ facts = [], factsReceiptId } = {}) {
   return Object.freeze({
     sections: Object.freeze(buildReportSections({ scopeId: 'SBS_RAIL', facts, factsReceiptId })),
     reportVersion: 'v2-rail-1',
+  });
+}
+
+export function buildIndustrialReportSections({ scopeId, facts = [], factsReceiptId } = {}) {
+  if (scopeId !== 'OILFIELD' && scopeId !== 'POWER_GRID') {
+    throw new Error(`Industrial report scope must be OILFIELD or POWER_GRID, received "${scopeId}".`);
+  }
+  return Object.freeze({
+    sections: Object.freeze(buildReportSections({ scopeId, facts, factsReceiptId })),
+    reportVersion: scopeId === 'OILFIELD' ? 'v2-oilfield-1' : 'v2-power-grid-1',
   });
 }
 
@@ -474,6 +545,9 @@ export function assertNoServiceFactInvention({ facts = [], knowledgeHits = [] } 
 /** Whether a field is an asset/part/fault identity field (08 class 3 wrong-identity gate). */
 function isIdentityField(field) {
   return field === 'asset.car'
+    || field === 'asset.equipment'
+    || field === 'asset.location'
+    || field === 'asset.voltage_level'
     || field === 'asset.car_serial'
     || field.includes('registration_no')
     || field.includes('train_set')
@@ -589,7 +663,12 @@ export function checkHardGates({ scopeId, facts = [] } = {}) {
     // the 08 class 2 unit check targets measured values, so identifiers like
     // plate "SBS6025Z" or train set "C751A" must not be read as "number +
     // inline unit" and must never raise CHANGED_NUMBER_UNIT.
-    if (!isIdentityField(field)) {
+    // Unit validation applies to measured values (or an explicit unit), not
+    // arbitrary identifiers that happen to contain digits, such as TAMS
+    // approval TA-2026-091 or a work-order reference.
+    const carriesMeasurement = field.startsWith('measurement.')
+      || (fact.unit !== undefined && fact.unit !== null && String(fact.unit).trim() !== '');
+    if (!isIdentityField(field) && carriesMeasurement) {
       const unitIssue = checkNumberUnit({ scopeId, fact });
       if (unitIssue) push('CHANGED_NUMBER_UNIT', field, unitIssue);
     }

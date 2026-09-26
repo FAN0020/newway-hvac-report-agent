@@ -21,6 +21,8 @@ runtime/tools/*
 .tmp-tests/
 tmp/
 .cache/
+.playwright-cli/
+output/
 node_modules/
 .venv/
 venv/

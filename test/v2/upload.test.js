@@ -330,6 +330,9 @@ test('tokenize is lowercase and split on non-letter/number runs', () => {
   assert.deepEqual(tokenize('ZX-47 Door motor'), ['zx', '47', 'door', 'motor']);
   assert.deepEqual(tokenize('  Mixed CASE '), ['mixed', 'case']);
   assert.deepEqual(tokenize(''), []);
+  assert.ok(tokenize('管顶覆土厚度').includes('覆土'));
+  assert.ok(tokenize('管顶覆土厚度').includes('厚度'));
+  assert.ok(tokenize('覆土厚度为0.85米').includes('0.85m'));
 });
 
 test('buildIndex maps terms to chunk indices and counts tokens', () => {

@@ -86,18 +86,18 @@ test('browser shell icon is served without a console-visible 404', async () => {
   assert.match(response.headers.get('content-type') || '', /^image\/svg\+xml/);
 });
 
-test('GET /api/v2/scopes lists three scopes with HVAC upload_allowed=false', async () => {
+test('GET /api/v2/scopes lists transport and industrial scopes with HVAC upload disabled', async () => {
   const { status, body } = await json(api('/api/v2/scopes'));
   assert.equal(status, 200);
   assert.equal(body.status, 'PASS');
   const ids = body.data.scopes.map((item) => item.scope_id).sort();
-  assert.deepEqual(ids, ['HVAC', 'SBS_BUS', 'SBS_RAIL']);
+  assert.deepEqual(ids, ['HVAC', 'OILFIELD', 'POWER_GRID', 'SBS_BUS', 'SBS_RAIL']);
   const hvac = body.data.scopes.find((item) => item.scope_id === 'HVAC');
   assert.equal(hvac.upload_allowed, false);
   assert.equal(hvac.display, 'HVAC');
   const bus = body.data.scopes.find((item) => item.scope_id === 'SBS_BUS');
   assert.equal(bus.upload_allowed, true);
-  assert.deepEqual(body.data.contexts, { 'SBS/BUS': 'SBS_BUS', 'SBS/RAIL': 'SBS_RAIL', HVAC: 'HVAC' });
+  assert.deepEqual(body.data.contexts, { 'SBS/BUS': 'SBS_BUS', 'SBS/RAIL': 'SBS_RAIL', HVAC: 'HVAC', OILFIELD: 'OILFIELD', 'POWER/GRID': 'POWER_GRID' });
 });
 
 test('POST /api/v2/uploads ingests a txt into SBS_BUS as READY', async () => {
@@ -200,6 +200,50 @@ test('POST /api/v2/facts/extract produces facts with critical flags for SBS/BUS'
   assert.ok(body.data.facts.every((fact) => fact.support_status === 'DIRECT_TRANSCRIPT'));
 });
 
+test('POST /api/v2/retrieve returns only oilfield source material for pipeline checks', async () => {
+  const { status, body } = await json(api('/api/v2/retrieve', {
+    method: 'POST',
+    body: { context_id: 'OILFIELD', query: '原油输油管道 管顶覆土 GB50253', top_k: 5 },
+  }));
+  assert.equal(status, 200);
+  assert.equal(body.status, 'PASS');
+  assert.ok(body.data.results.length > 0);
+  assert.ok(body.data.results.every((item) => item.scope_id === 'OILFIELD'));
+});
+
+test('POST /api/v2/facts/extract and reports/build support POWER/GRID', async () => {
+  const raw = '对2号主变绝缘油进行检测，电压等级220kV。依据 GB 50150-2016。击穿电压平均值62.97kV，测试通过。检测完成，安全措施已确认。';
+  const extracted = await json(api('/api/v2/facts/extract', {
+    method: 'POST',
+    body: { context_id: 'POWER/GRID', raw_text: raw },
+  }));
+  assert.equal(extracted.status, 200);
+  assert.equal(extracted.body.status, 'PASS');
+  assert.ok(extracted.body.data.facts.some((fact) => fact.field === 'asset.equipment'));
+
+  const built = await json(api('/api/v2/reports/build', {
+    method: 'POST',
+    body: { context_id: 'POWER/GRID', facts: extracted.body.data.facts, facts_receipt_id: 'facts:power:test' },
+  }));
+  assert.equal(built.status, 200);
+  assert.equal(built.body.data.report.scope_id, 'POWER_GRID');
+  assert.equal(built.body.data.report.reportVersion, 'v2-power-grid-1');
+  assert.ok(Array.isArray(built.body.data.follow_up_questions));
+});
+
+test('POST /api/v2/facts/extract returns reviewable Rail ASR corrections without applying them', async () => {
+  const raw = 'Corrective maintenance on train set Z751A. Inspection found the door control model 40.';
+  const { status, body } = await json(api('/api/v2/facts/extract', {
+    method: 'POST',
+    body: { context_id: 'SBS/RAIL', raw_text: raw },
+  }));
+  assert.equal(status, 200);
+  assert.equal(body.status, 'PASS');
+  assert.equal(body.data.transcript_review.correction_suggestions.length, 2);
+  assert.ok(body.data.transcript_review.correction_suggestions.every((item) => item.requires_confirmation));
+  assert.ok(!body.data.facts.some((fact) => String(fact.value).includes('C751A')), 'unconfirmed correction must not enter facts');
+});
+
 test('POST /api/v2/facts/extract fails for HVAC with UNSUPPORTED_SCOPE', async () => {
   const { status, body } = await json(api('/api/v2/facts/extract', {
     method: 'POST',
@@ -226,8 +270,13 @@ test('POST /api/v2/reports/build returns PASS with no gate violations for ground
   assert.equal(body.data.report.scope_id, 'SBS_BUS');
   assert.equal(body.data.report.context_id, 'SBS/BUS');
   assert.equal(body.data.report.reportVersion, 'v2-bus-1');
+  assert.match(body.data.report.facts_receipt_id, /^v2facts_[a-f0-9]{24}$/u);
   assert.ok(Array.isArray(body.data.report.sections));
   assert.ok(Array.isArray(body.data.report.missing_required_fields));
+  assert.ok(!body.data.report.missing_required_fields.includes('provenance'));
+  assert.ok(body.data.report.sections
+    .find((section) => section.id === 'provenance')
+    ?.content.some((line) => line.includes(body.data.report.facts_receipt_id)));
   assert.deepEqual(body.data.gates.violations, []);
 });
 
