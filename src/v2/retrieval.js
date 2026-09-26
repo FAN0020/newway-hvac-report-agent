@@ -163,11 +163,18 @@ function scoreChunk(text, queryTerms, rawQuery = '') {
   const matchedTerms = uniqueQueryTerms.filter((term) => termSet.has(term));
   const coverage = matchedTerms.length / uniqueQueryTerms.length;
   const density = matchedTerms.length / Math.sqrt(terms.length);
+  // Exact mixed letter/number identifiers (C751A, SBS6025J, GB50253) are
+  // substantially more discriminative than generic words such as "car" or
+  // "inspection". Reward exact identity matches so a nearby asset family
+  // cannot outrank the explicitly dictated identifier merely by being short.
+  const identifierTerms = uniqueQueryTerms.filter((term) => /[a-z]/iu.test(term) && /\d/u.test(term) && term.length >= 3);
+  const identifierMatches = identifierTerms.filter((term) => termSet.has(term));
+  const identifierBonus = identifierMatches.length * 0.35;
   const normalizedQuery = String(rawQuery).toLowerCase().replace(/\s+/g, ' ').trim();
   const normalizedText = String(text).toLowerCase().replace(/\s+/g, ' ');
   const phraseBonus = normalizedQuery.length >= 3 && normalizedText.includes(normalizedQuery) ? 0.5 : 0;
   return {
-    score: coverage + (0.25 * density) + phraseBonus,
+    score: coverage + (0.25 * density) + phraseBonus + identifierBonus,
     matchedTerms,
   };
 }

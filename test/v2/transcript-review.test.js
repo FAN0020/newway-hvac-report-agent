@@ -78,3 +78,13 @@ test('industrial spoken correction and return-to-service require confirmation', 
   assert.ok(review.confirmation_questions.some((item) => item.field === 'standard.reference'));
   assert.ok(review.confirmation_questions.some((item) => item.field === 'safety.assertion'));
 });
+
+test('Rail module 40 ASR variant is reviewable as module faulty', () => {
+  const review = reviewV2Transcript({
+    scopeId: 'SBS_RAIL',
+    rawText: 'Inspection found the door control module 40.',
+  });
+  assert.equal(review.correction_suggestions.length, 1);
+  assert.equal(review.correction_suggestions[0].suggested_text, 'door control module faulty');
+  assert.equal(review.correction_suggestions[0].requires_confirmation, true);
+});

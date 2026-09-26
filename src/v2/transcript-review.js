@@ -16,6 +16,14 @@ const RAIL_RULES = Object.freeze([
     category: 'ASSET_IDENTIFIER',
   }),
   Object.freeze({
+    id: 'rail_door_module_40',
+    pattern: /\bdoor\s+control\s+module\s+40\b/iu,
+    replacement: 'door control module faulty',
+    reason: 'The active Rail door vocabulary supports “door control module”; “40” is a likely ASR rendering of “faulty” and requires technician confirmation.',
+    confidence: 'MEDIUM',
+    category: 'DOMAIN_TERMINOLOGY',
+  }),
+  Object.freeze({
     id: 'rail_door_module_model_40',
     pattern: /\bdoor\s+control\s+model\s+40\b/iu,
     replacement: 'door control module faulty',

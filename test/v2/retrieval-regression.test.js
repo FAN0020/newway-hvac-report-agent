@@ -183,3 +183,16 @@ test('existing behavior: real knowledge root still blocks cross-domain and hits 
   assert.deepEqual(crossDomain.results, [], 'HVAC-only terms must stay blocked in SBS/BUS (0 results)');
   assert.ok(crossDomain.warnings.includes(CROSS_DOMAIN_BLOCKED));
 });
+
+test('exact Rail asset identifier outranks a nearby stock family', async () => {
+  const registry = await loadScopeRegistry();
+  const retriever = createRetriever({ registry });
+  const out = await retriever({
+    contextId: 'SBS/RAIL',
+    query: 'Alstom Metropolis C751A Car 3 passenger door control module',
+    topK: 5,
+  });
+  assert.ok(out.results.length > 0);
+  assert.match(out.results[0].text, /C751A/iu);
+  assert.doesNotMatch(out.results[0].text, /C851E/iu);
+});

@@ -239,6 +239,24 @@ test('registry may be omitted (loaded internally)', async () => {
   assert.equal(valueOf(facts, 'parts.replaced'), 'true');
 });
 
+test('Rail and Bus door-not-closing observations become findings and completed replacement becomes work performed', async () => {
+  const rail = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'Corrective maintenance on train set C751A Car 3. The passenger door would not close.',
+    registry,
+  });
+  assert.ok(rail.facts.some((fact) => fact.field === 'asset.car' && fact.value === 'Car 3'));
+  assert.ok(hasField(rail.facts, 'inspection_findings'));
+
+  const bus = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'The front passenger door would not close. I replaced the door control module.',
+    registry,
+  });
+  assert.ok(hasField(bus.facts, 'inspection_findings'));
+  assert.ok(hasField(bus.facts, 'work_performed'));
+});
+
 test('OILFIELD text extracts source-grounded pipeline inspection facts', async () => {
   const { facts } = await extractV2Facts({
     contextId: 'OILFIELD',

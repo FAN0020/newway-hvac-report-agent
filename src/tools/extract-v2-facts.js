@@ -206,7 +206,7 @@ const WORK_TYPE_RULES = Object.freeze([
 ]);
 
 /** Sentences stating a fault / defect (drives work.description). */
-const FAULT_RE = /故障|异常|不工作|失灵|损坏|不良|磨损|磨耗|报错|间歇|不制冷|无法|malfunction|fault|intermittent|not\s+work(?:ing)?|damage|worn|defect/iu;
+const FAULT_RE = /故障|异常|不工作|失灵|损坏|不良|磨损|磨耗|报错|间歇|不制冷|无法|malfunction|fault|intermittent|not\s+work(?:ing)?|(?:would|did|does)\s+not\s+(?:close|open|operate)|damage|worn|defect/iu;
 
 /** Sentences carrying an explicit fault-code signal (drives work.fault_code). */
 const FAULT_CODE_RE = /故障码|fault\s*code|SPN|FMI|J1939|诊断码|代码|\bcode\b/iu;
@@ -318,6 +318,7 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, lines)) push('asset.line', hit.canonical);
     for (const hit of findMatches(sentence, stocks)) push('asset.stock_class', hit.canonical);
+    for (const match of sentence.matchAll(/\bcar\s*(\d+)\b/giu)) push('asset.car', `Car ${match[1]}`);
   } else if (INDUSTRIAL_SCOPES.has(scopeId)) {
     const assets = buildIndex(vocab.terms.filter((record) => /^term_asset_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, assets)) push('asset.equipment', hit.canonical);
@@ -354,6 +355,7 @@ function factsFromSentence(sentence, scopeId, vocab) {
   // --- work.description / work.fault_code (fault sentences) ----------
   if (FAULT_RE.test(sentence)) {
     push('work.description', sentence);
+    push('inspection_findings', sentence);
     if (FAULT_CODE_RE.test(sentence)) push('work.fault_code', sentence);
   }
 
@@ -371,6 +373,7 @@ function factsFromSentence(sentence, scopeId, vocab) {
     && REPLACED_RE.test(sentence);
   if (replaced && partHits.length > 0) {
     push('parts.replaced', 'true');
+    push('work_performed', sentence);
   }
 
   // --- measurement.* --------------------------------------------------
