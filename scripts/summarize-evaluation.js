@@ -12,6 +12,7 @@ async function load(name) { try { return JSON.parse(await fs.readFile(path.join(
 const [batch2, batch3, deep] = await Promise.all([load('component-results.json'), load('batch3-results.json'), load('deepeval-results.json')]);
 if (!batch2 || !batch3) throw new Error('Run eval:components and eval:batch3 before summarizing');
 if (batch2.source.manifest_sha256 !== batch3.source.manifest_sha256) throw new Error('Batch 2 and 3 use different case manifests');
+if (deep && (deep.source?.manifest_sha256 !== batch3.source.manifest_sha256 || deep.source?.batch2_fixture_sha256 !== batch2.source.fixture_sha256 || deep.source?.batch3_fixture_sha256 !== batch3.source.fixture_sha256)) throw new Error('DeepEval results use different component sources; rerun eval:deepeval:adapter or eval:deepeval:smoke');
 const combined = { contract_version: 'component-evaluation-summary.v1', label_status: 'PROVISIONAL_SYNTHETIC_SEED', frozen_gold: false, source: { manifest_sha256: batch3.source.manifest_sha256, batch2_fixture_sha256: batch2.source.fixture_sha256, batch3_fixture_sha256: batch3.source.fixture_sha256 }, batch2: batch2.summary, batch3: batch3.summary, deepeval: deep ? { judge: deep.judge, status_counts: { RUN: deep.results.filter((row) => row.status === 'RUN').length, NOT_RUN: deep.results.filter((row) => row.status === 'NOT_RUN').length }, results: deep.results } : { status: 'NOT_RUN', reason: 'DEEPEVAL_RESULTS_MISSING' } };
 await fs.mkdir(output, { recursive: true });
 await fs.writeFile(path.join(output, 'summary.json'), `${JSON.stringify(combined, null, 2)}\n`);

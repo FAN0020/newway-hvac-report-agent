@@ -112,10 +112,13 @@ def main():
     manifest_bytes = (ROOT / 'evaluation/synthetic-cases.v1.json').read_bytes()
     manifest = json.loads(manifest_bytes)
     batch3 = json.loads((args.output / 'batch3-results.json').read_text())
-    if hashlib.sha256(manifest_bytes).hexdigest() != batch3.get('source', {}).get('manifest_sha256'):
+    manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
+    if manifest_hash != batch3.get('source', {}).get('manifest_sha256'):
         raise ValueError('Batch 3 results use a different case manifest')
     batch2_path = args.output / 'component-results.json'
     batch2 = json.loads(batch2_path.read_text()) if batch2_path.exists() else None
+    if batch2 and batch2.get('source', {}).get('manifest_sha256') != manifest_hash:
+        raise ValueError('Batch 2 results use a different case manifest')
     cases = build_cases(manifest, batch3, batch2)
     ready = ollama_ready()
     model = judge_model() if ready and not args.adapter_only else None
@@ -135,7 +138,7 @@ def main():
                 results.append({'component':kind,'case_id':case_id,'metric':metric_name,'status':'RUN','score':metric.score,'reason':metric.reason})
             except Exception as error:
                 results.append({'component':kind,'case_id':case_id,'metric':metric_name,'status':'NOT_RUN','reason':'JUDGE_ERROR','detail':f'{type(error).__name__}: {error}'})
-    output = {'contract_version':'batch3-deepeval.v1','label_status':'PROVISIONAL_SYNTHETIC_SEED','frozen_gold':False,'deepeval_version':getattr(deepeval,'__version__','4.2.3'),'judge':f'local-ollama/{MODEL}' if ready else None,'adapter_cases':len(cases),'results':results}
+    output = {'contract_version':'batch3-deepeval.v1','label_status':'PROVISIONAL_SYNTHETIC_SEED','frozen_gold':False,'source':{'manifest_sha256':manifest_hash,'batch3_fixture_sha256':batch3['source']['fixture_sha256'],'batch2_fixture_sha256':batch2['source']['fixture_sha256'] if batch2 else None},'deepeval_version':getattr(deepeval,'__version__','4.2.3'),'judge':f'local-ollama/{MODEL}' if ready else None,'adapter_cases':len(cases),'results':results}
     args.output.mkdir(parents=True,exist_ok=True)
     (args.output / 'deepeval-results.json').write_text(json.dumps(output,indent=2,ensure_ascii=False)+'\n')
     lines = ['# DeepEval semantic evaluation', '', 'Synthetic seed only; local Ollama judge. Semantic scores do not replace deterministic metrics or safety gates.', '', f"Adapter cases: {len(cases)}; judge: {output['judge'] or 'unavailable'}", '']
