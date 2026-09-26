@@ -13,6 +13,7 @@ import {
 } from './network-security.js';
 import { ArtifactStore } from './storage/artifacts.js';
 import { ReportStore } from './storage/reports.js';
+import { TemplateStore } from './storage/templates.js';
 import { WhisperProvider } from './providers/whisper.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { confirmReportDraft } from './tools/confirm-report-draft.js';
@@ -32,6 +33,7 @@ import { loadScopeRegistry, resolveContext } from './v2/scope.js';
 import { createUploadStore, ingestDocument } from './v2/upload.js';
 import { createRetriever } from './v2/retrieval.js';
 import { reviewV2Transcript } from './v2/transcript-review.js';
+import { retrieveTemplateContext } from './templates/context.js';
 import { buildFollowUpQuestions, buildGateConfirmationQuestions } from './v2/guided-reporting.js';
 import {
   assertNoServiceFactInvention,
@@ -48,6 +50,7 @@ import {
   mapFactsToStructuredState,
   structuredStateSnapshot,
 } from '../web/report-runtime.js';
+import { listPredefinedTemplates, templateFor } from '../web/template-catalog.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(projectRoot, 'web');
@@ -60,6 +63,7 @@ const maxUploadBytes = 20 * 1024 * 1024;
 
 const artifacts = new ArtifactStore({ root: dataRoot });
 const reports = new ReportStore({ root: dataRoot });
+const templates = new TemplateStore({ root: path.join(dataRoot, 'templates') });
 const whisper = new WhisperProvider({ runtimeRoot, tempRoot });
 const ollama = new OllamaProvider();
 
@@ -124,6 +128,151 @@ async function readRawBody(request, limit = maxUploadBytes) {
 }
 
 async function handleApi(request, response, url, traceId, config) {
+  if (request.method === 'GET' && url.pathname === '/api/templates') {
+    const custom = await templates.listPublished();
+    writeJson(response, 200, toolEnvelope('list_templates', traceId, 'PASS', {
+      templates: [...listPredefinedTemplates(), ...custom],
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/template-context/retrieve') {
+    const input = await readJson(request);
+    writeJson(response, 200, toolEnvelope('retrieve_template_context', traceId, 'PASS', retrieveTemplateContext({
+      templateId: input.template_id,
+      contextCorpusId: input.context_corpus_id,
+      contextVersion: input.context_version,
+      query: input.query,
+    })));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/template-reports/build') {
+    const input = await readJson(request);
+    const templateId = String(input.template_id || '').trim();
+    let selectedTemplate;
+    try {
+      selectedTemplate = templateFor(templateId);
+    } catch {
+      selectedTemplate = (await templates.listPublished()).find((item) => item.templateId === templateId);
+    }
+    if (!selectedTemplate) throw Object.assign(new Error('Template version was not found.'), { code: 'TEMPLATE_NOT_FOUND', status: 404 });
+    const facts = Array.isArray(input.facts) ? input.facts : [];
+    const definitions = selectedTemplate.schema.fields;
+    const matches = (pattern, candidate) => pattern.endsWith('.*') ? candidate.startsWith(pattern.slice(0, -1)) : pattern === candidate;
+    const accepted = facts.filter((fact) => definitions.some((definition) => matches(definition.id, String(fact.field || ''))));
+    const unsupported = facts.filter((fact) => !definitions.some((definition) => matches(definition.id, String(fact.field || ''))));
+    const state = new Map();
+    for (const fact of accepted) state.set(String(fact.field), fact);
+    const provided = (definition) => {
+      const candidates = [...state.entries()].filter(([fieldId]) => matches(definition.id, fieldId)).map(([, fact]) => fact);
+      return candidates.some((fact) => fact.value !== null && fact.value !== undefined && String(fact.value).trim() !== '' && fact.value !== 'NOT_CHECKED');
+    };
+    const missing = definitions.filter((definition) => definition.required && !provided(definition)).map((definition) => definition.id);
+    const violations = [
+      ...missing.map((field) => ({ class: 'SCHEMA_REQUIRED_FIELD_MISSING', field, message: `${field} requires technician evidence or explicit input.` })),
+      ...unsupported.map((fact) => ({ class: 'SCHEMA_UNSUPPORTED_FIELD', field: fact.field, message: `${fact.field} is outside this template version.` })),
+    ];
+    for (const definition of definitions) {
+      const fact = [...state.entries()].find(([fieldId]) => matches(definition.id, fieldId))?.[1];
+      if (!fact) continue;
+      const support = String(fact.support_status || '').toUpperCase();
+      const sources = Array.isArray(fact.source_refs) ? fact.source_refs : [];
+      if ((definition.critical || definition.requiresTechnicianConfirmation) && support !== 'CONFIRMED_BY_TECHNICIAN') {
+        violations.push({ class: 'SCHEMA_FIELD_NEEDS_CONFIRMATION', field: definition.id, message: `${definition.id} requires technician confirmation.` });
+      }
+      if (sources.length > 0 && sources.every((source) => /^(knowledge|context|rag):/iu.test(String(source)))) {
+        violations.push({ class: 'CONTEXT_NOT_JOB_EVIDENCE', field: definition.id, message: 'Template context cannot assert a job fact.' });
+      }
+      const allowed = definition.allowedValues || definition.allowedStatuses;
+      if (allowed && !allowed.includes(String(fact.value))) violations.push({ class: 'SCHEMA_INVALID_VALUE', field: definition.id, message: `${fact.value} is not allowed for ${definition.id}.` });
+    }
+    const sections = [...new Set(definitions.map((definition) => definition.section))].map((section, index) => ({
+      id: `section_${index + 1}`,
+      title: section,
+      content: definitions.filter((definition) => definition.section === section).map((definition) => {
+        const fact = [...state.entries()].find(([fieldId]) => matches(definition.id, fieldId))?.[1];
+        return { field: definition.id, label: definition.label, value: fact?.value ?? null, status: fact ? 'SUPPORTED' : 'MISSING' };
+      }),
+    }));
+    const reportSessionId = String(input.report_session_id || `server_${traceId}`).slice(0, 160);
+    const stateSnapshot = { session_id: reportSessionId, schema_id: selectedTemplate.schema.id, schema_version: selectedTemplate.schema.version, fields: Object.fromEntries([...state].map(([key, fact]) => [key, fact.value])), unsupported_fields: unsupported.map((fact) => fact.field) };
+    const draft = {
+      report_id: `report_${hashValue({ templateId, reportSessionId, accepted }).slice(7, 19)}`,
+      report_version: 1,
+      report_session_id: reportSessionId,
+      template_id: selectedTemplate.templateId,
+      template_name: selectedTemplate.name,
+      template_version: selectedTemplate.templateVersion,
+      schema_id: selectedTemplate.schema.id,
+      schema_version: selectedTemplate.schema.version,
+      context_corpus_id: selectedTemplate.contextCorpus.id,
+      context_version: selectedTemplate.contextCorpus.version,
+      renderer_id: selectedTemplate.rendererMapping.id,
+      renderer_version: selectedTemplate.rendererMapping.version,
+      facts_hash: hashValue(accepted),
+      structured_state_hash: hashValue(stateSnapshot),
+      sections,
+      missing_required_fields: missing,
+      provenance: selectedTemplate.provenance,
+      disclaimer: { text: 'Prototype form. Technician confirmation covers only this exact version. Template context is not evidence that work occurred.' },
+    };
+    const status = violations.length ? 'NEEDS_CONFIRMATION' : 'PASS';
+    const validation = { trace_id: traceId, status, data: { can_enter_technician_review: violations.length === 0, gates: { violations } } };
+    const validationReceipt = await reports.recordStructuredValidation({ draft, validation, facts: accepted });
+    writeJson(response, 200, toolEnvelope('build_template_report', traceId, status, {
+      structured_job_state: stateSnapshot,
+      draft,
+      validation_receipt: validationReceipt,
+      gates: { violations },
+    }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/templates/drafts/source') {
+    const draft = await templates.createDraft({
+      name: url.searchParams.get('name'),
+      filename: url.searchParams.get('filename'),
+      mimeType: request.headers['content-type'],
+      bytes: await readRawBody(request),
+    });
+    writeJson(response, 201, toolEnvelope('upload_template_source', traceId, 'PASS', { draft }));
+    return;
+  }
+
+  const contextMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/context$/u);
+  if (request.method === 'POST' && contextMatch) {
+    const draft = await templates.addContext(decodeURIComponent(contextMatch[1]), {
+      filename: url.searchParams.get('filename'),
+      mimeType: request.headers['content-type'],
+      bytes: await readRawBody(request),
+    });
+    writeJson(response, 200, toolEnvelope('upload_template_context', traceId, 'PASS', { draft }));
+    return;
+  }
+
+  const schemaMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/schema$/u);
+  if (request.method === 'POST' && schemaMatch) {
+    const draft = await templates.saveSchema(decodeURIComponent(schemaMatch[1]), await readJson(request));
+    writeJson(response, 200, toolEnvelope('review_template_schema', traceId, 'PASS', { draft }));
+    return;
+  }
+
+  const testMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/test$/u);
+  if (request.method === 'POST' && testMatch) {
+    await readJson(request);
+    const draft = await templates.runContractTest(decodeURIComponent(testMatch[1]));
+    writeJson(response, 200, toolEnvelope('test_template_draft', traceId, draft.test.status === 'PASSED' ? 'PASS' : 'FAIL', { draft }));
+    return;
+  }
+
+  const publishMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/publish$/u);
+  if (request.method === 'POST' && publishMatch) {
+    const template = await templates.publish(decodeURIComponent(publishMatch[1]));
+    writeJson(response, 201, toolEnvelope('publish_template_version', traceId, 'PASS', { template }));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/health') {
     const [stt, llm] = await Promise.all([whisper.health(), ollama.health()]);
     writeJson(response, 200, toolEnvelope('provider_health', traceId, stt.ready ? 'PASS' : 'FAIL', {
@@ -487,7 +636,15 @@ async function handleApi(request, response, url, traceId, config) {
       POWER_GRID: 'power_grid_inspection',
     };
     const reportType = reportTypes[resolved.scopeId];
-    const mappedSession = mapFactsToStructuredState(createReportSession({ id: reportSessionId, reportType }), facts);
+    const requestedTemplateId = String(input.template_id || '').trim();
+    const selectedTemplate = requestedTemplateId ? templateFor(requestedTemplateId) : null;
+    if (selectedTemplate && selectedTemplate.domain !== resolved.scopeId) {
+      throw Object.assign(new Error(`Template ${requestedTemplateId} belongs to ${selectedTemplate.domain}, not ${resolved.scopeId}.`), { code: 'TEMPLATE_SCOPE_MISMATCH', status: 400 });
+    }
+    const mappedSession = mapFactsToStructuredState(createReportSession({
+      id: reportSessionId,
+      ...(selectedTemplate ? { templateId: selectedTemplate.templateId } : { reportType }),
+    }), facts);
     const completeness = evaluateCompleteness(mappedSession);
     const authoritativeFacts = factsFromStructuredState(mappedSession);
     const report = resolved.scopeId === 'SBS_BUS'
@@ -497,6 +654,7 @@ async function handleApi(request, response, url, traceId, config) {
         : buildIndustrialReportSections({ scopeId: resolved.scopeId, facts: authoritativeFacts, factsReceiptId });
     const plan = planV2Report({ scopeId: resolved.scopeId, facts: authoritativeFacts, factsReceiptId });
     const schemaViolations = [
+      ...(selectedTemplate ? completeness.missingFields.map((field) => ({ class: 'SCHEMA_REQUIRED_FIELD_MISSING', field, message: `${field} requires technician evidence or explicit input.` })) : []),
       ...completeness.conflicts.map((field) => ({ class: 'SCHEMA_FIELD_CONFLICT', field, message: `Conflicting values for ${field} require technician resolution.` })),
       ...completeness.needsConfirmation.map((field) => ({ class: 'SCHEMA_FIELD_NEEDS_CONFIRMATION', field, message: `${field} requires technician confirmation.` })),
       ...completeness.invalidValues.map((item) => ({ class: 'SCHEMA_INVALID_VALUE', field: item.fieldId, message: `${item.fieldId} failed the schema ${item.reason} constraint.` })),
@@ -532,11 +690,16 @@ async function handleApi(request, response, url, traceId, config) {
       schema_version: schema.version,
       scope_id: resolved.scopeId,
       context_id: contextId,
-      template_version: report.reportVersion,
+      template_id: selectedTemplate?.templateId || null,
+      template_version: selectedTemplate?.templateVersion || report.reportVersion,
+      context_corpus_id: selectedTemplate?.contextCorpus.id || contextId,
+      context_version: selectedTemplate?.contextCorpus.version || resolved.contextVersion || 'scope-registry-v1',
+      renderer_id: selectedTemplate?.rendererMapping.id || 'legacy-v2-sections',
+      renderer_version: selectedTemplate?.rendererMapping.version || report.reportVersion,
       facts_hash: hashValue(authoritativeFacts),
       structured_state_hash: structuredStateHash,
       sections: report.sections,
-      missing_required_fields: plan.missing_required_fields,
+      missing_required_fields: [...new Set([...plan.missing_required_fields, ...(selectedTemplate ? completeness.missingFields : [])])],
       disclaimer: {
         text: 'Technician review and confirmation are required. Knowledge references do not prove that work was performed.',
       },
@@ -556,7 +719,7 @@ async function handleApi(request, response, url, traceId, config) {
         facts_receipt_id: factsReceiptId,
         reportVersion: report.reportVersion,
         sections: report.sections,
-        missing_required_fields: plan.missing_required_fields,
+        missing_required_fields: draft.missing_required_fields,
       },
       draft,
       validation_receipt: validationReceipt,
@@ -613,6 +776,8 @@ const staticFiles = new Map([
   ['/locales/zh-CN.js', ['locales/zh-CN.js', 'text/javascript; charset=utf-8']],
   ['/locales/overrides.js', ['locales/overrides.js', 'text/javascript; charset=utf-8']],
   ['/report-runtime.js', ['report-runtime.js', 'text/javascript; charset=utf-8']],
+  ['/template-catalog.js', ['template-catalog.js', 'text/javascript; charset=utf-8']],
+  ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],
   ['/pcm-capture-worklet.js', ['pcm-capture-worklet.js', 'text/javascript; charset=utf-8']],

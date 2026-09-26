@@ -9,7 +9,91 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div id="template-app" class="template-app">
+    <aside class="template-sidebar" aria-label="Primary navigation">
+      <button class="template-brand" data-template-nav="choose" aria-label="Newway Reports home"><span>N</span><strong>Newway<small>Maintenance reports</small></strong></button>
+      <nav aria-label="Technician">
+        <p>Technician</p>
+        <button class="template-nav active" data-template-nav="choose"><span>＋</span> New report</button>
+      </nav>
+      <nav aria-label="Manager">
+        <p>Manager</p>
+        <button class="template-nav" data-template-nav="templates"><span>▦</span> Templates</button>
+        <button class="template-nav" data-template-nav="setup"><span>⌁</span> Template setup</button>
+      </nav>
+      <div class="template-sidebar-note"><strong>Local workspace</strong><span>Prototype templates are clearly labelled.</span></div>
+    </aside>
+
+    <main class="template-main">
+      <header class="template-topbar">
+        <button id="template-mobile-menu" class="icon-button" aria-label="Open navigation">☰</button>
+        <div><p class="eyebrow" id="template-eyebrow">TECHNICIAN WORKSPACE</p><h1 id="template-page-title">Choose a template</h1></div>
+        <div class="template-trust"><span></span><strong id="template-runtime-status">Connecting locally…</strong></div>
+      </header>
+
+      <section id="template-choose" class="template-view active" aria-labelledby="choose-title">
+        <div class="template-hero"><div><p class="eyebrow">NEW REPORT</p><h2 id="choose-title">Choose the form you need</h2><p>Each report stays bound to the selected template, schema, context, and renderer version.</p></div><label class="template-search"><span>⌕</span><input id="template-search" type="search" placeholder="Search templates" aria-label="Search templates"></label></div>
+        <div id="template-catalog" class="template-catalog" aria-live="polite"></div>
+      </section>
+
+      <section id="template-workspace" class="template-view" hidden aria-labelledby="workspace-title">
+        <div class="workspace-binding"><button class="back-link" data-template-nav="choose">← Templates</button><div><p class="eyebrow">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-description"></p></div><div class="binding-badges"><span id="workspace-provenance"></span><span id="workspace-version"></span></div></div>
+        <div class="template-workspace-grid">
+          <div class="template-workspace-main">
+            <section class="template-panel input-panel">
+              <div class="section-heading"><div><p class="eyebrow">CAPTURE</p><h3>Add what was observed</h3><p>Voice, typed text, and uploads can propose field values. Nothing becomes OK, passed, or complete from silence.</p></div></div>
+              <label class="field-label" for="workspace-statement">Technician statement</label>
+              <textarea id="workspace-statement" rows="4" placeholder="Describe the asset, observations, work performed, tests, and handover status."></textarea>
+              <div class="workspace-input-actions"><button id="workspace-analyze" class="primary">Analyze statement</button><label class="file-button secondary">Upload text<input id="workspace-text-upload" type="file" accept=".txt,.md,.csv,text/plain"></label><label class="file-button secondary">Upload audio<input id="workspace-audio-upload" type="file" accept="audio/wav,.wav"></label></div>
+              <p id="workspace-input-status" class="live-status" role="status">Manual field entry is always available.</p>
+            </section>
+            <form id="workspace-fields" class="workspace-fields"></form>
+          </div>
+          <aside class="workspace-rail">
+            <section class="template-panel readiness-card">
+              <p class="eyebrow">REPORT STATUS</p><div id="readiness-state" class="readiness-state">NEEDS INFORMATION</div>
+              <div class="readiness-meter"><span id="readiness-meter-fill"></span></div>
+              <p id="readiness-summary">Choose a template to begin.</p>
+              <div id="inline-resolve" class="inline-resolve"></div>
+              <label class="confirm-check"><input id="workspace-confirm-check" type="checkbox"> I reviewed the source evidence and every value in this exact report version.</label>
+              <button id="workspace-confirm" class="primary wide-action" disabled>Validate &amp; confirm</button>
+              <p id="workspace-confirm-status" class="live-status" role="status"></p>
+            </section>
+            <details class="template-panel context-panel"><summary>Template context boundary</summary><p id="workspace-context"></p><div id="workspace-context-sources"></div></details>
+          </aside>
+        </div>
+      </section>
+
+      <section id="template-manager" class="template-view" hidden aria-labelledby="manager-title">
+        <div class="template-hero"><div><p class="eyebrow">MANAGER</p><h2 id="manager-title">Templates</h2><p>Predefined and organization-created templates use the same versioned contract.</p></div><button class="primary" data-template-nav="setup">＋ New template</button></div>
+        <div id="manager-template-list" class="manager-template-list"></div>
+      </section>
+
+      <section id="template-setup" class="template-view" hidden aria-labelledby="setup-title">
+        <div class="template-hero"><div><p class="eyebrow">MANAGER</p><h2 id="setup-title">Template setup</h2><p>Upload → analyze → review schema → add context → test → publish.</p></div></div>
+        <ol id="setup-steps" class="setup-steps"><li class="active">1 Upload</li><li>2 Analyze</li><li>3 Schema review</li><li>4 Context</li><li>5 Test</li><li>6 Publish</li></ol>
+        <div class="setup-grid">
+          <section class="template-panel setup-source">
+            <h3>Source template</h3><label>Template name<input id="setup-name" placeholder="e.g. Depot daily inspection"></label>
+            <label class="upload-drop">Choose the original template file<input id="setup-source-file" type="file" accept=".docx,.pdf,.txt,.csv,.md"></label>
+            <button id="setup-upload" class="primary">Upload &amp; analyze</button><p id="setup-analysis-status" class="setup-status">No source uploaded.</p>
+          </section>
+          <section class="template-panel setup-schema">
+            <div class="section-heading"><div><h3>Schema review</h3><p>Detected fields are never invented. Add or correct fields manually before testing.</p></div><button id="setup-add-field" class="secondary" type="button">＋ Field</button></div>
+            <div id="setup-field-list" class="setup-field-list"></div><button id="setup-save-schema" class="secondary">Save reviewed schema</button><p id="setup-schema-status" class="setup-status">Waiting for a source.</p>
+          </section>
+          <section class="template-panel setup-context">
+            <h3>Context documents</h3><p>Context can normalize terminology and explain rules. It never proves job facts.</p><label class="upload-drop">Choose a context document<input id="setup-context-file" type="file" accept=".txt,.md,.csv,.docx,.pdf"></label><button id="setup-context-upload" class="secondary">Upload context</button><p id="setup-context-status" class="setup-status">No context decision yet.</p>
+          </section>
+          <section class="template-panel setup-publish">
+            <h3>Test &amp; publish</h3><p>The test checks required fields, status defaults, unsupported autofill, and immutable bindings.</p><div class="button-row"><button id="setup-test" class="secondary">Run contract test</button><button id="setup-publish" class="primary" disabled>Publish version</button></div><p id="setup-test-status" class="setup-status">Not tested.</p>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="app-shell" hidden inert aria-hidden="true">
     <aside id="primary-sidebar" class="sidebar" aria-label="Primary navigation">
       <a class="brand" href="#reports" data-nav="reports" aria-label="Newway Reports home"><span class="brand-mark">N</span><span><strong>Newway</strong><small>Service reports</small></span></a>
       <nav><button class="nav-item active" data-nav="reports"><span>▦</span> Reports</button><button class="nav-item" data-nav="new-report"><span>＋</span> New report</button></nav>
@@ -106,6 +190,6 @@
   </aside>
   <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
   <div id="v2-walkthrough" class="walkthrough" hidden role="region" aria-label="Guided walkthrough"><div id="v2-wt-progress"></div><div><p id="v2-wt-step" class="eyebrow"></p><h3 id="v2-wt-title"></h3><p id="v2-wt-desc"></p></div><div class="button-row"><button id="v2-wt-skip" class="ghost">Stop · keep demo data</button><button id="v2-wt-next" class="primary">Next</button></div></div>
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/template-app.js"></script>
 </body>
 </html>

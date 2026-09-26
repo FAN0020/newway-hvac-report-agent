@@ -72,11 +72,76 @@ async function json(responsePromise) {
 }
 
 test('localization browser modules are served as JavaScript', async () => {
-  for (const pathname of ['/i18n.js', '/locales/en.js', '/locales/zh-CN.js', '/locales/overrides.js']) {
+  for (const pathname of ['/i18n.js', '/locales/en.js', '/locales/zh-CN.js', '/locales/overrides.js', '/template-catalog.js']) {
     const response = await fetch(`${base}${pathname}`);
     assert.equal(response.status, 200, pathname);
     assert.match(response.headers.get('content-type') || '', /^text\/javascript/);
     assert.ok((await response.text()).length > 100, pathname);
+  }
+});
+
+test('GET /api/templates exposes exact predefined immutable bindings', async () => {
+  const { status, body } = await json(api('/api/templates'));
+  assert.equal(status, 200);
+  assert.equal(body.status, 'PASS');
+  const door = body.data.templates.find((item) => item.templateId === 'bus-passenger-door-safety-equipment-inspection');
+  assert.equal(door.name, 'Bus Passenger Door / Safety Equipment Inspection');
+  assert.equal(door.provenance.classification, 'research-derived prototype');
+  assert.equal(door.provenance.official, false);
+  assert.ok(door.schema.id && door.contextCorpus.id && door.rendererMapping.id);
+});
+
+test('template context endpoint rejects a corpus from another template', async () => {
+  const valid = await json(api('/api/template-context/retrieve', { method: 'POST', body: {
+    template_id: 'conductor-third-rail-preventive-inspection',
+    context_corpus_id: 'conductor-third-rail-preventive-inspection-context',
+    context_version: '1.0.0',
+    query: 'third rail maintenance',
+  } }));
+  assert.equal(valid.status, 200);
+  assert.equal(valid.body.data.contextCorpusId, 'conductor-third-rail-preventive-inspection-context');
+  assert.equal(valid.body.data.mayAssertJobFacts, false);
+
+  const mismatch = await json(api('/api/template-context/retrieve', { method: 'POST', body: {
+    template_id: 'conductor-third-rail-preventive-inspection',
+    context_corpus_id: 'plain-rail-preventive-inspection-context',
+    query: 'rail',
+  } }));
+  assert.equal(mismatch.status, 400);
+  assert.equal(mismatch.body.status, 'FAIL');
+});
+
+test('every predefined template passes required-field validation and exact-version confirmation', async (t) => {
+  const listed = await json(api('/api/templates'));
+  for (const template of listed.body.data.templates.filter((item) => item.sourceArtifact?.kind === 'research-pack-prototype')) {
+    const facts = template.schema.fields.filter((field) => field.required).map((field) => ({
+      field: field.id,
+      value: field.type === 'number' ? 1 : field.type === 'structured' ? { value: 'Observed' }
+        : field.type === 'status' ? ((field.allowedStatuses || field.allowedValues).find((value) => value !== 'NOT_CHECKED') || 'N/A') : 'Observed by technician',
+      support_status: 'CONFIRMED_BY_TECHNICIAN',
+      source_refs: [`resolve:${field.id}`],
+    }));
+    const built = await json(api('/api/template-reports/build', { method: 'POST', body: {
+      template_id: template.templateId,
+      report_session_id: `contract-${template.templateId}`,
+      facts,
+    } }));
+    assert.equal(built.status, 200, template.templateId);
+    assert.equal(built.body.status, 'PASS', template.templateId);
+    assert.equal(built.body.data.draft.template_id, template.templateId);
+    assert.equal(built.body.data.draft.template_version, template.templateVersion);
+    assert.equal(built.body.data.draft.schema_id, template.schema.id);
+    assert.equal(built.body.data.draft.context_corpus_id, template.contextCorpus.id);
+
+    const confirmed = await json(api('/api/v2/reports/confirm', { method: 'POST', body: {
+      draft: built.body.data.draft,
+      validator_run_id: built.body.data.validation_receipt.validator_run_id,
+      technician_id: 'TECH-TEMPLATE', technician_name: 'Template Technician',
+    } }));
+    assert.equal(confirmed.body.status, 'PASS', template.templateId);
+    const token = confirmed.body.data.confirmation.confirmation_token;
+    t.after(() => fs.rm(path.join('data', 'validations', `${built.body.data.validation_receipt.validator_run_id}.json`), { force: true }));
+    t.after(() => fs.rm(path.join('data', 'confirmations', `${token}.json`), { force: true }));
   }
 });
 
@@ -305,6 +370,27 @@ test('POST /api/v2/reports/build returns PASS with no gate violations for ground
     .find((section) => section.id === 'provenance')
     ?.content.some((line) => line.includes(body.data.report.facts_receipt_id)));
   assert.deepEqual(body.data.gates.violations, []);
+});
+
+test('POST /api/v2/reports/build binds a selected predefined template and reports its missing fields', async () => {
+  const { status, body } = await json(api('/api/v2/reports/build', {
+    method: 'POST',
+    body: {
+      context_id: 'SBS/BUS',
+      template_id: 'bus-passenger-door-safety-equipment-inspection',
+      report_session_id: 'door-template-session',
+      facts: [{ field: 'work.description', value: 'Rear door did not close', support_status: 'DIRECT_TRANSCRIPT', source_refs: ['transcript:door'] }],
+    },
+  }));
+  assert.equal(status, 200);
+  assert.equal(body.status, 'NEEDS_CONFIRMATION');
+  assert.equal(body.data.draft.template_id, 'bus-passenger-door-safety-equipment-inspection');
+  assert.equal(body.data.draft.template_version, '1.0.0');
+  assert.equal(body.data.draft.schema_id, 'bus-passenger-door-safety-equipment-inspection-schema');
+  assert.equal(body.data.draft.context_corpus_id, 'bus-passenger-door-safety-equipment-inspection-context');
+  assert.equal(body.data.draft.context_version, '1.0.0');
+  assert.ok(body.data.draft.missing_required_fields.includes('check.front_door.status'));
+  assert.ok(body.data.gates.violations.some((item) => item.class === 'SCHEMA_REQUIRED_FIELD_MISSING'));
 });
 
 test('POST /api/v2/reports/build does not block on unpromoted RAG recommendations', async () => {

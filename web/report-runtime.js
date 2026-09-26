@@ -1,3 +1,5 @@
+import { listPredefinedTemplates, registerTemplate, templateFor } from './template-catalog.js';
+
 function field(type = "string", options = {}) {
   return Object.freeze({ type, required: false, repeating: false, ...options });
 }
@@ -113,6 +115,39 @@ export const REPORT_SCHEMAS = Object.freeze({
 
 const SCHEMAS_BY_ID = new Map(Object.values(REPORT_SCHEMAS).map((item) => [item.id, item]));
 const SCHEMAS_BY_TYPE = new Map(Object.values(REPORT_SCHEMAS).map((item) => [item.reportType, item]));
+
+function runtimeSchemaForTemplate(template) {
+  const fieldDefinitions = Object.fromEntries(template.schema.fields.map((item) => [item.id, field(item.type, {
+    ...item,
+    allowedValues: item.allowedValues || item.allowedStatuses,
+    repeating: Boolean(item.repeating),
+  })]));
+  return schema({
+    scope: template.domain,
+    id: template.schema.id,
+    version: template.schema.version,
+    reportType: template.domain,
+    name: template.name,
+    statementPlaceholder: `Describe the observed work for ${template.name}. Unsupported fields remain unresolved.`,
+    fieldDefinitions: Object.freeze(fieldDefinitions),
+    requiredGroups: Object.freeze([]),
+    builderBinding: template.adapter.id,
+    templateId: template.templateId,
+    templateVersion: template.templateVersion,
+  });
+}
+
+for (const template of listPredefinedTemplates()) {
+  const templateSchema = runtimeSchemaForTemplate(template);
+  SCHEMAS_BY_ID.set(templateSchema.id, templateSchema);
+}
+
+export function registerRuntimeTemplate(template) {
+  const registered = registerTemplate(template);
+  const templateSchema = runtimeSchemaForTemplate(registered);
+  SCHEMAS_BY_ID.set(templateSchema.id, templateSchema);
+  return templateSchema;
+}
 function copy(value) { return structuredClone(value); }
 function sessionId() { return globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `session_${Date.now()}_${Math.random().toString(16).slice(2)}`; }
 function isWildcard(fieldId) { return fieldId.endsWith(".*"); }
@@ -162,13 +197,25 @@ export function schemaFor(reportTypeOrSchemaId) {
   return found;
 }
 
-export function createReportSession({ id, reportType, jobContext = {} } = {}) {
-  const reportSchema = schemaFor(reportType || REPORT_SCHEMAS.HVAC.id);
+export function createReportSession({ id, reportType, templateId, jobContext = {} } = {}) {
+  const selectedTemplateId = templateId || null;
+  const selectedTemplate = selectedTemplateId ? templateFor(selectedTemplateId) : null;
+  const reportSchema = selectedTemplate ? schemaFor(selectedTemplate.schema.id) : schemaFor(reportType || REPORT_SCHEMAS.HVAC.id);
   const createdAt = new Date().toISOString();
   const fieldStates = Object.fromEntries(Object.entries(reportSchema.fieldDefinitions).filter(([fieldId]) => !isWildcard(fieldId)).map(([fieldId, definition]) => [fieldId, emptyFieldState(fieldId, definition)]));
   return {
     id: id || sessionId(), scope: reportSchema.scope, reportType: reportSchema.reportType,
-    schemaId: reportSchema.id, schemaVersion: reportSchema.version, status: "DRAFT", view: "capture", revision: 0,
+    schemaId: reportSchema.id, schemaVersion: reportSchema.version, status: "DRAFT", view: selectedTemplate ? "workspace" : "capture", revision: 0,
+    templateBinding: selectedTemplate ? {
+      templateId: selectedTemplate.templateId,
+      templateVersion: selectedTemplate.templateVersion,
+      schemaId: selectedTemplate.schema.id,
+      schemaVersion: selectedTemplate.schema.version,
+      contextCorpusId: selectedTemplate.contextCorpus.id,
+      contextVersion: selectedTemplate.contextCorpus.version,
+      rendererId: selectedTemplate.rendererMapping.id,
+      rendererVersion: selectedTemplate.rendererMapping.version,
+    } : null,
     createdAt, updatedAt: createdAt, jobContext: copy(jobContext),
     capture: initialCaptureState(),
     manualFields: {}, processing: { status: "idle", error: null }, complete: { summary: "", meta: "", copyableText: "" },
@@ -254,6 +301,7 @@ function canonicalMaterialValue(value) {
 
 export function reportMaterialSignature(session) {
   return JSON.stringify(canonicalMaterialValue({
+    templateBinding: session.templateBinding,
     transcript: session.transcript,
     transcriptArtifact: session.transcriptArtifact,
     corrections: session.corrections,
@@ -405,6 +453,8 @@ export function mapFactsToStructuredState(session, facts = []) {
     const fieldState = next.fieldStates[fieldId] || (next.fieldStates[fieldId] = emptyFieldState(fieldId, definition));
     const value = factValue(fact); const support = factSupport(fact);
     let candidateStatus = supportStatus(fact, support);
+    const knowledgeOnly = support.length > 0 && support.every((item) => /^(knowledge|context|rag):/iu.test(String(item)));
+    if (definition.inferencePolicy === "EVIDENCE_OR_TECHNICIAN_INPUT" && knowledgeOnly) candidateStatus = "NEEDS_CONFIRMATION";
     if (definition.requiresTechnicianConfirmation && candidateStatus === "SUPPORTED" && String(fact.support_status || "").toUpperCase() !== "CONFIRMED_BY_TECHNICIAN") candidateStatus = "NEEDS_CONFIRMATION";
     const candidate = { factId: fact.id || fact.fact_id || null, value, unit: fact.unit ?? null, support, status: candidateStatus, raw: copy(fact) };
     fieldState.candidates.push(candidate); fieldState.support.push(...support);

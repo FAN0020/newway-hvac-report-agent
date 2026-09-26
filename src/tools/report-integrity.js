@@ -21,11 +21,11 @@ export function hashReportDraft(draft) {
 }
 
 export function reportToText(draft, confirmation) {
-  const reportTitle = {
+  const reportTitle = draft.template_name || {
     sbs_bus_maintenance: 'SBS Bus Maintenance Report',
     sbs_rail_maintenance: 'SBS Rail Maintenance Report',
     hvac_service: 'HVAC Service Report',
-  }[draft.schema_id] || '空调现场服务报告';
+  }[draft.schema_id] || 'Maintenance Report';
   const lines = [
     reportTitle,
     `报告编号：${draft.report_id}`,
@@ -37,7 +37,14 @@ export function reportToText(draft, confirmation) {
   for (const section of draft.sections || []) {
     lines.push(`【${section.title}】`);
     for (const item of section.items || section.content || []) {
-      lines.push(typeof item === 'string' ? item : (item.text || '未提供/待确认'));
+      if (typeof item === 'string') lines.push(item);
+      else if (item.text) lines.push(item.text);
+      else if (item.label) {
+        const rendered = item.value === null || item.value === undefined || item.value === ''
+          ? 'Not provided / needs confirmation'
+          : typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value);
+        lines.push(`${item.label}: ${rendered}`);
+      } else lines.push('Not provided / needs confirmation');
     }
     lines.push('');
   }

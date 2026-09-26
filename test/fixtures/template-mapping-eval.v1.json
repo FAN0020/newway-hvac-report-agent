@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "cases": [
+    { "id": "bus-pm", "template_id": "bus-preventive-maintenance-inspection", "context_id": "SBS/BUS", "input": "Preventive maintenance on bus MAN A95.", "expected_accepted": "asset.bus_model" },
+    { "id": "bus-defect", "template_id": "bus-defect-rectification-corrective-maintenance", "context_id": "SBS/BUS", "input": "Corrective maintenance on bus MAN A95. Inspection found the door control module was faulty due to wear.", "expected_accepted": "diagnosis.root_cause" },
+    { "id": "bus-door", "template_id": "bus-passenger-door-safety-equipment-inspection", "context_id": "SBS/BUS", "input": "Inspection found the front door would not close.", "expected_accepted": "inspection_findings" },
+    { "id": "rail-track", "template_id": "rail-track-inspection-maintenance", "context_id": "SBS/RAIL", "input": "Corrective maintenance on DTL. Inspection found track damage.", "expected_accepted": "asset.line" },
+    { "id": "plain-rail", "template_id": "plain-rail-preventive-inspection", "context_id": "SBS/RAIL", "input": "TAMS track access approved. Inspection found rail wear.", "expected_accepted": "access.approval" },
+    { "id": "conductor-rail", "template_id": "conductor-third-rail-preventive-inspection", "context_id": "SBS/RAIL", "input": "Inspection found third rail damage.", "expected_accepted": "inspection_findings" },
+    { "id": "rail-handover", "template_id": "rail-maintenance-completion-handover", "context_id": "SBS/RAIL", "input": "TAMS access approved. Replaced the worn collector shoe. Returned the train to service.", "expected_accepted": "work_performed" }
+  ]
+}

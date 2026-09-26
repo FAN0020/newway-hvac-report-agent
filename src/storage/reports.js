@@ -74,7 +74,7 @@ export class ReportStore {
 
   async recordStructuredValidation({ draft, validation, facts }) {
     const validatorRunId = safeId(validation?.trace_id, 'validator_run_id', /^trace_[A-Za-z0-9_-]{1,110}$/);
-    const schemaId = safeId(draft?.schema_id, 'schema_id', /^[a-z][a-z0-9_]{2,80}$/);
+    const schemaId = safeId(draft?.schema_id, 'schema_id', /^[a-z][a-z0-9_-]{2,100}$/);
     const schemaVersion = safeId(draft?.schema_version, 'schema_version', /^[A-Za-z0-9._-]{1,40}$/);
     const receipt = Object.freeze({
       validator_run_id: validatorRunId,

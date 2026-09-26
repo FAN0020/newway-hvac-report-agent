@@ -14,6 +14,7 @@ data/reports/*
 !data/reports/.gitkeep
 data/v2-uploads/*
 !data/v2-uploads/.gitkeep
+data/templates/*
 runtime/stt/*
 !runtime/stt/README.md
 runtime/tools/*
