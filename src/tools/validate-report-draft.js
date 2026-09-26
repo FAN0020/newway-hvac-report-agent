@@ -1,7 +1,13 @@
 import { FIELD_TO_SECTION, renderFact } from './hvac-schema.js';
 import { loadReportModulesConfig, loadReportTemplateConfig } from './hvac-knowledge.js';
-import { hashReportDraft } from './report-integrity.js';
+import { hashReportDraft, hashValue } from './report-integrity.js';
 import { toolEnvelope, toolFailure } from './tool-envelope.js';
+import {
+  createReportSession,
+  factsFromStructuredState,
+  mapFactsToStructuredState,
+  structuredStateSnapshot,
+} from '../../web/report-runtime.js';
 
 function issue(section, claimId, reason) {
   return { section, claim_id: claimId || null, reason };
@@ -39,6 +45,18 @@ export async function validateReportDraft({ draft, facts = [], traceId, knowledg
     const referenced = new Set();
     if (!draft || draft.schema_version !== 'hvac-report-draft.v1' || !Array.isArray(draft.sections)) {
       schemaErrors.push({ path: 'draft', reason: 'Expected hvac-report-draft.v1 with sections array.' });
+    }
+    if (draft?.schema_id !== 'hvac_service' || draft?.report_schema_version !== '1') {
+      schemaErrors.push({ path: 'report_schema', reason: 'Draft must be bound to hvac_service schema version 1.' });
+    }
+    if (typeof draft?.report_session_id !== 'string' || !draft.report_session_id.trim()) {
+      schemaErrors.push({ path: 'report_session_id', reason: 'Draft must be bound to a ReportSession.' });
+    } else {
+      const state = mapFactsToStructuredState(createReportSession({ id: draft.report_session_id, reportType: 'hvac_service' }), facts);
+      const expectedStateHash = hashValue(structuredStateSnapshot(state));
+      const expectedFactsHash = hashValue(factsFromStructuredState(state));
+      if (draft.structured_state_hash !== expectedStateHash) schemaErrors.push({ path: 'structured_state_hash', reason: 'Draft StructuredJobState binding does not match the validated facts.' });
+      if (draft.facts_hash !== expectedFactsHash) schemaErrors.push({ path: 'facts_hash', reason: 'Draft facts binding does not match the validated StructuredJobState.' });
     }
     if (draft?.template_id !== template.template_id || draft?.template_version !== template.template_version) {
       schemaErrors.push({ path: 'template', reason: 'Draft must use the canonical report template and version.' });

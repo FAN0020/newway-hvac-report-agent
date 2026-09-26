@@ -154,6 +154,18 @@ test('Bus report: section ids/order/required match BUS_REPORT_SECTIONS; content 
   assert.deepEqual(byId.get('provenance').content, ['Facts receipt: receipt-bus-1', 'Provenance · upload: upload:u1.']);
 });
 
+test('SBS follow-up prose keeps existing terminal punctuation instead of doubling it', () => {
+  const report = buildBusReportSections({
+    facts: [
+      { field: 'work_performed', value: 'Replaced the door actuator.', support_status: 'CONFIRMED_BY_TECHNICIAN', source: 'technician_follow_up' },
+      { field: 'inspection_findings', value: 'Door would not close。', support_status: 'CONFIRMED_BY_TECHNICIAN', source: 'technician_follow_up' },
+    ],
+  });
+  const byId = new Map(report.sections.map((section) => [section.id, section]));
+  assert.deepEqual(byId.get('work_performed').content, ['Work performed: Replaced the door actuator.']);
+  assert.deepEqual(byId.get('inspection_findings').content, ['Inspection findings: Door would not close。']);
+});
+
 test('Bus report: missing required section renders the V1 placeholder', () => {
   const facts = [
     { field: 'asset.registration_no', value: 'SG3050Z', support_status: 'DIRECT_TRANSCRIPT', source: 'transcript' },

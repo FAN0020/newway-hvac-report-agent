@@ -23,6 +23,20 @@ test('complete HVAC narration produces a source-bound draft that passes', async 
   assert.equal(result.generated.status, 'PASS');
   assert.equal(result.validated.status, 'PASS');
   assert.ok(result.extracted.data.facts.every((fact) => fact.source_refs.length > 0));
+  assert.equal(result.generated.data.draft.schema_id, 'hvac_service');
+  assert.equal(result.generated.data.draft.report_schema_version, '1');
+  assert.match(result.generated.data.draft.report_session_id, /^session_/);
+  assert.match(result.generated.data.draft.structured_state_hash, /^sha256:[a-f0-9]{64}$/);
+  assert.match(result.generated.data.draft.facts_hash, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('HVAC validator rejects a draft whose schema/state binding was tampered', async () => {
+  const result = await makeDraft('客户反映不制冷。检查发现运行电容损坏。更换了一个35微法电容。试机运行正常。问题已解决。');
+  const tampered = structuredClone(result.generated.data.draft);
+  tampered.structured_state_hash = `sha256:${'0'.repeat(64)}`;
+  const checked = await validateReportDraft({ draft: tampered, facts: result.extracted.data.facts, traceId: 'trace_state_binding' });
+  assert.equal(checked.status, 'FAIL');
+  assert.ok(checked.data.schema_errors.some((item) => item.path === 'structured_state_hash'));
 });
 
 test('parts-only narration stays incomplete and does not invent tests', async () => {

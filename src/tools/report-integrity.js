@@ -21,8 +21,13 @@ export function hashReportDraft(draft) {
 }
 
 export function reportToText(draft, confirmation) {
+  const reportTitle = {
+    sbs_bus_maintenance: 'SBS Bus Maintenance Report',
+    sbs_rail_maintenance: 'SBS Rail Maintenance Report',
+    hvac_service: 'HVAC Service Report',
+  }[draft.schema_id] || '空调现场服务报告';
   const lines = [
-    '空调现场服务报告',
+    reportTitle,
     `报告编号：${draft.report_id}`,
     `报告版本：${draft.report_version}`,
     '',
@@ -31,7 +36,9 @@ export function reportToText(draft, confirmation) {
   ];
   for (const section of draft.sections || []) {
     lines.push(`【${section.title}】`);
-    for (const item of section.items || []) lines.push(item.text || '未提供/待确认');
+    for (const item of section.items || section.content || []) {
+      lines.push(typeof item === 'string' ? item : (item.text || '未提供/待确认'));
+    }
     lines.push('');
   }
   lines.push('【技师确认】');

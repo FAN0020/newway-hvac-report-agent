@@ -81,8 +81,9 @@ export function splitSentences(text) {
       const prev = i > 0 ? raw[i - 1] : '';
       const next = i + 1 < raw.length ? raw[i + 1] : '';
       const prevIsDigit = /\d/u.test(prev);
+      const nextIsDigit = /\d/u.test(next);
       const nextIsBoundary = next === '' || /\s/u.test(next);
-      if (!prevIsDigit && nextIsBoundary) flush();
+      if (!(prevIsDigit && nextIsDigit) && nextIsBoundary) flush();
     }
   }
   flush();
@@ -208,6 +209,9 @@ const WORK_TYPE_RULES = Object.freeze([
 /** Sentences stating a fault / defect (drives work.description). */
 const FAULT_RE = /故障|异常|不工作|失灵|损坏|不良|磨损|磨耗|报错|间歇|不制冷|无法|malfunction|fault|intermittent|not\s+work(?:ing)?|(?:would|did|does)\s+not\s+(?:close|open|operate)|damage|worn|defect/iu;
 
+/** Direct inspection/findings language; the sentence remains the evidence value. */
+const INSPECTION_RE = /检查发现|检查结果|经检查|检验发现|检查了|inspection\s+(?:found|showed|identified)|inspected|examined|found\s+(?:that\s+)?/iu;
+
 /** Sentences carrying an explicit fault-code signal (drives work.fault_code). */
 const FAULT_CODE_RE = /故障码|fault\s*code|SPN|FMI|J1939|诊断码|代码|\bcode\b/iu;
 
@@ -244,13 +248,17 @@ const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔�
 /** Test-indicator + result words (drives test.result). */
 const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|复测|test|retest|验证|check|检测/iu;
 const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|pass|fail|运转|ready/iu;
+const TEST_ACTION_RE = /试机|测试|试验|试车|试运行|验证|tested|verified|validated|function(?:al)?\s+test/iu;
+
+/** TAMS/track-access approval must be stated, never inferred from rail work. */
+const ACCESS_APPROVED_RE = /(?:\bTAMS\b[^.]*\baccess\b[^.]*\bapproved\b)|(?:track\s+access[^.]*\bapproved\b)|(?:轨道|线路|轨旁)?准入[^.。]*(?:已批准|获批|批准)/iu;
 
 /** Explicit "not completed" statements have no defined completion value. */
 const COMPLETION_NOT_DONE_RE = /未完成|尚未完成|没有完成|未解决|尚未解决|没有解决|unresolved|not\s+complet/iu;
 
 const COMPLETION_OUT_OF_SERVICE_RE = /未回役|未恢复|未返回|out\s+of\s+service|not\s+return(?:ed)?\s+to\s+service|退出服务/iu;
 
-const COMPLETION_DONE_RE = /已完成|已解决|完成|解决|回役|恢复服务|恢复运营|恢复运行|恢复使用|重新上路|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|restored|recommissioned|cleared\s+for\s+passenger|complet(?:e|ed|ion)|resolved|fixed/iu;
+const COMPLETION_DONE_RE = /已完成|已解决|完成|解决|回役|恢复服务|恢复运营|恢复运行|恢复使用|重新上路|back\s+in\s+service|return(?:ed)?(?:\s+\S+){0,4}\s+to\s+(?:the\s+)?service|restored|recommissioned|cleared\s+for\s+passenger|complet(?:e|ed|ion)|resolved|fixed/iu;
 
 const COMPLETION_DEFERRED_RE = /延期|延后|延迟|改期|postpon|deferr/iu;
 
@@ -259,7 +267,7 @@ const COMPLETION_OFFROAD_RE = /off-?road|下线|停运/iu;
 const COMPLETION_RESTRICTED_RE = /限速|restricted\s*speed|speed\s+restriction/iu;
 
 /** Safety-critical assertion markers (drives safety.*). */
-const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|恢复运行|重新上路|安全措施|安全确认|安全隔离|HSE|restored|back\s+in\s+service|return(?:ed)?\s+to\s+(?:the\s+)?service|no\s+(?:additional\s+)?safety\s+(?:issue|concern|hazard)s?|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
+const SAFETY_RE = /高压|高电压|回役|恢复服务|恢复运营|恢复运行|重新上路|安全措施|安全确认|安全隔离|HSE|restored|back\s+in\s+service|return(?:ed)?(?:\s+\S+){0,4}\s+to\s+(?:the\s+)?service|no\s+(?:additional\s+)?safety\s+(?:issue|concern|hazard)s?|隔离|isolation|断电|high\s*voltage|\bHV\b|电气安全/iu;
 
 /** Singapore bus vehicle registration as dictated by the technician. */
 const BUS_REGISTRATION_RE = /\b(?:SBS|SG)\d{1,4}[A-Z]\b/giu;
@@ -318,7 +326,11 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, lines)) push('asset.line', hit.canonical);
     for (const hit of findMatches(sentence, stocks)) push('asset.stock_class', hit.canonical);
-    for (const match of sentence.matchAll(/\bcar\s*(\d+)\b/giu)) push('asset.car', `Car ${match[1]}`);
+    const trainSet = /(?:train\s+set\s+)?([A-Z]\d{3}[A-Z]?\s+\d{4}\/\d{4})\b/iu.exec(sentence);
+    if (trainSet) push('asset.train_set', trainSet[1].toUpperCase());
+    const car = /\bcar\s+([A-Za-z0-9-]+)\b/iu.exec(sentence);
+    if (car) push('asset.car', `Car ${car[1]}`);
+    if (/车门|(?:train\s+)?door(?:\s+system|\s+roller)?/iu.test(sentence)) push('asset.subsystem', 'door');
   } else if (INDUSTRIAL_SCOPES.has(scopeId)) {
     const assets = buildIndex(vocab.terms.filter((record) => /^term_asset_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, assets)) push('asset.equipment', hit.canonical);
@@ -353,9 +365,11 @@ function factsFromSentence(sentence, scopeId, vocab) {
   }
 
   // --- work.description / work.fault_code (fault sentences) ----------
+  const inspection = INSPECTION_RE.test(sentence);
+  if (inspection) push('inspection_findings', sentence);
   if (FAULT_RE.test(sentence)) {
-    push('work.description', sentence);
-    push('inspection_findings', sentence);
+    if (!inspection) push('work.description', sentence);
+    if (!inspection) push('inspection_findings', sentence);
     if (FAULT_CODE_RE.test(sentence)) push('work.fault_code', sentence);
   }
 
@@ -375,6 +389,10 @@ function factsFromSentence(sentence, scopeId, vocab) {
     push('parts.replaced', 'true');
     push('work_performed', sentence);
   }
+  const performedWork = !NOT_REPLACED_RE.test(sentence)
+    && !RECOMMENDATION_RE.test(sentence)
+    && PERFORMED_WORK_RE.test(sentence);
+  if (performedWork) push('work_performed', sentence);
 
   // --- measurement.* --------------------------------------------------
   for (const measure of sentence.matchAll(MEASUREMENT_RE)) {
@@ -383,9 +401,12 @@ function factsFromSentence(sentence, scopeId, vocab) {
   }
 
   // --- test.result ----------------------------------------------------
-  if (TEST_INDICATOR_RE.test(sentence) && TEST_RESULT_RE.test(sentence)) {
+  if ((TEST_INDICATOR_RE.test(sentence) && TEST_RESULT_RE.test(sentence)) || TEST_ACTION_RE.test(sentence)) {
     push('test.result', sentence);
   }
+
+  // --- rail access approval -------------------------------------------
+  if (scopeId === 'SBS_RAIL' && ACCESS_APPROVED_RE.test(sentence)) push('access.approval', sentence);
 
   // --- completion.state ------------------------------------------------
   if (!COMPLETION_NOT_DONE_RE.test(sentence)) {

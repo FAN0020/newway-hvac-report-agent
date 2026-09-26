@@ -3,274 +3,109 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title data-i18n="app.title">Newway Service Report Agent</title>
+  <meta name="theme-color" content="#162b25">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Newway Reports</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main>
-    <div class="demo-ribbon" role="note"><strong data-i18n="app.demoMode">Demo mode · not production</strong><span id="network-mode" data-i18n="network.checking">Checking access mode…</span></div>
-    <div class="app-toolbar">
-      <label class="language-control" for="ui-language">
-        <span data-i18n="language.selectorLabel">Language</span>
-        <select id="ui-language" data-i18n-aria-label="accessibility.uiLanguage" aria-label="Application language">
-          <option value="en" data-i18n="language.english">English</option>
-          <option value="zh-CN" data-i18n="language.chinese">简体中文</option>
-        </select>
-      </label>
-    </div>
-    <header>
-      <p class="eyebrow" data-i18n="app.eyebrow">NEWWAY SYSTEMS · FIELD SERVICE REPORT AGENT</p>
-      <h1 data-i18n="app.headline">Speak a few words; review one service report before you leave</h1>
-      <p class="lead" data-i18n="app.lead">Audio and reports are stored on the computer running the service. The AI organizes the content and does not replace repair, safety, or pricing judgment; only the current version confirmed by the technician can be officially saved or exported.</p>
-    </header>
+  <div class="app-shell">
+    <aside id="primary-sidebar" class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="#reports" data-nav="reports" aria-label="Newway Reports home"><span class="brand-mark">N</span><span><strong>Newway</strong><small>Service reports</small></span></a>
+      <nav><button class="nav-item active" data-nav="reports"><span>▦</span> Reports</button><button class="nav-item" data-nav="new-report"><span>＋</span> New report</button></nav>
+      <nav class="secondary-nav" aria-label="Secondary navigation"><button class="nav-item" data-nav="knowledge"><span>⌕</span> Knowledge</button><button class="nav-item" data-nav="settings"><span>⚙</span> Settings</button><button class="nav-item" data-nav="help"><span>?</span> Help &amp; demo</button></nav>
+      <div class="sidebar-foot"><div class="demo-chip">Demo mode · not production</div><span id="network-mode">Checking access mode…</span></div>
+    </aside>
 
-    <section id="scope-selector" class="scope-selector" aria-labelledby="scope-selector-title">
-      <div class="scope-selector-head">
-        <h2 id="scope-selector-title" data-i18n="scope.selectTitle">Select work scope</h2>
-        <p id="scope-selector-status" class="live-status">Current scope: HVAC (V1 panel)</p>
-      </div>
-      <div id="scope-selector-buttons" class="scope-selector-buttons" role="group" data-i18n-aria-label="scope.groupLabel" aria-label="Work scope">
-        <button type="button" class="scope-button active" data-scope-id="HVAC">HVAC</button>
-        <button type="button" class="scope-button" data-scope-id="SBS_BUS">SBS·Bus</button>
-        <button type="button" class="scope-button" data-scope-id="SBS_RAIL">SBS·Rail</button>
-        <button type="button" class="scope-button" data-scope-id="OILFIELD">Oilfield</button>
-        <button type="button" class="scope-button" data-scope-id="POWER_GRID">Power Grid</button>
-      </div>
-    </section>
-
-    <section id="auth-gate" class="auth-gate" aria-labelledby="auth-title">
-      <div>
-        <div class="step" data-i18n="auth.step">Temporary demo session</div>
-        <h2 id="auth-title" data-i18n="auth.title">Enter the LAN demo passcode</h2>
-        <p data-i18n="auth.description">The passcode is kept only in this tab's session storage and memory; it is never written to the URL, long-term local storage, logs, or reports.</p>
-      </div>
-      <div class="auth-controls">
-        <label for="auth-token" data-i18n="auth.passcode">Temporary passcode</label>
-        <input id="auth-token" type="password" autocomplete="off" spellcheck="false" data-i18n-placeholder="auth.passcodePlaceholder" placeholder="provided verbally by the presenter">
-        <button id="auth-submit" data-i18n="auth.enter">Enter demo</button>
-      </div>
-      <p id="auth-status" class="live-status" role="status" data-i18n="auth.establishing">Establishing secure session…</p>
-    </section>
-
-    <div id="network-warning" class="network-warning" role="note" data-i18n="network.trustedOnly">For trusted LAN demo use only; not a public or production deployment.</div>
-
-    <div id="v1-panel">
-    <section class="status-card" aria-labelledby="health-title">
-      <div><h2 id="health-title" data-i18n="runtime.title">Local runtime status</h2><p id="health-summary" data-i18n="runtime.checking">Checking local components…</p></div>
-      <button id="refresh-health" class="secondary" data-i18n="runtime.checkAgain">Check again</button>
-      <div id="health-details" class="health-grid"></div>
-    </section>
-
-    <section aria-labelledby="capture-title">
-      <div class="step" data-i18n="capture.step">01 · Provide on-site statement</div>
-      <h2 id="capture-title" data-i18n="capture.title">Record, or type manually when Whisper is unavailable</h2>
-      <p class="hint" data-i18n="capture.hint">Suggested statement: customer issue, inspection findings, work completed, parts, test results, current status. Manual input is clearly marked as manual and is never disguised as speech recognition.</p>
-      <div class="capture-grid">
-        <div class="input-panel">
-          <h3 data-i18n="capture.recordTitle">Record the statement</h3>
-          <div class="controls">
-            <button id="start-recording" data-i18n="capture.start">Start recording</button>
-            <button id="stop-recording" class="danger" disabled data-i18n="capture.stop">Stop recording</button>
-            <label class="file-button"><span data-i18n="capture.uploadWav">Upload WAV</span><input id="audio-file" type="file" accept="audio/wav,.wav"></label>
-          </div>
-          <p id="recording-status" class="live-status" role="status" data-i18n="capture.noAudio">No audio selected.</p>
-          <audio id="audio-preview" controls hidden></audio>
-          <div class="controls compact">
-            <label><span data-i18n="capture.audioLanguage">Audio language</span><select id="language"><option value="auto" data-i18n="capture.autoLanguage">Auto</option><option value="zh" data-i18n="capture.chineseLanguage">Chinese</option><option value="en" data-i18n="capture.englishLanguage">English</option><option value="ms" data-i18n="capture.malayLanguage">Bahasa Melayu</option><option value="ta" data-i18n="capture.tamilLanguage">தமிழ்</option></select></label>
-            <label><span data-i18n="capture.model">Model</span><select id="model"><option value="base">Base</option><option value="tiny">Tiny</option><option value="small">Small</option></select></label>
-            <button id="transcribe" disabled data-i18n="capture.transcribe">Transcribe</button>
-            <button id="retry" class="secondary" disabled data-i18n="capture.retryOnce">Retry once</button>
-          </div>
-        </div>
-        <div class="input-panel manual-panel">
-          <h3 data-i18n="capture.manualTitle">Type the statement manually</h3>
-          <label for="manual-transcript" data-i18n="capture.manualLabel">Complete the demo without Whisper</label>
-          <textarea id="manual-transcript" rows="8" data-i18n-placeholder="capture.manualPlaceholder" placeholder="Example: The customer reports the air conditioner is not cooling. Inspection found the operating capacitor is damaged. Replaced it with a 35 µF capacitor. Test run is normal. Problem resolved. Recommendation: clean the filter at the next service."></textarea>
-          <div class="controls">
-            <button id="fill-demo" class="secondary" type="button" data-i18n="capture.fillDemo">Fill in synthetic demo text</button>
-            <button id="use-manual" data-i18n="capture.saveManual">Save as manual statement</button>
-          </div>
-          <p class="hint" data-i18n="capture.fillHint">“Fill in” only populates the text; it will not submit, generate, or confirm a report.</p>
-        </div>
-      </div>
-      <p id="transcription-status" class="live-status" role="status" data-i18n="capture.waiting">Waiting for voice transcription or a manual statement.</p>
-    </section>
-
-    <section aria-labelledby="source-title">
-      <div class="step" data-i18n="transcript.step">02 · Raw text and source</div>
-      <h2 id="source-title" data-i18n="transcript.title">Immutable transcript artifact</h2>
-      <article id="transcript-output" class="transcript-output empty" data-i18n="transcript.empty">The raw transcript will appear here.</article>
-      <div class="controls"><button id="build-report" disabled data-i18n="transcript.checkTerminology">Check terminology fix candidates</button></div>
-      <details><summary data-i18n="transcript.viewArtifact">View immutable artifact</summary><pre id="artifact-output">—</pre></details>
-    </section>
-
-    <section id="correction-section" hidden aria-labelledby="correction-title">
-      <div class="step" data-i18n="correction.step">03 · Manual gate on terminology fixes</div>
-      <h2 id="correction-title" data-i18n="correction.title">Compare raw text and proposed fixes side by side</h2>
-      <p class="hint" data-i18n="correction.hint">Candidates come only from the server-side versioned HVAC vocabulary. The AI only suggests; accept or reject each item, and also check key values and model numbers as verified.</p>
-      <div class="two-columns transcript-compare">
-        <div><h3 data-i18n="correction.raw">Immutable raw text</h3><article id="correction-raw" class="transcript-output"></article></div>
-        <div><h3 data-i18n="correction.proposed">AI-proposed text (not applied)</h3><article id="correction-proposed" class="transcript-output proposed"></article></div>
-      </div>
-      <div id="correction-list" class="stack"></div>
-      <div class="form-grid">
-        <label><span data-i18n="correction.technicianName">Reviewing technician name</span><input id="correction-technician-name" autocomplete="name" data-i18n-placeholder="correction.technicianNamePlaceholder" placeholder="e.g., Chen Wei"></label>
-        <label><span data-i18n="correction.technicianId">Reviewing technician ID</span><input id="correction-technician-id" autocomplete="off" data-i18n-placeholder="correction.technicianIdPlaceholder" placeholder="e.g., TECH-007"></label>
-      </div>
-      <button id="confirm-corrections" data-i18n="correction.confirmAndGenerate">Confirm fix decisions and generate report draft</button>
-      <p id="correction-status" class="live-status" role="status" data-i18n="correction.noCredential">No text confirmation credential generated yet.</p>
-      <details><summary data-i18n="correction.viewSources">View candidate sources and versions</summary><pre id="correction-evidence">—</pre></details>
-    </section>
-
-    <section id="questions-section" hidden aria-labelledby="questions-title">
-      <div class="step" data-i18n="questions.step">04 · Up to three follow-up questions</div>
-      <h2 id="questions-title" data-i18n="questions.title">Fill missing details, or explicitly choose “Not provided”</h2>
-      <p class="hint" data-i18n="questions.hint">Empty fields are not guessed by the AI; after choosing “Not provided”, the official draft still clearly shows it as pending confirmation.</p>
-      <div id="questions-list"></div>
-      <button id="apply-answers" data-i18n="questions.apply">Apply answers and regenerate</button>
-    </section>
-
-    <section id="evidence-section" hidden aria-labelledby="evidence-title">
-      <div class="step" data-i18n="evidence.step">05 · Facts and evidence</div>
-      <h2 id="evidence-title" data-i18n="evidence.title">What the AI identified and what is still missing</h2>
-      <div class="two-columns">
-        <div><h3 data-i18n="evidence.sourcedFacts">Sourced facts</h3><div id="facts-output" class="stack"></div></div>
-        <div><h3 data-i18n="evidence.fixesAndGaps">Fixes and gaps</h3><div id="issues-output" class="stack"></div></div>
-      </div>
-    </section>
-
-    <section id="report-section" hidden aria-labelledby="report-title">
-      <div class="step" data-i18n="report.step">06 · Draft and independent validation</div>
-      <h2 id="report-title" data-i18n="report.title">Full service report draft</h2>
-      <div class="warning" data-i18n="report.warning">This is an AI-organized draft. The AI does not replace repair, safety, pricing, or warranty judgment.</div>
-      <p class="report-language-note"><strong data-i18n="report.languageLabel">Report language</strong>: <span data-i18n="report.sourceLanguage">Same as template or source</span></p>
-      <div id="validator-banner" class="validator-banner"></div>
-      <div id="report-output" class="report-paper"></div>
-      <details><summary data-i18n="report.viewValidator">View Validator details</summary><pre id="validator-output">—</pre></details>
-    </section>
-
-    <section id="confirm-section" hidden aria-labelledby="confirm-title">
-      <div class="step" data-i18n="confirmation.step">07 · Technician confirmation</div>
-      <h2 id="confirm-title" data-i18n="confirmation.title">Confirm the current report version</h2>
-      <div class="form-grid">
-        <label><span data-i18n="confirmation.technicianName">Technician name</span><input id="technician-name" autocomplete="name" data-i18n-placeholder="correction.technicianNamePlaceholder" placeholder="e.g., Chen Wei"></label>
-        <label><span data-i18n="confirmation.technicianId">Technician ID</span><input id="technician-id" autocomplete="off" data-i18n-placeholder="correction.technicianIdPlaceholder" placeholder="e.g., TECH-007"></label>
-      </div>
-      <label class="confirm-check"><input id="confirm-check" type="checkbox"><span data-i18n="confirmation.acknowledgement">I have reviewed the raw text, gaps, report draft, and validation results, and I confirm the current version.</span></label>
-      <div class="controls">
-        <button id="confirm-report" disabled data-i18n="confirmation.confirmVersion">Confirm current version</button>
-        <button id="save-report" disabled data-i18n="confirmation.saveJson">Save official JSON</button>
-        <button id="export-report" disabled data-i18n="confirmation.exportText">Export copyable text</button>
-        <button id="copy-export" class="secondary" disabled data-i18n="confirmation.copyText">Copy exported text</button>
-      </div>
-      <p id="confirmation-status" class="live-status" role="status" data-i18n="confirmation.notConfirmed">Not confirmed yet. Unconfirmed or stale confirmations cannot be saved or exported.</p>
-      <textarea id="export-output" rows="12" readonly hidden data-i18n-aria-label="accessibility.exportedReport" aria-label="Exported report text"></textarea>
-    </section>
-    </div>
-
-    <div id="v2-panel" hidden data-i18n-aria-label="scope.v2PanelLabel" aria-label="SBS V2 panel">
-      <section id="v2-demo" class="v2-zone v2-demo-zone" aria-labelledby="v2-demo-title">
-        <div class="step" data-i18n="v2.demo.step">V2 · Guided demo</div>
-        <h3 id="v2-demo-title" data-i18n="v2.demo.title">Guided demo (no Whisper needed)</h3>
-        <p class="hint" data-i18n="v2.demo.hint">Plays a pre-recorded scenario: simulated recording → live captions with voice → terminology fixes for mis-heard words → facts → report.</p>
-        <div class="controls v2-demo-controls">
-          <button id="v2-demo-play" type="button" data-i18n="v2.demo.play">▶ Play demo</button>
-          <button id="v2-walkthrough-start" type="button" class="v2-walkthrough-start" data-i18n="v2.demo.walkthrough">Guided walkthrough</button>
-        </div>
-        <p id="v2-demo-status" class="live-status" role="status"></p>
-        <div id="v2-demo-captions" class="v2-demo-captions" aria-live="polite"></div>
-        <div id="v2-demo-fixes" class="v2-demo-fixes" hidden>
-          <h4 data-i18n="v2.demo.fixesTitle">Mis-heard words fixed</h4>
-          <div id="v2-demo-fix-list" class="stack"></div>
-        </div>
+    <main>
+      <header class="topbar">
+        <button id="mobile-menu" class="icon-button" aria-label="Open navigation" aria-controls="primary-sidebar" aria-expanded="false">☰</button>
+        <div><p class="eyebrow" id="page-eyebrow">REPORT WORKSPACE</p><h1 id="page-title">Reports</h1></div>
+        <div class="topbar-actions"><span class="connection-dot" aria-hidden="true"></span><span id="topbar-status">Local workspace</span><button class="avatar" data-nav="settings" aria-label="Open settings">NW</button></div>
+      </header>
+      <div id="network-warning" class="network-warning" role="note">For trusted local or LAN demo use only.</div>
+      <section id="auth-gate" class="auth-card" aria-labelledby="auth-title">
+        <div class="auth-copy"><span class="lock-icon">⌁</span><div><p class="eyebrow">TEMPORARY DEMO SESSION</p><h2 id="auth-title">Enter the LAN demo passcode</h2><p>Kept only in this tab. It is never added to URLs, logs, or reports.</p></div></div>
+        <form class="auth-controls" autocomplete="off"><label for="auth-token">Temporary passcode</label><input id="auth-token" type="password" autocomplete="off" spellcheck="false" placeholder="Passcode provided by the presenter"><button id="auth-submit" type="submit">Enter workspace</button></form>
+        <p id="auth-status" class="live-status" role="status">Establishing secure session…</p>
       </section>
+      <div id="journey" class="journey" hidden aria-label="Report progress"><button data-step="capture"><span>1</span>Capture</button><i></i><button data-step="resolve"><span>2</span>Resolve</button><i></i><button data-step="review"><span>3</span>Review</button><i></i><button data-step="complete"><span>4</span>Complete</button></div>
 
-      <section class="v2-zone" aria-labelledby="v2-upload-title">
-        <div class="step" data-i18n="v2.upload.step">V2 · A · Document ingestion</div>
-        <h2 id="v2-upload-title" data-i18n="v2.upload.title">Upload service documents (scope-isolated)</h2>
-        <p id="v2-upload-scope-hint" class="hint"></p>
-        <div class="controls">
-          <label class="file-button"><span data-i18n="v2.upload.choose">Choose a document</span><input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label>
-          <button id="v2-upload-submit" type="button" disabled data-i18n="v2.upload.submit">Upload document</button>
-        </div>
-        <div class="v2-form-grid">
-          <label><span data-i18n="v2.upload.uploader">Uploader (X-Uploader)</span><input id="v2-uploader" autocomplete="off" data-i18n-placeholder="v2.upload.uploaderPlaceholder" placeholder="e.g., Chen Wei"></label>
-        </div>
-        <p id="v2-upload-status" class="live-status" role="status" data-i18n="v2.upload.noneSelected">No document selected.</p>
-        <div id="v2-upload-progress" class="v2-progress-row" hidden></div>
-        <div id="v2-upload-record" class="upload-record" hidden></div>
-        <h3 data-i18n="v2.upload.scopeUploads">Uploads in this scope</h3>
-        <div id="v2-upload-list" class="stack"></div>
-      </section>
-
-      <section class="v2-zone" aria-labelledby="v2-retrieve-title">
-        <div class="step" data-i18n="v2.retrieval.step">V2 · B · Knowledge retrieval</div>
-        <h2 id="v2-retrieve-title" data-i18n="v2.retrieval.title">Scope-gated retrieval</h2>
-        <p id="v2-retrieve-scope-hint" class="hint"></p>
-        <div class="v2-form-grid">
-          <label><span data-i18n="v2.retrieval.query">Query</span><textarea id="v2-retrieve-query" rows="2" data-i18n-placeholder="v2.retrieval.queryPlaceholder" placeholder="e.g., Door fails to close, or Replace traction motor carbon brushes"></textarea></label>
-          <label><span data-i18n="v2.retrieval.topK">Top K</span><input id="v2-retrieve-topk" type="number" min="1" max="20" step="1" value="5"></label>
-        </div>
-        <div class="controls"><button id="v2-retrieve-submit" type="button" data-i18n="v2.retrieval.search">Search</button></div>
-        <p id="v2-retrieve-status" class="live-status" role="status"></p>
-        <div id="v2-retrieve-warnings" class="stack"></div>
-        <div id="v2-retrieve-results" class="stack"></div>
-      </section>
-
-      <section class="v2-zone" aria-labelledby="v2-facts-title">
-        <div class="step" data-i18n="v2.facts.step">V2 · C · Facts and report</div>
-        <h2 id="v2-facts-title" data-i18n="v2.facts.title">V2 fact extraction and report preview</h2>
-        <label for="v2-facts-text" data-i18n="v2.facts.statement">Dictation or manual on-site statement</label>
-        <textarea id="v2-facts-text" rows="8" data-i18n-placeholder="v2.facts.busPlaceholder" placeholder="e.g. (Bus): Vehicle plate SBS 1234, work type maintenance, replaced the left front door lock actuator, tested door opening/closing normal, completion status completed."></textarea>
-        <section id="v2-transcript-review" class="v2-follow-up" hidden aria-labelledby="v2-transcript-review-title">
-          <h3 id="v2-transcript-review-title" data-i18n="v2.facts.transcriptReviewTitle">Review speech recognition before extracting facts</h3>
-          <p class="hint" data-i18n="v2.facts.transcriptReviewHint">Domain terminology corrections are suggestions only. Select each correction you personally confirm. Planned or future actions are never converted into completed work automatically.</p>
-          <div id="v2-transcript-corrections" class="stack"></div>
-          <div id="v2-transcript-questions" class="stack"></div>
-          <button id="v2-transcript-apply" type="button" data-i18n="v2.facts.applyCorrections">Apply selected corrections and re-extract</button>
+      <div class="workspace">
+        <section id="view-reports" class="view active" data-title="Reports" data-eyebrow="REPORT WORKSPACE">
+          <div class="view-head"><div><p class="eyebrow">RECENT WORK</p><h2>Service reports</h2><p>Start a report, return to an in-progress job, or inspect a confirmed export.</p></div><button class="primary" data-nav="new-report">＋ New report</button></div>
+          <div class="filter-row"><div class="search-field"><span>⌕</span><input id="report-search" type="search" placeholder="Search report ID, asset, or technician"></div><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="draft">In progress</button><button class="filter" data-filter="confirmed">Confirmed</button></div>
+          <div id="reports-list" class="reports-list"></div>
         </section>
-        <div class="controls">
-          <button id="v2-facts-extract" type="button" data-i18n="v2.facts.extract">Extract facts</button>
-          <button id="v2-report-build" type="button" disabled data-i18n="v2.facts.build">Build report</button>
-        </div>
-        <p id="v2-facts-status" class="live-status" role="status"></p>
-        <div id="v2-facts-table-wrap" hidden>
-          <h3 data-i18n="v2.facts.extractedFacts">Extracted facts</h3>
-          <div id="v2-facts-table" class="fact-table-wrap"></div>
-        </div>
-        <div id="v2-report-output" hidden>
-          <h3 data-i18n="v2.facts.preview">Report preview</h3>
-          <p class="report-language-note"><strong data-i18n="report.languageLabel">Report language</strong>: <span data-i18n="report.sourceLanguage">Same as template or source</span></p>
-          <p id="v2-report-banner" class="validator-banner" role="status"></p>
-          <p id="v2-report-missing" class="v2-missing"></p>
-          <section id="v2-follow-up" class="v2-follow-up" hidden aria-labelledby="v2-follow-up-title">
-            <h3 id="v2-follow-up-title" data-i18n="v2.facts.followUpTitle">Complete the missing report information</h3>
-            <p class="hint" data-i18n="v2.facts.followUpHint">These questions come from the active report template. Answers are recorded as technician-confirmed facts; RAG does not fill them automatically.</p>
-            <div id="v2-follow-up-list" class="stack"></div>
-            <button id="v2-follow-up-apply" type="button" data-i18n="v2.facts.applyAnswers">Apply answers and rebuild report</button>
-          </section>
-          <div id="v2-report-gates" class="stack"></div>
-          <div id="v2-report-sections" class="report-paper"></div>
-        </div>
-      </section>
-    </div>
 
-    <div id="v2-walkthrough" class="v2-walkthrough" hidden role="region" data-i18n-aria-label="walkthrough.regionLabel" aria-label="Guided walkthrough">
-      <div class="v2-wt-progress" id="v2-wt-progress" aria-hidden="true"></div>
-      <div class="v2-wt-body">
-        <p class="v2-wt-step" id="v2-wt-step"></p>
-        <h3 id="v2-wt-title"></h3>
-        <p class="v2-wt-desc" id="v2-wt-desc"></p>
-      </div>
-      <div class="v2-wt-actions">
-        <button id="v2-wt-skip" type="button" data-i18n="common.skip">Skip</button>
-        <button id="v2-wt-next" type="button" data-i18n="common.next">Next</button>
-      </div>
-    </div>
+        <section id="view-new-report" class="view" data-title="New report" data-eyebrow="CHOOSE A REPORT TYPE">
+          <div class="narrow-head"><button class="back-link" data-nav="reports">← Reports</button><p class="eyebrow">NEW REPORT</p><h2>What are you servicing?</h2><p>The report type sets the schema, evidence rules, and final document. It stays locked for this report.</p></div>
+          <div id="report-type-grid" class="type-grid">
+            <button class="type-card" data-report-type="hvac_service"><span class="type-icon">❉</span><span><strong>HVAC service</strong><small>Cooling, ventilation, equipment, tests and completion</small><em>Schema v1</em></span><b>→</b></button>
+            <button class="type-card" data-report-type="sbs_bus_maintenance"><span class="type-icon">▰</span><span><strong>SBS Bus maintenance</strong><small>Vehicle identity, maintenance work, testing and status</small><em>Provisional schema v0</em></span><b>→</b></button>
+            <button class="type-card" data-report-type="sbs_rail_maintenance"><span class="type-icon">▥</span><span><strong>SBS Rail maintenance</strong><small>Train identity, access, rail work, testing and handback</small><em>Provisional schema v0</em></span><b>→</b></button>
+            <button class="type-card" data-report-type="oilfield_inspection"><span class="type-icon">◈</span><span><strong>Oilfield inspection</strong><small>Equipment, pipeline condition, measurements, safety and follow-up</small><em>Industrial schema v1</em></span><b>→</b></button>
+            <button class="type-card" data-report-type="power_grid_inspection"><span class="type-icon">ϟ</span><span><strong>Power Grid inspection</strong><small>Grid assets, voltage, inspection findings, tests and return to service</small><em>Industrial schema v1</em></span><b>→</b></button>
+          </div>
+        </section>
 
-    <footer data-i18n="app.footer">This MVP validates process boundaries with synthetic test data and does not represent real-world accuracy or production readiness.</footer>
-  </main>
+        <section id="view-capture" class="view" data-title="Capture" data-eyebrow="NEW SERVICE REPORT">
+          <div class="report-context"><div><span id="context-icon" class="context-icon">❉</span><div><strong id="context-title">HVAC service</strong><small id="context-schema">Schema hvac_service · v1</small></div></div><span class="lock-badge">Scope locked</span></div>
+          <div class="content-grid"><div class="primary-column"><section class="panel capture-panel">
+            <p class="eyebrow">ON-SITE STATEMENT</p><h2>Tell us what happened</h2><p class="supporting">Include the issue, findings, work completed, tests, current status, and follow-up. Nothing missing will be invented.</p>
+            <div class="record-card"><button id="start-recording" class="record-button" aria-label="Start recording"><span>●</span></button><div><strong>Record a statement</strong><p id="recording-status" role="status" aria-live="polite">Ready to record.</p></div><button id="stop-recording" class="primary compact-button" hidden>Stop recording</button><label class="file-button secondary compact-button">Upload recording<input id="audio-file" type="file" accept="audio/wav,.wav"></label></div>
+            <audio id="audio-preview" controls hidden></audio>
+            <details class="capture-advanced"><summary>Audio &amp; transcription options</summary><div class="runtime-options"><label>Language<select id="language"><option value="auto">Auto</option><option value="zh">Chinese</option><option value="en">English</option><option value="ms">Bahasa Melayu</option><option value="ta">தமிழ்</option></select></label><label>Model<select id="model"><option value="base">Base</option><option value="tiny">Tiny</option><option value="small">Small</option></select></label><button id="transcribe" type="button" hidden aria-hidden="true" tabindex="-1">Transcribe</button></div></details>
+            <div class="capture-alternatives"><button id="type-instead" class="secondary" type="button">Type instead</button><button id="retry" class="ghost" type="button" hidden disabled>Retry transcription</button></div>
+            <div id="manual-entry" class="manual-entry" hidden><label class="field-label" for="manual-transcript">Service statement</label><textarea id="manual-transcript" rows="7"></textarea><p id="manual-source-hint" class="microcopy">Typed text is stored as manual input.</p></div>
+            <div id="statement-ready" class="statement-ready" hidden><div><span class="success-dot">✓</span><span><strong>Statement ready</strong><small id="statement-source">Captured statement</small></span></div><div class="button-row"><button id="view-statement" class="text-button" type="button" aria-expanded="false">View transcript</button><button id="edit-statement" class="text-button" type="button">Edit statement</button></div><p id="statement-preview" hidden></p></div>
+            <div class="field-foot"><span id="transcription-status" class="live-status" role="status" aria-live="polite">Waiting for a statement.</span></div>
+            <div id="sbs-source-row" class="source-row" hidden><label class="file-button secondary">＋ Add supporting document<input id="v2-upload-file" type="file" accept=".txt,.csv,.md,.docx,.pdf"></label><span id="v2-upload-status" class="live-status">Optional reference material for this report scope; it is not proof that work occurred.</span><input id="v2-uploader" type="hidden"><button id="v2-upload-submit" type="button" hidden disabled>Upload document</button></div>
+            <details id="capture-identity" class="session-identity" open><summary>Technician for this report</summary><p class="microcopy">Used for correction decisions and the final confirmation. You can change it before confirming.</p><div class="identity-grid"><label>Technician name<input id="capture-technician-name" autocomplete="name" placeholder="e.g. Alex Tan"></label><label>Technician ID<input id="capture-technician-id" autocomplete="off" placeholder="e.g. TECH-007"></label></div></details>
+            <button id="use-manual" class="primary wide-action" disabled>Continue</button><button id="build-report" type="button" hidden aria-hidden="true">Process statement</button>
+          </section></div><aside class="side-column"><section class="panel checklist"><p class="eyebrow">HELPFUL CHECKLIST</p><h3>A complete statement usually includes</h3><ul><li>Customer or operator complaint</li><li>Asset or equipment identity</li><li>Inspection findings</li><li>Work actually performed</li><li>Measurements and test results</li><li>Completion or handback status</li></ul></section><button id="open-evidence" class="evidence-peek"><span>◎</span><span><strong>Evidence &amp; audit</strong><small>Original inputs remain available</small></span><b>→</b></button></aside></div>
+        </section>
+
+        <section id="view-resolve" class="view" data-title="Resolve" data-eyebrow="TECHNICIAN CHECK">
+          <div class="narrow-head"><p class="eyebrow">REVIEW NEEDED</p><h2>Resolve only what needs your judgement</h2><p>Confirm terminology, critical values, conflicts, or explicitly mark missing information. The original transcript never changes.</p></div>
+          <section id="correction-section" class="panel resolve-panel"><div class="resolve-summary"><span id="resolve-count">0 details needed</span><span id="resolve-progress">0 of 0</span></div><div id="correction-list" class="resolve-list"></div><button id="confirm-corrections" class="primary wide-action">Save and continue</button><p id="correction-status" class="live-status" role="status" aria-live="polite"></p><details class="resolve-source"><summary>Compare source statement</summary><div class="transcript-compare"><div><h3>Original transcript</h3><article id="correction-raw" class="transcript-output"></article></div><div><h3>Proposed reading</h3><article id="correction-proposed" class="transcript-output proposed"></article></div></div></details><div id="questions-section"><div id="questions-list" class="resolve-list"></div><button id="apply-answers" type="button" hidden>Apply answers</button></div><details><summary>View candidate sources and versions</summary><pre id="correction-evidence">—</pre></details></section>
+        </section>
+
+        <section id="view-review" class="view" data-title="Review" data-eyebrow="REPORT REVIEW">
+          <div class="review-toolbar"><div><p class="eyebrow">DRAFT REPORT</p><h2>Review before you confirm</h2><p>Check every claim against what was observed and recorded.</p></div><div class="button-row"><button id="edit-information" class="ghost">Edit information</button><button id="review-evidence" class="secondary">◎ Evidence</button></div></div>
+          <div id="evidence-section" class="review-evidence-strip"><div><span>Grounded facts</span><strong id="fact-count">0</strong></div><div><span>Items needing attention</span><strong id="issue-count">0</strong></div><div><span>Validation</span><strong id="validation-label">Waiting</strong></div><div id="facts-output" hidden></div><div id="issues-output" hidden></div></div>
+          <section id="report-section" class="panel report-panel"><div id="validator-banner" class="validator-banner"></div><div id="report-output" class="report-paper"></div><details><summary>View audit details</summary><pre id="validator-output">—</pre></details></section>
+          <section id="confirm-section" class="panel confirm-panel"><div><p class="eyebrow">TECHNICIAN CONFIRMATION</p><h3>Confirm this exact version</h3><p>Any later content change invalidates this confirmation.</p></div><div class="review-identity"><span>Confirming as</span><strong id="review-identity-summary">Technician not set</strong><button id="change-technician" class="text-button" type="button" aria-expanded="false">Change</button></div><div id="review-identity-fields" class="identity-grid" hidden><label>Technician name<input id="technician-name" autocomplete="name" placeholder="e.g. Alex Tan"></label><label>Technician ID<input id="technician-id" autocomplete="off" placeholder="e.g. TECH-007"></label></div><label class="confirm-check"><input id="confirm-check" type="checkbox"> I reviewed the original evidence, unresolved items, report draft, and validation results.</label><button id="confirm-report" class="primary wide-action" disabled>Confirm report</button><p id="confirmation-status" class="live-status" role="status">Not confirmed yet.</p></section>
+        </section>
+
+        <section id="view-complete" class="view" data-title="Complete" data-eyebrow="REPORT COMPLETE"><div class="complete-card"><span class="success-mark">✓</span><p class="eyebrow">CONFIRMED</p><h2>Your report is ready</h2><p id="complete-status" class="complete-status" role="status">Confirmed · not yet saved</p><p id="complete-summary">The exact reviewed version is bound to the technician confirmation.</p><div class="complete-meta" id="complete-meta"></div><div class="complete-actions"><button id="save-report" class="primary">Save official JSON</button><button id="export-report" class="secondary">Export copyable text</button><button id="copy-export" class="ghost" disabled>Copy text</button></div><textarea id="export-output" rows="12" readonly hidden aria-label="Exported report text"></textarea><div class="complete-links"><button id="start-another-report" class="text-button">Start another report</button><button class="text-button" data-nav="reports">Return to reports</button></div></div></section>
+
+        <section id="view-knowledge" class="view" data-title="Knowledge" data-eyebrow="SUPPORTING SOURCES">
+          <div class="view-head"><div><p class="eyebrow">KNOWLEDGE</p><h2>Scope-isolated reference material</h2><p>Knowledge can assist terminology and retrieval. It is never evidence that service work occurred.</p></div></div>
+          <p id="knowledge-boundary" class="trust-note"><strong>Manual search only.</strong> Results are supporting references, remain isolated to the selected scope, and never become service facts automatically.</p>
+          <section class="panel"><div id="v2-panel"><div class="scope-selector-buttons" id="scope-selector-buttons" role="group" aria-label="Knowledge scope"><button class="scope-button" data-scope-id="SBS_BUS" aria-pressed="false">SBS Bus</button><button class="scope-button" data-scope-id="SBS_RAIL" aria-pressed="false">SBS Rail</button><button class="scope-button" data-scope-id="OILFIELD" aria-pressed="false">Oilfield</button><button class="scope-button" data-scope-id="POWER_GRID" aria-pressed="false">Power Grid</button></div><p id="scope-selector-status" role="status" aria-live="polite"></p><div id="v1-panel" hidden></div><div class="advanced-grid"><div><h3>Uploads in this scope</h3><p id="v2-upload-scope-hint" class="supporting"></p><div id="v2-upload-progress" hidden></div><div id="v2-upload-record" hidden></div><div id="v2-upload-list" class="stack"></div></div><div><h3>Retrieve knowledge</h3><p id="v2-retrieve-scope-hint" class="supporting"></p><label class="field-label" for="v2-retrieve-query">Search terms</label><textarea id="v2-retrieve-query" rows="3" placeholder="Search only within this scope"></textarea><label class="field-label" for="v2-retrieve-topk">Maximum results</label><input id="v2-retrieve-topk" type="number" value="5" min="1" max="20"><button id="v2-retrieve-submit" class="secondary">Search</button><p id="v2-retrieve-status" role="status" aria-live="polite"></p><div id="v2-retrieve-warnings"></div><div id="v2-retrieve-results" class="stack"></div></div></div><div hidden><textarea id="v2-facts-text"></textarea><button id="v2-facts-extract">Process</button><button id="v2-report-build">Generate</button><p id="v2-facts-status"></p><div id="v2-facts-table-wrap"><div id="v2-facts-table"></div></div><div id="v2-report-output"><p id="v2-report-banner"></p><p id="v2-report-missing"></p><div id="v2-report-gates"></div><div id="v2-report-sections"></div></div></div></div></section>
+        </section>
+
+        <section id="view-settings" class="view" data-title="Settings" data-eyebrow="LOCAL RUNTIME"><div class="view-head"><div><p class="eyebrow">SETTINGS</p><h2>Runtime and privacy</h2><p>Audio defaults and provider health live here, outside the reporting task.</p></div><button id="refresh-health" class="secondary">Check again</button></div><section class="panel"><h3>Audio &amp; transcription</h3><p class="supporting">These defaults apply to new reports. A report keeps its own choices once capture begins.</p><div class="settings-grid"><label>Default language<select id="settings-language"><option value="auto">Auto detect</option><option value="zh">Chinese</option><option value="en">English</option><option value="ms">Bahasa Melayu</option><option value="ta">தமிழ்</option></select></label><label>Default local model<select id="settings-model"><option value="base">Base · balanced</option><option value="tiny">Tiny · faster</option><option value="small">Small · more accurate</option></select></label></div></section><section class="panel"><h3 id="health-summary">Checking local components…</h3><div id="health-details" class="health-grid"></div></section><section class="panel"><h3>Privacy boundary</h3><p>Audio, transcripts, validations, and official reports are stored on the computer running this service. Temporary authentication remains in this browser tab only.</p></section></section>
+
+        <section id="view-help" class="view" data-title="Help &amp; demo" data-eyebrow="GUIDED EXPERIENCE"><div class="view-head"><div><p class="eyebrow">HELP</p><h2>See the report journey</h2><p>Use synthetic service data to learn the workflow without Whisper.</p></div></div><p id="demo-boundary" class="trust-note"><strong>Synthetic demo data.</strong> Demo reports and uploads are clearly labelled and remain in this in-memory workspace until the page reloads.</p><section id="v2-demo" class="panel"><h3>Guided demo</h3><p>Runs a synthetic recording, terminology review, grounded fact extraction, and report preview.</p><div class="button-row"><button id="v2-demo-play" class="primary">▶ Play demo</button><button id="v2-walkthrough-start" class="secondary">Guided walkthrough</button><button id="fill-demo" class="ghost" type="button">Fill a report with sample text</button></div><p class="microcopy">Sample text only fills Capture; it never submits, generates, or confirms a report.</p><p id="v2-demo-status" role="status" aria-live="polite"></p><div id="v2-demo-captions" class="demo-captions"></div><div id="v2-demo-fixes" hidden><div id="v2-demo-fix-list"></div></div></section></section>
+      </div>
+    </main>
+  </div>
+
+  <aside id="evidence-drawer" class="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="evidence-title" tabindex="-1"><div class="drawer-head"><div><p class="eyebrow">EVIDENCE &amp; AUDIT</p><h2 id="evidence-title">Report evidence</h2></div><button id="close-evidence" class="icon-button" aria-label="Close evidence and audit">×</button></div><p>Evidence is read-only here. Knowledge references are labelled separately from service facts.</p>
+    <details open><summary>Source &amp; transcript</summary><div id="evidence-source" class="evidence-group"><p id="transcript-source" class="source-badge">No source yet</p><article id="transcript-output" class="transcript-output empty">No transcript captured yet.</article><div id="transcript-history" class="transcript-history"></div><pre id="artifact-output">—</pre></div></details>
+    <details><summary>Corrections &amp; receipt</summary><pre id="evidence-corrections">Not available yet.</pre></details>
+    <details><summary>Facts &amp; receipt</summary><pre id="evidence-facts">Not available yet.</pre></details>
+    <details><summary>Structured job state</summary><pre id="evidence-state">Not available yet.</pre></details>
+    <details><summary>Resolve provenance</summary><pre id="evidence-resolve">Not available yet.</pre></details>
+    <details><summary>Attachments &amp; knowledge</summary><pre id="evidence-context">Not available yet.</pre></details>
+    <details><summary>Validation</summary><pre id="evidence-validation">Not available yet.</pre></details>
+    <details><summary>Confirmation &amp; official artifacts</summary><pre id="evidence-finalization">Not available yet.</pre></details>
+    <details><summary>Activity</summary><div id="audit-timeline" class="audit-timeline"></div></details>
+  </aside>
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <div id="v2-walkthrough" class="walkthrough" hidden role="region" aria-label="Guided walkthrough"><div id="v2-wt-progress"></div><div><p id="v2-wt-step" class="eyebrow"></p><h3 id="v2-wt-title"></h3><p id="v2-wt-desc"></p></div><div class="button-row"><button id="v2-wt-skip" class="ghost">Stop · keep demo data</button><button id="v2-wt-next" class="primary">Next</button></div></div>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

@@ -12,11 +12,11 @@ test('technician UI and server expose every stage needed for the complete workfl
     assert.match(html, new RegExp(`id="${id}"`));
     assert.match(client, new RegExp(id));
   }
-  for (const id of ['v2-facts-text', 'v2-transcript-review', 'v2-transcript-corrections', 'v2-transcript-questions', 'v2-transcript-apply']) {
+  for (const id of ['v2-facts-text', 'resolve-count', 'resolve-progress', 'correction-list', 'questions-list']) {
     assert.match(html, new RegExp(`id="${id}"`));
     assert.match(client, new RegExp(id));
   }
-  assert.match(client, /Real speech transcript copied into the active SBS workflow/);
+  assert.match(client, /processSbsStatement/);
   for (const route of ['/api/transcripts/manual', '/api/normalizations', '/api/corrections/confirm', '/api/facts/extract', '/api/reports/validate-input', '/api/reports/plan', '/api/reports/template', '/api/reports/generate', '/api/reports/validate-draft', '/api/reports/confirm', '/api/reports/save', '/api/reports/export']) {
     assert.match(server, new RegExp(route.replaceAll('/', '\\/')));
     assert.match(client, new RegExp(route.replaceAll('/', '\\/')));

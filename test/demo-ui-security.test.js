@@ -13,7 +13,7 @@ test('demo UI asks for a temporary token and provides a non-submitting example f
     assert.match(client, new RegExp(id));
   }
   assert.match(html, /Demo mode · not production/);
-  assert.match(html, /will not submit, generate, or confirm a report/);
+  assert.match(html, /never submits, generates, or confirms a report/);
   const fillHandler = client.slice(client.indexOf("el['fill-demo'].addEventListener"), client.indexOf("el['auth-submit'].addEventListener"));
   assert.match(fillHandler, /manual-transcript.*demoNarration/s);
   assert.doesNotMatch(fillHandler, /api\(|fetch\(|\.click\(/);

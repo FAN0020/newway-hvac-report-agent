@@ -40,6 +40,38 @@ test('manual transcript is immutable and explicitly labelled manual', async (t) 
   assert.equal(repeated.raw_text, artifact.raw_text);
 });
 
+test('edited transcript records the immutable source artifact it was derived from', async (t) => {
+  const editRoot = path.resolve('.tmp-tests', 'edited-artifact');
+  await fs.rm(editRoot, { recursive: true, force: true });
+  t.after(() => fs.rm(editRoot, { recursive: true, force: true }));
+  const store = new ArtifactStore({ root: editRoot });
+  const original = await store.putTranscript({
+    audio_id: 'audio_voice',
+    raw_text: 'Replaced a thirty five microfarad capacitor.',
+    language: 'en',
+    provider: 'fake',
+    model: 'test',
+    segments: [],
+    source_hash: 'sha256:voice',
+    input_mode: 'VOICE_TRANSCRIPT',
+  }, { idempotencyKey: 'voice-original' });
+  const edited = await store.putManualTranscript({
+    raw_text: 'Replaced a 35 µF capacitor.',
+    language: 'en',
+    input_mode: 'EDITED_TRANSCRIPT',
+    edited_from_artifact_id: original.artifact_id,
+  }, { idempotencyKey: 'voice-edited' });
+
+  assert.equal(edited.input_mode, 'EDITED_TRANSCRIPT');
+  assert.equal(edited.edited_from_artifact_id, original.artifact_id);
+  assert.equal((await store.readTranscript(original.artifact_id)).raw_text, original.raw_text);
+  await assert.rejects(store.putManualTranscript({
+    raw_text: 'Unbound edit',
+    input_mode: 'EDITED_TRANSCRIPT',
+    edited_from_artifact_id: 'transcript_000000000000000000000000',
+  }), { code: 'TRANSCRIPT_NOT_FOUND' });
+});
+
 test('facts are persisted as an integrity-checked receipt bound to a transcript', async (t) => {
   const factRoot = path.resolve('.tmp-tests', 'fact-receipt');
   await fs.rm(factRoot, { recursive: true, force: true });

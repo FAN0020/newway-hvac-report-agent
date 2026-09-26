@@ -2,6 +2,7 @@ import { ALLOWED_FACT_FIELDS, MANUAL_ONLY_FIELDS, sanitizeValue } from './hvac-s
 import { boundedString, stableId, toolEnvelope } from './tool-envelope.js';
 
 const NEGATED_ACTION = /(?:没有|没|并未|尚未|未曾|未|无)\s*(?:实际)?\s*(?:进行|完成|做|作)?\s*(?:任何)?\s*(?:更换|换上|使用|安装|清洗|清理|维修|加注|处理|完成)/u;
+const RECOMMENDED_ACTION = /(?:建议|后续|下次|应当|可考虑)[^\n。！？；;]*(?:更换|换上|使用|安装|清洗|清理|维修|加注|处理|完成)/u;
 
 const CHINESE_QUANTITY = Object.freeze({ 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 });
 
@@ -25,7 +26,7 @@ function cleanProviderFact(candidate, rawText, index, allowedCorrectionIds = new
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > rawText.length) return null;
   const sourceText = rawText.slice(start, end);
   if (boundedString(candidate?.source_span?.text, 2_000) !== sourceText) return null;
-  if (['work_performed', 'parts_used'].includes(field) && NEGATED_ACTION.test(sourceText)) return null;
+  if (['work_performed', 'parts_used'].includes(field) && (NEGATED_ACTION.test(sourceText) || RECOMMENDED_ACTION.test(sourceText))) return null;
   const value = sanitizeValue(candidate.value);
   if (value === '' || value === null || value === undefined) return null;
   return {
@@ -43,7 +44,7 @@ function cleanProviderFact(candidate, rawText, index, allowedCorrectionIds = new
 }
 
 function inferredPart(sentence, span, confirmedCorrections) {
-  if (NEGATED_ACTION.test(sentence) || !/(?:更换|换了|换上|使用|安装).{0,30}电容/u.test(sentence)) return null;
+  if (NEGATED_ACTION.test(sentence) || RECOMMENDED_ACTION.test(sentence) || !/(?:更换|换了|换上|使用|安装).{0,30}电容/u.test(sentence)) return null;
   const directSpec = sentence.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:微法|µF|uF)/iu)?.[1];
   const correction = confirmedCorrections.find((item) => Number(item?.source_span?.start) >= span.start && Number(item?.source_span?.end) <= span.end && /[0-9]+(?:\.[0-9]+)?\s*(?:µF|uF)/iu.test(String(item?.candidate || '')));
   const correctedSpec = String(correction?.candidate || '').match(/([0-9]+(?:\.[0-9]+)?)\s*(?:µF|uF)/iu)?.[1];
@@ -68,7 +69,7 @@ function heuristicFacts(rawText, confirmedCorrections = []) {
     if (complaint) add('customer_complaint', complaint.replace(/[\n。！？；;]+$/u, ''));
     const finding = text.match(/(?:检查(?:发现|结果)?|现场发现|发现)[：:,，\s]*(.+)/u)?.[1];
     if (finding) add('inspection_findings', finding.replace(/[\n。！？；;]+$/u, ''));
-    if (!NEGATED_ACTION.test(text) && /(?:已(?:更换|清洗|清理|维修|疏通|紧固|完成)|完成了|进行了|更换|换了|换上|清洗|清理|维修|疏通|紧固)/u.test(text)) {
+    if (!NEGATED_ACTION.test(text) && !RECOMMENDED_ACTION.test(text) && /(?:已(?:更换|清洗|清理|维修|疏通|紧固|完成)|完成了|进行了|更换|换了|换上|清洗|清理|维修|疏通|紧固)/u.test(text)) {
       add('work_performed', text.replace(/[\n。！？；;]+$/u, ''));
     }
     const part = inferredPart(text, span, confirmedCorrections);

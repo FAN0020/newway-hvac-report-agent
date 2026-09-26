@@ -1,0 +1,98 @@
+{
+  "version": "sbs-extraction-eval.v1",
+  "cases": [
+    {
+      "id": "bus_demo_complete_en",
+      "split": "regression",
+      "category": "positive",
+      "context_id": "SBS/BUS",
+      "report_type": "sbs_bus_maintenance",
+      "input": "Preventive maintenance on bus MAN A95. The front door would not close. Inspection found the door control module was faulty. Replaced the door control module. Tested door opening and closing normal. Completion status completed.",
+      "expected_fields": ["asset.bus_model", "work.type", "work.description", "inspection_findings", "work_performed", "parts.part_number", "parts.replaced", "test.result", "completion.state"],
+      "expected_values": {"asset.bus_model": "MAN A95", "work.type": "preventive", "completion.state": "completed"},
+      "forbidden_fields": ["access.approval", "asset.train_set"],
+      "expected_resolve": ["CRITICAL_VALUE:completion.state", "MISSING_FIELD:compliance_audit", "MISSING_FIELD:safety_hv_notes"],
+      "rationale": "The shipped Bus demo explicitly states identity, fault, inspection, replacement, test and completion.",
+      "provenance": "web/app.js examples.SBS_BUS"
+    },
+    {
+      "id": "rail_demo_complete_en",
+      "split": "regression",
+      "category": "positive",
+      "context_id": "SBS/RAIL",
+      "report_type": "sbs_rail_maintenance",
+      "input": "Corrective maintenance on train set C751A 7001/7002. TAMS access approved. Inspected car three door, replaced the worn door roller, tested operation, and returned the train to service.",
+      "expected_fields": ["asset.train_set", "asset.stock_class", "asset.car", "asset.subsystem", "work.type", "access.approval", "inspection_findings", "work_performed", "test.result", "completion.state", "safety.assertion"],
+      "expected_values": {"asset.train_set": "C751A 7001/7002", "work.type": "corrective", "completion.state": "completed"},
+      "forbidden_fields": ["asset.bus_model", "asset.registration_no"],
+      "expected_resolve": ["CRITICAL_VALUE:completion.state", "MISSING_FIELD:reliability_compliance"],
+      "rationale": "The shipped Rail demo explicitly states train identity, access approval, inspection, replacement work, testing and handback.",
+      "provenance": "web/app.js examples.SBS_RAIL"
+    },
+    {
+      "id": "bus_complete_zh",
+      "split": "test",
+      "category": "positive",
+      "context_id": "SBS/BUS",
+      "report_type": "sbs_bus_maintenance",
+      "input": "客户反映空调不制冷。检查发现运行电容损坏。更换了一个35 µF电容。试机运行正常。问题已解决。",
+      "expected_fields": ["work.description", "inspection_findings", "work_performed", "diagnosis.root_cause", "parts.part_number", "parts.replaced", "test.result", "completion.state"],
+      "expected_values": {"completion.state": "completed"},
+      "forbidden_fields": ["access.approval", "asset.train_set"],
+      "rationale": "Existing complete Bus regression text with direct Chinese action and result evidence.",
+      "provenance": "test/v2/extract-v2-facts.test.js"
+    },
+    {
+      "id": "rail_complete_zh",
+      "split": "test",
+      "category": "positive",
+      "context_id": "SBS/RAIL",
+      "report_type": "sbs_rail_maintenance",
+      "input": "C751A 车组报门控故障。检查发现集电靴磨损。更换了集电靴。测试通过。已回役。",
+      "expected_fields": ["asset.stock_class", "work.description", "inspection_findings", "work_performed", "diagnosis.root_cause", "parts.part_number", "parts.replaced", "test.result", "completion.state", "safety.assertion"],
+      "expected_values": {"completion.state": "completed"},
+      "forbidden_fields": ["asset.bus_model", "asset.registration_no"],
+      "rationale": "Existing complete Rail regression text with direct Chinese action, test and handback evidence.",
+      "provenance": "test/v2/extract-v2-facts.test.js"
+    },
+    {
+      "id": "bus_negated_replacement_zh",
+      "split": "test",
+      "category": "negative",
+      "context_id": "SBS/BUS",
+      "report_type": "sbs_bus_maintenance",
+      "input": "检查发现电容轻微磨损，未更换。",
+      "expected_fields": ["inspection_findings", "diagnosis.root_cause", "parts.part_number"],
+      "expected_values": {},
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "rationale": "An explicitly negated replacement must remain a finding, never a performed action.",
+      "provenance": "MVP contract §13; existing extractor regression"
+    },
+    {
+      "id": "bus_recommended_replacement_zh",
+      "split": "test",
+      "category": "negative",
+      "context_id": "SBS/BUS",
+      "report_type": "sbs_bus_maintenance",
+      "input": "手册建议更换电容。",
+      "expected_fields": ["parts.part_number"],
+      "expected_values": {},
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "rationale": "A recommendation is reference context, not evidence of performed work.",
+      "provenance": "MVP contract §3/§13; existing extractor regression"
+    },
+    {
+      "id": "rail_not_returned_zh",
+      "split": "test",
+      "category": "edge",
+      "context_id": "SBS/RAIL",
+      "report_type": "sbs_rail_maintenance",
+      "input": "C751A 检查发现集电靴磨损，未回役。",
+      "expected_fields": ["asset.stock_class", "inspection_findings", "diagnosis.root_cause", "parts.part_number", "completion.state", "safety.assertion"],
+      "expected_values": {"completion.state": "out_of_service"},
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "rationale": "The negative handback must map to out_of_service and never to completed or performed replacement.",
+      "provenance": "Existing extractor completion-state regression"
+    }
+  ]
+}
