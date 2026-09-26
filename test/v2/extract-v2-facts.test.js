@@ -256,6 +256,21 @@ test('OILFIELD text extracts source-grounded pipeline inspection facts', async (
   assert.ok(hasField(facts, 'safety.assertion'));
 });
 
+test('OILFIELD spoken transcript preserves metre values, completed remediation, and corrected standard', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'OILFIELD',
+    rawText: '检查依据为GB50235。错了，GB50253-2014第四点二点三条。管顶覆土厚度为0.7米，低于0.8米要求。已完成补土整改。复测覆土厚度为0.85米。',
+    registry,
+  });
+  const standards = facts.filter((fact) => fact.field === 'standard.reference').map((fact) => fact.value);
+  assert.deepEqual(standards, ['GB50253-2014']);
+  assert.deepEqual(
+    facts.filter((fact) => fact.field.startsWith('measurement.')).map((fact) => [fact.value, fact.unit]),
+    [['0.7', 'm'], ['0.8', 'm'], ['0.85', 'm']],
+  );
+  assert.ok(hasField(facts, 'work_performed'));
+});
+
 test('POWER_GRID text extracts insulating-oil test identity, values, and safety', async () => {
   const { facts } = await extractV2Facts({
     contextId: 'POWER/GRID',

@@ -232,14 +232,14 @@ const REPLACED_RE = /更换|替换|换了|换上|换下|换掉|换装|replaced|i
  * {km, train-km, car-km, mm, V, %, °C, min}). Capacitance specs (µF/uF/微法)
  * are part specifications, not measurements, and are intentionally excluded.
  */
-const MEASUREMENT_RE = /(\d+(?:[.,]\d+)?)\s*(kv|mm|km|cm|m|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh|ω[·.]?m|ohm[·-]?m)/giu;
+const MEASUREMENT_RE = /(\d+(?:[.,]\d+)?)\s*(千米|公里|毫米|厘米|米|kv|mm|km|cm|m|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh|ω[·.]?m|ohm[·-]?m)/giu;
 
 /** Explicit standard references used by the supplied inspection templates. */
 const STANDARD_REFERENCE_RE = /\b(?:GB(?:\/T)?|NB\/T|Q\/GDW)\s*\d+(?:\.\d+)?(?:-\d{4})?(?:\s*第\s*[\d.]+\s*条)?/giu;
 const INSPECTION_ITEM_RE = /检查|检测|试验|测试|巡检|inspection|test|击穿电压|介质损耗|体积电阻率|管道敷设|线路选择|输油工艺/iu;
 const INDUSTRIAL_RESULT_RE = /符合|不符合|合格|不合格|正常|异常|通过|不通过|pass(?:ed)?|fail(?:ed)?|compliant|non[- ]?compliant/iu;
 const OBSERVATION_RE = /实际情况|现场|发现|观察|测得|显示|observed|found|measured|inspection/iu;
-const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔离)|完成(?:更换|修复|紧固|清理|整改|处理)|replaced|repaired|secured|cleaned|rectified|isolated/iu;
+const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔离)|(?:已完成|完成)(?:了)?[^。；;，,]{0,12}(?:更换|修复|紧固|清理|整改|处理|隔离)|replaced|repaired|secured|cleaned|rectified|isolated/iu;
 
 /** Test-indicator + result words (drives test.result). */
 const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|复测|test|retest|验证|check|检测/iu;
@@ -278,11 +278,17 @@ function measurementField(sentence, unit = '') {
   if (/湿度|humidity/iu.test(sentence) && normalizedUnit === '%') return 'measurement.humidity';
   if (/介质损耗|tgδ|dielectric\s+loss/iu.test(sentence) && normalizedUnit === '%') return 'measurement.dielectric_loss';
   if (/间隙|gap|间距/iu.test(sentence)) return 'measurement.gap';
-  if (/磨损|磨耗|wear|thickness|深度|深度|depth|胎纹/iu.test(sentence)) return 'measurement.wear';
+  if (/管顶覆土|覆土.{0,3}厚度/iu.test(sentence)) return 'measurement.depth';
+  if (/磨损|磨耗|wear|thickness|厚度|深度|depth|胎纹/iu.test(sentence)) return 'measurement.wear';
   if (normalizedUnit === '°c' || /温度|temp/iu.test(sentence)) return 'measurement.temperature';
   if (/压力|pressure|bar|kpa|psi/iu.test(sentence)) return 'measurement.pressure';
   if (normalizedUnit === 'kv' || normalizedUnit === 'v') return 'measurement.voltage';
   return 'measurement.value';
+}
+
+function normalizeMeasurementUnit(unit) {
+  const value = String(unit ?? '');
+  return ({ 米: 'm', 千米: 'km', 公里: 'km', 毫米: 'mm', 厘米: 'cm' })[value] || value;
 }
 
 /* ------------------------------------------------------------------ *
@@ -369,7 +375,8 @@ function factsFromSentence(sentence, scopeId, vocab) {
 
   // --- measurement.* --------------------------------------------------
   for (const measure of sentence.matchAll(MEASUREMENT_RE)) {
-    out.push({ field: measurementField(sentence, measure[2]), value: measure[1], unit: measure[2] });
+    const unit = normalizeMeasurementUnit(measure[2]);
+    out.push({ field: measurementField(sentence, unit), value: measure[1], unit });
   }
 
   // --- test.result ----------------------------------------------------
@@ -426,6 +433,15 @@ export async function extractV2Facts({ contextId, rawText, registry } = {}) {
     if (candidates.length === 0) {
       warnings.push(`Unrecognized: ${sentence}`);
       continue;
+    }
+    // Spoken self-corrections such as “错了，GB...” supersede a preceding
+    // standard reference. Keep the explicitly corrected reference only.
+    if (INDUSTRIAL_SCOPES.has(scopeId)
+      && /(?:错了|更正|改为|correction|corrected)/iu.test(sentence)
+      && candidates.some((candidate) => candidate.field === 'standard.reference')) {
+      for (let index = facts.length - 1; index >= 0; index -= 1) {
+        if (facts[index].field === 'standard.reference') facts.splice(index, 1);
+      }
     }
     for (const candidate of candidates) {
       const fact = {

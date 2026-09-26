@@ -68,3 +68,21 @@ export function buildFollowUpQuestions({ scopeId, missingSections = [] } = {}) {
     })
     .filter(Boolean));
 }
+
+/** Converts safety hard-gates into an explicit technician confirmation step. */
+export function buildGateConfirmationQuestions({ violations = [] } = {}) {
+  return Object.freeze((violations || [])
+    .filter((item) => item?.class === 'INCORRECT_SAFETY_RETURN_TO_SERVICE' && item?.field)
+    .map((item, index) => {
+      const quoted = String(item.detail || '').match(/assertion "([^"]+)"/u)?.[1] || '';
+      return Object.freeze({
+        section_id: 'completion_safety',
+        field: String(item.field),
+        target_value: quoted,
+        confirmation_only: true,
+        question: `Please explicitly confirm the return-to-service statement: “${quoted || 'the stated return-to-service status'}”.`,
+        answer_source: 'technician_confirmation',
+        question_id: `return_to_service_gate_${index}`,
+      });
+    }));
+}

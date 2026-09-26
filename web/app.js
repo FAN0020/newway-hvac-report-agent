@@ -910,7 +910,9 @@ function v2RenderFollowUps(questions) {
     input.rows = 2;
     input.dataset.field = item.field;
     input.dataset.sectionId = item.section_id;
-    input.placeholder = 'Technician answer';
+    input.dataset.confirmationOnly = item.confirmation_only ? 'true' : 'false';
+    if (item.target_value) input.dataset.targetValue = item.target_value;
+    input.placeholder = item.confirmation_only ? 'Type CONFIRM or 确认' : 'Technician answer';
     label.append(input, node('small', '', `Report module: ${item.section_id} · Fact: ${item.field}`));
     return label;
   });
@@ -972,9 +974,13 @@ v2El['v2-follow-up-apply'].addEventListener('click', () => {
     const value = input.value.trim();
     if (!value) continue;
     const field = input.dataset.field;
-    const existing = v2.facts.find((fact) => fact.field === field);
+    const confirmationOnly = input.dataset.confirmationOnly === 'true';
+    if (confirmationOnly && !/^(?:confirm(?:ed)?|yes|确认|是)$/iu.test(value)) continue;
+    const targetValue = input.dataset.targetValue || '';
+    const existing = v2.facts.find((fact) => fact.field === field && (!targetValue || String(fact.value) === targetValue));
+    if (confirmationOnly && !existing) continue;
     const fact = existing || { field };
-    fact.value = value;
+    if (!confirmationOnly) fact.value = value;
     fact.support_status = 'CONFIRMED_BY_TECHNICIAN';
     fact.source = 'technician:follow-up';
     fact.critical = field === 'completion.state' || field === 'test.result' || field.startsWith('safety.') || field === 'access.approval';
@@ -1012,16 +1018,21 @@ v2El['v2-facts-extract'].addEventListener('click', async () => {
     v2El['v2-report-build'].disabled = v2.facts.length === 0;
     let retrievalCount = 0;
     try {
+      const focusedParts = v2.facts
+        .filter((fact) => /^(?:asset\.|standard\.|measurement\.|defect\.)/u.test(String(fact.field || '')))
+        .map((fact) => `${fact.value ?? ''}${fact.unit ? ` ${fact.unit}` : ''}`)
+        .filter(Boolean);
+      const retrievalQuery = [...new Set(focusedParts)].join(' ').slice(0, 1500) || raw;
       const retrieval = await api('/api/v2/retrieve', {
         context_id: v2.contextId,
-        query: raw,
+        query: retrievalQuery,
         top_k: 3,
         include_uploads: true,
       });
       const results = retrieval.data?.results || [];
       retrievalCount = results.length;
       v2.knowledgeHits = results.map((item) => item.text);
-      v2El['v2-retrieve-query'].value = raw;
+      v2El['v2-retrieve-query'].value = retrievalQuery;
       v2El['v2-retrieve-topk'].value = '3';
       v2RenderRetrieveWarnings(retrieval.warnings || []);
       v2RenderRetrieveResults(results);

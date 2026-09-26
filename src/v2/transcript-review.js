@@ -116,6 +116,30 @@ export function reviewV2Transcript({ scopeId, rawText } = {}) {
     }));
   }
 
+  if ((scopeId === 'OILFIELD' || scopeId === 'POWER_GRID')
+    && /(?:错了|更正|改为|correction|corrected)/iu.test(text)) {
+    confirmationQuestions.push(Object.freeze({
+      question_id: 'industrial_standard_self_correction',
+      field: 'standard.reference',
+      source_text: text.match(/(?:错了|更正|改为)[^。\n]*/iu)?.[0] || '',
+      question: 'The technician corrected the inspection standard aloud. Please confirm the final standard and clause before issuing the report.',
+      reason: 'A spoken self-correction can leave both the superseded and final references in the transcript.',
+      critical: true,
+    }));
+  }
+
+  if ((scopeId === 'OILFIELD' || scopeId === 'POWER_GRID')
+    && /恢复运行|恢复服务|回役|return(?:ed)?\s+to\s+service|back\s+in\s+service/iu.test(text)) {
+    confirmationQuestions.push(Object.freeze({
+      question_id: 'industrial_return_to_service_confirmation',
+      field: 'safety.assertion',
+      source_text: text.match(/[^。\n]*(?:恢复运行|恢复服务|回役|return(?:ed)?\s+to\s+service|back\s+in\s+service)[^。\n]*/iu)?.[0]?.trim() || '',
+      question: 'Please confirm that the asset was authorised to return to service after the stated safety checks.',
+      reason: 'Return-to-service is safety-critical and requires explicit technician confirmation.',
+      critical: true,
+    }));
+  }
+
   return Object.freeze({
     correction_suggestions: Object.freeze(correctionSuggestions),
     confirmation_questions: Object.freeze(confirmationQuestions),

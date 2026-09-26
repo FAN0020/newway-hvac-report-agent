@@ -69,3 +69,12 @@ test('round-two Bus ASR variants are reviewable and registration requires identi
   assert.equal(review.confirmation_questions[0].source_text, 'SBS6025J');
   assert.equal(review.confirmation_questions[0].critical, true);
 });
+
+test('industrial spoken correction and return-to-service require confirmation', () => {
+  const review = reviewV2Transcript({
+    scopeId: 'OILFIELD',
+    rawText: '依据GB50235，错了，改为GB50253-2014。管段恢复运行。',
+  });
+  assert.ok(review.confirmation_questions.some((item) => item.field === 'standard.reference'));
+  assert.ok(review.confirmation_questions.some((item) => item.field === 'safety.assertion'));
+});
