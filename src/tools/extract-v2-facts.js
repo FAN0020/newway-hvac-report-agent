@@ -264,8 +264,8 @@ const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔�
 
 /** Test-indicator + result words (drives test.result). */
 const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|复测|test|retest|验证|check|检测/iu;
-const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|pass|fail|运转|ready/iu;
-const TEST_ACTION_RE = /试机|测试|试验|试车|试运行|验证|tested|verified|validated|function(?:al)?\s+test/iu;
+const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|pass|fail|运转|ready|successful(?:ly)?/iu;
+const TEST_ACTION_RE = /试机|测试|试验|试车|试运行|验证|tested|verified|validated|function(?:al)?\s+test|completed?\s+(?:\w+\s+){0,3}cycles?\s+successful(?:ly)?/iu;
 
 /** TAMS/track-access approval must be stated, never inferred from rail work. */
 const ACCESS_APPROVED_RE = /(?:\bTAMS\b[^.]*\baccess\b[^.]*\bapproved\b)|(?:track\s+access[^.]*\bapproved\b)|(?:轨道|线路|轨旁)?准入[^.。]*(?:已批准|获批|批准)/iu;
@@ -343,8 +343,8 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, lines)) push('asset.line', hit.canonical);
     for (const hit of findMatches(sentence, stocks)) push('asset.stock_class', hit.canonical);
-    const trainSet = /(?:train\s+set\s+)?([A-Z]\d{3}[A-Z]?\s+\d{4}\/\d{4})\b/iu.exec(sentence);
-    if (trainSet) push('asset.train_set', trainSet[1].toUpperCase());
+    const trainSet = /(?:train\s+set\s+)?([A-Z]\d{3}[A-Z]?\s+\d{4}\/\d{4})\b|\b([A-Z]\d{3}[A-Z]?)\s+train\s+set\s+(\d{4}\/\d{4})\b/iu.exec(sentence);
+    if (trainSet) push('asset.train_set', (trainSet[1] || `${trainSet[2]} ${trainSet[3]}`).toUpperCase());
     const car = /\bcar\s+([A-Za-z0-9-]+)\b/iu.exec(sentence);
     if (car) push('asset.car', `Car ${car[1]}`);
     if (/车门|(?:train\s+)?door(?:\s+system|\s+roller)?/iu.test(sentence)) push('asset.subsystem', 'door');

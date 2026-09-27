@@ -128,6 +128,22 @@
       }
     },
     {
+      "id": "part_door_roller",
+      "kind": "part",
+      "canonical": "车门滚轮",
+      "aliases": ["door roller", "train door roller", "车门滚轮", "门滚轮"],
+      "risk": "LOW",
+      "description": "列车车门机构中的滚轮部件。作为可比行业术语用于识别技术员口述，不包含 SBS 专用部件号或更换阈值。",
+      "evidence": {
+        "evidence_level": "C",
+        "confidence": "MEDIUM",
+        "basis": ["轨道车辆车门机构通用术语（C）"],
+        "notes": "仅用于术语归一化；SBS 专用部件号和磨耗阈值 NOT PUBLICLY VERIFIED。"
+      },
+      "not_publicly_verified": true,
+      "not_publicly_verified_reason": "SBS 专用车门滚轮部件号和磨耗阈值未公开。"
+    },
+    {
       "id": "part_rail",
       "kind": "part",
       "canonical": "钢轨",
