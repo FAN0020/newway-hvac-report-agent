@@ -274,8 +274,21 @@ function buildSections(template, agentState, sessionPhase, processing, chain) {
   const resolutionByField = new Map((agentState?.resolution_queue || []).map((item) => [item.field_id, item]));
   const unresolved = new Set(resolutionByField.keys());
   const groups = new Map();
-  for (const definition of template?.schema?.fields || []) {
-    if (definition.id.endsWith('.*')) continue;
+  const declared = template?.schema?.fields || [];
+  const declaredIds = new Set(declared.filter((definition) => !definition.id.endsWith('.*')).map((definition) => definition.id));
+  const definitions = declared.flatMap((definition) => {
+    if (!definition.id.endsWith('.*')) return [definition];
+    const prefix = definition.id.slice(0, -1);
+    return [...fieldMap.keys()]
+      .filter((fieldId) => fieldId.startsWith(prefix) && !declaredIds.has(fieldId))
+      .sort()
+      .map((fieldId) => ({
+        ...definition,
+        id: fieldId,
+        label: `${definition.label} — ${fieldId.slice(prefix.length).replaceAll('_', ' ')}`,
+      }));
+  });
+  for (const definition of definitions) {
     const title = definition.section || 'Report';
     if (!groups.has(title)) groups.set(title, []);
     const field = fieldMap.get(definition.id) || { field_id: definition.id, state: 'UNKNOWN', value: null, candidates: [] };
@@ -326,7 +339,11 @@ export function deriveWorkspaceView(input = {}) {
   const fields = input.agent_state?.report_fields || [];
   const completeness = input.agent_state?.completeness || {};
   const complete = completeness.complete_fields?.length || 0;
-  const total = input.template?.schema?.fields?.filter((field) => !field.id.endsWith('.*')).length || fields.length;
+  const declaredFields = input.template?.schema?.fields || [];
+  const fixedIds = new Set(declaredFields.filter((field) => !field.id.endsWith('.*')).map((field) => field.id));
+  const materialized = fields.filter((field) => !fixedIds.has(field.field_id)
+    && declaredFields.some((definition) => definition.id.endsWith('.*') && field.field_id.startsWith(definition.id.slice(0, -1)))).length;
+  const total = declaredFields.filter((field) => !field.id.endsWith('.*')).length + materialized || fields.length;
   const identity = [
     valueFor(fields, 'work.work_order_id'),
     valueFor(fields, 'asset.internal_fleet_no', 'Bus ID needs resolution'),

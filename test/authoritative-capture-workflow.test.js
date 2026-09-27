@@ -162,6 +162,141 @@ test('ordinary text capture uses the selected fact-centric interpretation even w
   assert.equal(result.agent_state.resolution_queue.some((item) => item.field_id === 'completion.outstanding_issues'), false);
 });
 
+test('natural HVAC narration populates clause-specific fields without whole-narration contamination', async (t) => {
+  const { service } = await fixture(t, 'semantic-hvac-regression');
+  const created = await service.createSession({
+    template_id: 'hvac-service-report',
+    template_version: '1.0.0',
+    job_context_ref: 'job-context:SEMANTIC-HVAC',
+  });
+  const narration = [
+    'Hello, this is technician Alex and the work order is 1122344.',
+    'The equipment needed is ABCD.',
+    'The customer complained that the office was not cooling.',
+    'I inspected the drain line and found a blockage.',
+    'I cleared the drain line.',
+    'The completion status is done.',
+    'The test result is passed.',
+  ].join(' ');
+
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: narration,
+    language: 'en',
+    idempotency_key: 'semantic-hvac-regression-1',
+  });
+  const values = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field.value]));
+
+  assert.equal(values.work_order, '1122344');
+  assert.equal(values.equipment, 'ABCD');
+  assert.equal(values.customer_complaint, 'the office was not cooling');
+  assert.equal(values.inspection_findings, 'a blockage');
+  assert.equal(values.work_performed, 'cleared the drain line');
+  assert.equal(values.completion_status, 'done');
+  assert.equal(values.test_results, 'passed');
+  for (const fieldId of ['customer_complaint', 'inspection_findings', 'work_performed', 'completion_status', 'test_results']) {
+    assert.notEqual(values[fieldId], narration, `${fieldId} must not receive the whole narration`);
+  }
+});
+
+test('customer report, finding, work, test action and outcome remain semantically separate', async (t) => {
+  const { service } = await fixture(t, 'semantic-bus-separation');
+  const created = await busSession(service, 'SEMANTIC-SEPARATION');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'The customer reported that the front door would not close. I inspected the door controller and found a loose connector. I reseated the connector. I tested the door opening and closing. Both cycles passed.',
+    language: 'en',
+    idempotency_key: 'semantic-bus-separation-1',
+  });
+  const values = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field.value]));
+
+  assert.equal(values['work.trigger'], 'the front door would not close');
+  assert.equal(values.inspection_findings, 'a loose connector');
+  assert.equal(values.work_performed, 'reseated the connector');
+  assert.equal(values['test.result'], 'passed');
+});
+
+test('natural compound speech keeps multiple completed actions without creating a false field conflict', async (t) => {
+  const { service } = await fixture(t, 'semantic-natural-compound');
+  const created = await busSession(service, 'SEMANTIC-NATURAL-COMPOUND');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: "Okay, I'm done with bus 354. Customer said the front door was sticking earlier. I checked it and found the connector at the controller was loose, so I reseated that and secured it. Didn't change any parts. Ran the door open-close test twice afterward and both were normal. Bus is okay to return to service, nothing else needed.",
+    language: 'en',
+    idempotency_key: 'semantic-natural-compound-1',
+  });
+  const fields = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field]));
+
+  assert.equal(fields['asset.internal_fleet_no'].value, '354');
+  assert.equal(fields['work.trigger'].value, 'the front door was sticking earlier');
+  assert.match(fields.inspection_findings.value, /connector at the controller was loose/iu);
+  assert.equal(fields.work_performed.state, 'KNOWN_VALUE');
+  assert.notEqual(fields.work_performed.state, 'CONFLICT');
+  assert.match(fields.work_performed.value, /reseated/iu);
+  assert.match(fields.work_performed.value, /secured/iu);
+  assert.equal(fields['parts.part_number'].state, 'EXPLICIT_NONE');
+  assert.equal(fields['test.result'].value, 'passed');
+  assert.equal(fields['completion.state'].value, 'READY');
+  assert.equal(fields['completion.outstanding_issues'].state, 'EXPLICIT_NONE');
+});
+
+test('test action without an outcome leaves test result unknown', async (t) => {
+  const { service } = await fixture(t, 'semantic-test-abstention');
+  const created = await busSession(service, 'SEMANTIC-TEST-ABSTENTION');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'I tested the front door opening and closing.',
+    language: 'en',
+    idempotency_key: 'semantic-test-abstention-1',
+  });
+
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'test.result'), false);
+  assert.equal(result.agent_state.report_fields.find((field) => field.field_id === 'test.result').state, 'UNKNOWN');
+});
+
+test('recommended and negated replacement does not become work performed or a part used', async (t) => {
+  const { service } = await fixture(t, 'semantic-part-temporality');
+  const created = await busSession(service, 'SEMANTIC-PART-TEMPORALITY');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'Recommend replacing the door control module next visit. The door control module was not replaced today.',
+    language: 'en',
+    idempotency_key: 'semantic-part-temporality-1',
+  });
+
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'parts.part_number'), false);
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'work_performed'), false);
+});
+
+test('field-specific capture context is preserved without overriding semantic compatibility', async (t) => {
+  const { service } = await fixture(t, 'semantic-field-context');
+  const created = await busSession(service, 'SEMANTIC-FIELD-CONTEXT');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'We replaced the door control module.',
+    language: 'en',
+    idempotency_key: 'semantic-field-context-1',
+    target_field_id: 'test.result',
+    target_section_id: 'Completion and handover',
+    capture_mode: 'FIELD_DICTATION',
+  });
+
+  assert.deepEqual(result.evidence.metadata.capture_context, {
+    target_field_id: 'test.result',
+    target_section_id: 'Completion and handover',
+    capture_mode: 'FIELD_DICTATION',
+  });
+  assert.deepEqual(result.transcript.capture_context, result.evidence.metadata.capture_context);
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'test.result'), false);
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'work_performed'), true);
+});
+
 test('audio bytes exist before Whisper and the transcript preserves provider timestamps and exact bindings', async (t) => {
   let persistedBytes = null;
   const whisper = {

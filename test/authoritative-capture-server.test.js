@@ -403,6 +403,31 @@ test('HTTP audio capture exposes timestamped transcript provenance and source-bo
   assert.equal(chain.body.data.transcripts.length, 1);
 });
 
+test('HTTP field dictation preserves target context without forcing an incompatible assignment', async (t) => {
+  const { request } = await fixture(t, 'field-dictation', { whisper: {
+    transcribe: async (_audioPath, { model }) => ({
+      raw_text: 'We replaced the door control module.', language: 'en', provider: 'fake-whisper', model, segments: [],
+    }),
+  } });
+  const created = await createBusSession(request, 'FIELD-DICTATION');
+  const sessionId = created.body.data.session.session_id;
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/audio`, {
+    method: 'POST', body: pcmWav({ samples: 511 }),
+    headers: {
+      'content-type': 'audio/wav', 'x-expected-revision': '0', 'x-stt-language': 'en',
+      'idempotency-key': 'http-field-dictation', 'x-target-field-id': 'test.result',
+      'x-target-section-id': 'Completion and handover', 'x-capture-mode': 'FIELD_DICTATION',
+    },
+  });
+
+  const context = { target_field_id: 'test.result', target_section_id: 'Completion and handover', capture_mode: 'FIELD_DICTATION' };
+  assert.equal(captured.status, 201);
+  assert.deepEqual(captured.body.data.evidence.metadata.capture_context, context);
+  assert.deepEqual(captured.body.data.transcript.capture_context, context);
+  assert.equal(captured.body.data.candidates.some((candidate) => candidate.field_id === 'test.result'), false);
+  assert.equal(captured.body.data.candidates.some((candidate) => candidate.field_id === 'work_performed'), true);
+});
+
 test('HTTP STT failure preserves audio and an explicit retry completes the same evidence chain', async (t) => {
   let calls = 0;
   const { request } = await fixture(t, 'failure-retry', { whisper: {

@@ -28,6 +28,22 @@ const HISTORY_SUMMARY_BINDINGS = Object.freeze({
   }),
 });
 
+function inferredSemanticRoles(id) {
+  if (['work_order', 'work.work_order_id', 'work.order_id'].includes(id)) return ['WORK_ORDER'];
+  if (id === 'equipment' || id.startsWith('asset.')) return ['EQUIPMENT_OR_ASSET'];
+  if (id === 'technician.name') return ['TECHNICIAN_IDENTITY'];
+  if (['customer_complaint', 'work.trigger', 'work.description'].includes(id)) return ['CUSTOMER_OBSERVATION'];
+  if (id === 'inspection_findings' || id === 'diagnosis.root_cause' || /^check\..+\.observation$/u.test(id)) return ['INSPECTION_FINDING'];
+  if (id === 'work_performed' || /^check\..+\.action$/u.test(id)) return ['COMPLETED_ACTION'];
+  if (['parts.part_number', 'parts_used'].includes(id)) return ['PART_USED'];
+  if (id === 'measurement.*' || id.startsWith('measurement.')) return ['MEASUREMENT'];
+  if (['test_results', 'test.result'].includes(id)) return ['TEST_OUTCOME'];
+  if (['completion_status', 'completion.state'].includes(id)) return ['COMPLETION_STATE'];
+  if (id === 'completion.follow_up') return ['RECOMMENDATION', 'FOLLOW_UP'];
+  if (id === 'completion.outstanding_issues') return ['FOLLOW_UP'];
+  return [];
+}
+
 function field(id, label, section, displayOrder, options = {}) {
   return Object.freeze({
     id,
@@ -39,6 +55,7 @@ function field(id, label, section, displayOrder, options = {}) {
     critical: false,
     inferencePolicy: 'EVIDENCE_OR_TECHNICIAN_INPUT',
     renderer: options.allowedStatuses ? 'status-control' : 'text-control',
+    semanticRoles: Object.freeze(inferredSemanticRoles(id)),
     ...options,
   });
 }
@@ -228,7 +245,7 @@ const RAIL_HANDOVER_FIELDS = [
   field('work.trigger', 'Trigger / fault', 'Maintenance record', 20, { required: true }),
   field('inspection_findings', 'Findings', 'Maintenance record', 21, { required: true }),
   field('work_performed', 'Work performed', 'Maintenance record', 22, { required: true }),
-  field('parts.part_number', 'Parts / materials', 'Maintenance record', 23),
+  field('parts.part_number', 'Parts / materials', 'Maintenance record', 23, { semanticRoles: Object.freeze(['PART_USED', 'PART_REFERENCE']) }),
   field('test.result', 'Measurements / test results', 'Maintenance record', 24, { required: true, critical: true, requiresTechnicianConfirmation: true }),
   ...completion('SBS_RAIL', [
     ['completion.outstanding_issues', 'Outstanding items'], ['handover.area_cleared', 'Area cleared / housekeeping', true, true],

@@ -77,6 +77,13 @@ function candidateBody(input, supportType, confirmation = {}) {
       decision: enumValue(decision?.decision, ['ACCEPT'], `correction_provenance.decisions[${index}].decision`, code),
     })),
   };
+  const semantic = input.semantic === undefined || input.semantic === null ? null : {
+    fact_id: requiredString(input.semantic.fact_id, 'semantic.fact_id', code),
+    fact_ids: stringArray(input.semantic.fact_ids || [input.semantic.fact_id], 'semantic.fact_ids', { code }),
+    semantic_type: requiredString(input.semantic.semantic_type, 'semantic.semantic_type', code),
+    source_role: requiredString(input.semantic.source_role, 'semantic.source_role', code),
+    temporality: requiredString(input.semantic.temporality, 'semantic.temporality', code),
+  };
   if (correctionProvenance) {
     for (const key of ['raw_text_hash', 'effective_projection_hash']) {
       if (!/^sha256:[a-f0-9]{64}$/u.test(correctionProvenance[key])) {
@@ -111,6 +118,7 @@ function candidateBody(input, supportType, confirmation = {}) {
       ['domain', 'context_id', 'context_version', 'scope_id'],
       code,
     ),
+    semantic,
     correction_provenance: correctionProvenance,
     confirmation_requirement_ids: stringArray(input.confirmation_requirement_ids || [], 'confirmation_requirement_ids', { code }),
     resolution,

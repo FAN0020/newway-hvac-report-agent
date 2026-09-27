@@ -21,6 +21,10 @@ export function candidateRuleViolations(candidate, definition = {}) {
   const { value, unit } = candidateValue(candidate);
   const violations = [];
   const push = (code, reason) => violations.push({ code, reason });
+  if (candidate.semantic?.semantic_type && Array.isArray(definition.semanticRoles)
+    && !definition.semanticRoles.includes(candidate.semantic.semantic_type)) {
+    push('SEMANTIC_FIELD_MISMATCH', `${candidate.semantic.semantic_type} is not compatible with ${definition.id || candidate.field_id}.`);
+  }
   const type = definition.type || 'string';
   if ((type === 'number' || type === 'measurement') && (typeof value !== 'number' || !Number.isFinite(value))) {
     push('TYPE_MISMATCH', `${definition.id || candidate.field_id} requires a finite numeric value.`);
@@ -62,4 +66,3 @@ export function candidateRuleViolations(candidate, definition = {}) {
   }
   return violations;
 }
-

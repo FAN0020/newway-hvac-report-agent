@@ -83,6 +83,9 @@ test('inline field editing offers report-owned dictation and exposes one stop ac
   assert.match(client, /Stop & fill report/);
   assert.match(client, /workspace\.recordingFieldId = fieldId/);
   assert.match(client, /workspace\.recordingFieldId === field\.field_id/);
+  assert.match(client, /headers\['x-target-field-id'\] = fieldId/);
+  assert.match(client, /headers\['x-target-section-id'\] = definition\?\.section/);
+  assert.match(client, /headers\['x-capture-mode'\] = 'FIELD_DICTATION'/);
   assert.match(client, /renderRecording\([\s\S]*state\.recordingFieldId[\s\S]*return/s);
 });
 

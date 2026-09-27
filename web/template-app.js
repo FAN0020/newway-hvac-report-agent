@@ -801,18 +801,26 @@ async function stopRecording() {
   if (!recorder || !recorderWorkspace) return;
   clearInterval(recordingTimer); const owned = recorder; const workspace = recorderWorkspace; setProcessing('PREPARING_AUDIO', workspace);
   try {
-    const wav = await owned.stop(); recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; await uploadAudio(wav, workspace);
+    const fieldId = workspace.recordingFieldId;
+    const wav = await owned.stop(); recorder = null; recorderWorkspace = null; await uploadAudio(wav, workspace, fieldId);
   } catch (error) {
     await owned.release(); recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; handleMutationError(error, 'STT', undefined, workspace);
   }
   finally { workspace.recordingFieldId = null; clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
-async function uploadAudio(blob, workspace = activeWorkspace()) {
+async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) {
   if (!workspace?.session) return;
   setProcessing('UPLOADING_AUDIO', workspace);
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/audio`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-expected-revision': String(workspace.session.revision), 'idempotency-key': crypto.randomUUID(), 'x-stt-language': 'auto' }, body: blob });
+    const definition = fieldId ? workspace.template?.schema?.fields?.find((field) => field.id === fieldId || (field.id.endsWith('.*') && fieldId.startsWith(field.id.slice(0, -1)))) : null;
+    const headers = { 'content-type': 'audio/wav', 'x-expected-revision': String(workspace.session.revision), 'idempotency-key': crypto.randomUUID(), 'x-stt-language': 'auto' };
+    if (fieldId) {
+      headers['x-target-field-id'] = fieldId;
+      headers['x-target-section-id'] = definition?.section || '';
+      headers['x-capture-mode'] = 'FIELD_DICTATION';
+    }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/audio`, { method: 'POST', headers, body: blob });
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     if (result.failure) workspace.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.', retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence.evidence_id };
     else {

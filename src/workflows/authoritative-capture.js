@@ -16,9 +16,8 @@ import {
 import { buildAuthoritativeReport, buildReportHistorySummary, runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
 import { renderReportPdf } from '../export/template-pdf.js';
 import { reportToText } from '../tools/report-integrity.js';
-import { extractServiceFacts } from '../tools/extract-service-facts.js';
-import { extractV2Facts } from '../tools/extract-v2-facts.js';
-import { interpretEvidence } from '../tools/interpret-evidence.js';
+import { extractAtomicFacts } from '../semantic/atomic-facts.js';
+import { routeAtomicFacts } from '../semantic/field-router.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
 import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
 import { buildFollowUpQuestions } from '../v2/guided-reporting.js';
@@ -26,10 +25,10 @@ import { planV2Report } from '../v2/report-builder.js';
 import { allowedScopes, resolveContext } from '../v2/scope.js';
 import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
-import { mapFactsForTemplate, templateFor } from '../../web/template-catalog.js';
+import { templateFor } from '../../web/template-catalog.js';
 
-const PROCESSING_VERSION = 'authoritative-capture.v1';
-const EXTRACTION_VERSION = 'deterministic-extraction.v2';
+const PROCESSING_VERSION = 'authoritative-capture.v2';
+const EXTRACTION_VERSION = 'atomic-semantic-extraction.v3';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
 const ATTACHMENT_PURPOSES = new Set([
   'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
@@ -101,7 +100,7 @@ function reportBinding(session) {
   };
 }
 
-function transcriptInput({ session, evidence, rawText, language, provider, model, segments, createdAt }) {
+function transcriptInput({ session, evidence, rawText, language, provider, model, segments, captureContext = null, createdAt }) {
   return {
     session_id: session.session_id,
     source_evidence_id: evidence.evidence_id,
@@ -115,6 +114,7 @@ function transcriptInput({ session, evidence, rawText, language, provider, model
     context_binding: session.context_binding,
     created_at: createdAt,
     segments,
+    capture_context: captureContext,
   };
 }
 
@@ -124,6 +124,49 @@ function exactFactSpan(fact, rawText) {
     throw workflowError('Extractor returned fact provenance that does not match the transcript.', 'INVALID_EXTRACTED_PROVENANCE', 409);
   }
   return span;
+}
+
+const ADDITIVE_FIELD_SEMANTICS = new Set(['COMPLETED_ACTION', 'PART_USED']);
+
+function coalesceAdditiveAssignments(assignments, sourceText) {
+  const groups = new Map();
+  for (const assignment of assignments) {
+    if (assignment.claim_kind !== 'VALUE' || !ADDITIVE_FIELD_SEMANTICS.has(assignment.semantic_type)) continue;
+    const key = `${assignment.field}\u0000${assignment.semantic_type}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(assignment);
+  }
+  const consumed = new Set();
+  const replacements = new Map();
+  const completionGroups = new Map();
+  for (const assignment of assignments.filter((item) => item.semantic_type === 'COMPLETION_STATE' && item.claim_kind === 'VALUE')) {
+    if (!completionGroups.has(assignment.field)) completionGroups.set(assignment.field, []);
+    completionGroups.get(assignment.field).push(assignment);
+  }
+  const equivalentCompletionValues = new Set(['done', 'complete', 'completed', 'ready', 'ready for service']);
+  for (const group of completionGroups.values()) {
+    if (group.length < 2 || group.some((item) => !equivalentCompletionValues.has(String(item.value).toLocaleLowerCase()))) continue;
+    for (const item of group.slice(0, -1)) consumed.add(item);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const values = [...new Set(group.map((item) => String(item.value).trim()).filter(Boolean))];
+    if (values.length < 2) continue;
+    const start = Math.min(...group.map((item) => item.source_span.start));
+    const end = Math.max(...group.map((item) => item.source_span.end));
+    const [first] = group;
+    const factIds = group.map((item) => item.fact?.fact_id).filter(Boolean);
+    replacements.set(first, {
+      ...first,
+      value: values.join('; '),
+      source_span: { start, end, text: sourceText.slice(start, end) },
+      fact_ids: factIds,
+    });
+    for (const item of group.slice(1)) consumed.add(item);
+  }
+  return assignments
+    .filter((assignment) => !consumed.has(assignment))
+    .map((assignment) => replacements.get(assignment) || assignment);
 }
 
 function correctedTextProjection(rawText, items, decisions) {
@@ -220,6 +263,33 @@ export class AuthoritativeCaptureService {
       if (!provided) throw workflowError('Published template was not found.', 'TEMPLATE_NOT_FOUND', 404);
       return structuredClone(provided);
     }
+  }
+
+  async captureContext(session, { target_field_id: targetFieldId, target_section_id: targetSectionId, capture_mode: captureMode } = {}) {
+    const requested = [targetFieldId, targetSectionId, captureMode].some((value) => value !== undefined && value !== null && String(value).trim());
+    if (!requested) return null;
+    const mode = String(captureMode || 'FIELD_DICTATION').trim().toUpperCase();
+    if (!['FIELD_DICTATION', 'GLOBAL_NARRATION', 'AUDIO_UPLOAD'].includes(mode)) {
+      throw workflowError('Capture mode is invalid.', 'INVALID_CAPTURE_CONTEXT', 400);
+    }
+    const fieldId = String(targetFieldId || '').trim();
+    if (mode === 'FIELD_DICTATION' && !fieldId) {
+      throw workflowError('Field dictation requires a target field.', 'INVALID_CAPTURE_CONTEXT', 400);
+    }
+    const template = await this.resolveTemplate(session.template_binding.template_id);
+    const definition = fieldId ? template.schema.fields.find((field) => (
+      field.id === fieldId || (field.id.endsWith('.*') && fieldId.startsWith(field.id.slice(0, -1)))
+    )) : null;
+    if (fieldId && !definition) throw workflowError('Capture target is not part of the bound template.', 'CAPTURE_TARGET_NOT_IN_TEMPLATE', 409);
+    const sectionId = String(targetSectionId || definition?.section || '').trim();
+    if (definition && sectionId && definition.section !== sectionId) {
+      throw workflowError('Capture target section does not match the bound template.', 'CAPTURE_TARGET_SECTION_MISMATCH', 409);
+    }
+    return Object.freeze({
+      ...(fieldId ? { target_field_id: fieldId } : {}),
+      ...(sectionId ? { target_section_id: sectionId } : {}),
+      capture_mode: mode,
+    });
   }
 
   async guidanceDependencies() {
@@ -701,42 +771,20 @@ export class AuthoritativeCaptureService {
     return { session: computed.session, evidence, agent_state: computed.agent_state };
   }
 
-  async extractFacts({ session, transcript, extractionText = transcript.raw_text, confirmedCorrections = [], preExtractedFacts = null }) {
+  async extractFacts({ session, transcript, extractionText = transcript.raw_text }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
     if (template.adapter?.id === 'manual-schema-v1') return [];
-    let facts = preExtractedFacts;
-    if (!facts && session.context_binding.scope_id === 'HVAC') {
-      const extracted = await extractServiceFacts({
-        transcript: { artifact_id: transcript.transcript_id, raw_text: transcript.raw_text },
-        confirmedCorrections,
-      });
-      if (extracted.status !== 'PASS') throw workflowError('HVAC candidate extraction failed.', extracted.error_code || 'CANDIDATE_EXTRACTION_FAILED', 409);
-      facts = extracted.data.facts;
-    } else if (!facts) {
-      facts = (await extractV2Facts({
-        contextId: session.context_binding.context_id,
-        rawText: extractionText,
-      })).facts;
-    }
-    const accepted = mapFactsForTemplate(template.templateId, facts).facts;
-    const noParts = /\bno parts (?:were )?used\b/iu.exec(extractionText);
-    if (noParts && template.schema.fields.some((field) => field.id === 'parts.part_number')) {
-      const replacementRecorded = facts.some((fact) => fact.field === 'parts.replaced' && String(fact.value) === 'true');
-      if (!replacementRecorded) {
-        for (let index = accepted.length - 1; index >= 0; index -= 1) {
-          if (accepted[index].field === 'parts.part_number') accepted.splice(index, 1);
-        }
-      }
-      accepted.push({
-        field: 'parts.part_number',
-        value: null,
-        claim_kind: 'EXPLICIT_NONE',
-        support_status: 'CONFIRMED_BY_EVIDENCE',
-        critical: false,
-        source_span: { start: noParts.index, end: noParts.index + noParts[0].length, text: noParts[0] },
-      });
-    }
-    return accepted;
+    const atomicFacts = await extractAtomicFacts({
+      scope_id: session.context_binding.scope_id,
+      raw_text: extractionText,
+      transcript_id: transcript.transcript_id,
+      capture_context: transcript.capture_context,
+    });
+    return routeAtomicFacts({
+      facts: atomicFacts,
+      template,
+      capture_context: transcript.capture_context,
+    }).assignments.map((assignment) => ({ ...assignment, field: assignment.field_id }));
   }
 
   async extractCandidates({
@@ -750,13 +798,14 @@ export class AuthoritativeCaptureService {
     confirmationRequirements = [],
     preExtractedFacts = null,
   }) {
-    const facts = await this.extractFacts({
+    const extractedFacts = await this.extractFacts({
       session,
       transcript,
       extractionText,
       confirmedCorrections,
       preExtractedFacts,
     });
+    const facts = coalesceAdditiveAssignments(extractedFacts, extractionText);
     const spans = [];
     const candidates = [];
     for (const fact of facts) {
@@ -803,6 +852,13 @@ export class AuthoritativeCaptureService {
           context_version: session.context_binding.context_version,
           scope_id: session.context_binding.scope_id,
         },
+        semantic: fact.fact ? {
+          fact_id: fact.fact.fact_id,
+          fact_ids: fact.fact_ids || [fact.fact.fact_id],
+          semantic_type: fact.fact.semantic_type,
+          source_role: fact.fact.source_role,
+          temporality: fact.fact.temporality,
+        } : null,
         correction_provenance: correctionProvenance,
         confirmation_requirement_ids: requiredConfirmations.map((item) => item.requirement_id),
       });
@@ -1389,8 +1445,7 @@ export class AuthoritativeCaptureService {
       const proposedFacts = await this.extractFacts({
         session,
         transcript,
-        extractionText: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
-        confirmedCorrections,
+        extractionText: projection.effectiveText,
       });
       const impact = compareReportClaimImpact({ rawFacts, proposedFacts });
       if (impact.material) items.push({ ...item, ...impact });
@@ -1435,23 +1490,13 @@ export class AuthoritativeCaptureService {
         next_action: 'REVIEW_TRANSCRIPT',
       };
     }
-    const interpretation = CONTEXT_BY_SCOPE[session.context_binding.scope_id]
-      ? await interpretEvidence({
-        scope_id: session.context_binding.scope_id,
-        raw_text: transcript.raw_text,
-        approach: 'FACT_CENTRIC_HYBRID',
-        correction_items: [],
-        accepted_correction_ids: [],
-      })
-      : { facts: null, effective_text: transcript.raw_text };
     const { spans, candidates, facts } = await this.extractCandidates({
       session,
       transcript,
       supportType,
       confirmationRequirements,
-      preExtractedFacts: interpretation.facts,
     });
-    const guided = await this.retrieveGuidance({ session, transcript, facts, query: interpretation.effective_text });
+    const guided = await this.retrieveGuidance({ session, transcript, facts, query: transcript.raw_text });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
       expected_revision: guided.session.revision,
@@ -1539,23 +1584,7 @@ export class AuthoritativeCaptureService {
         status: 'CONFIRMED_BY_TECHNICIAN',
       }];
     });
-    const correctionItems = pending.items.flatMap((item) => item.kind === 'CORRECTION' ? [{
-      correction_id: item.review_item_id,
-      start: item.source_span.start,
-      end: item.source_span.end,
-      source_text: item.source_span.quote,
-      suggested_text: item.proposed_text,
-      category: item.category,
-      reason: item.reason,
-      requires_confirmation: true,
-    }] : []);
-    const interpretation = await interpretEvidence({
-      scope_id: session.context_binding.scope_id,
-      raw_text: transcript.raw_text,
-      approach: 'FACT_CENTRIC_HYBRID',
-      correction_items: correctionItems,
-      accepted_correction_ids: confirmedCorrections.map((item) => item.correction_id),
-    });
+    const projection = correctedTextProjection(transcript.raw_text, pending.items, normalized);
     const supportType = transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE';
     const acceptedItems = pending.items.filter((item) => normalized.some((decision) => (
       decision.review_item_id === item.review_item_id && decision.decision === 'ACCEPT'
@@ -1564,7 +1593,8 @@ export class AuthoritativeCaptureService {
       session,
       transcript,
       supportType,
-      extractionText: transcript.raw_text,
+      extractionText: projection.effectiveText,
+      mapSourceSpan: projection.mapSpan,
       confirmedCorrections,
       confirmationRequirements: pending.confirmation_requirements,
       correctionContext: acceptedItems.length ? {
@@ -1572,14 +1602,13 @@ export class AuthoritativeCaptureService {
         effective_projection_hash: review.effective_projection_hash,
         items: acceptedItems,
       } : null,
-      preExtractedFacts: interpretation.facts,
     });
     const { spans, candidates, facts } = extraction;
     const guided = await this.retrieveGuidance({
       session,
       transcript,
       facts,
-      query: interpretation.effective_text,
+      query: projection.effectiveText,
     });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
@@ -1629,7 +1658,7 @@ export class AuthoritativeCaptureService {
     };
   }
 
-  captureIdentity({ session, sourceHash, model, language }) {
+  captureIdentity({ session, sourceHash, model, language, captureContext = null }) {
     return hashContract({
       source_hash: sourceHash,
       report_session_id: session.session_id,
@@ -1637,6 +1666,7 @@ export class AuthoritativeCaptureService {
       template_version: session.template_binding.template_version,
       stt_model: model,
       stt_language: language,
+      capture_context: captureContext,
       processing_version: PROCESSING_VERSION,
     }).slice(7);
   }
@@ -1696,6 +1726,7 @@ export class AuthoritativeCaptureService {
         provider: result.provider || 'whisper',
         model: result.model || record.model,
         segments: Array.isArray(result.segments) ? result.segments : [],
+        captureContext: record.capture_context,
         createdAt: this.clock(),
       }));
       const completed = await this.finishTranscript({ session, evidence, transcript, supportType: 'TRANSCRIPT_EVIDENCE' });
@@ -1768,7 +1799,7 @@ export class AuthoritativeCaptureService {
     });
   }
 
-  async captureText({ session_id: sessionId, expected_revision: expectedRevision, text, language = 'und', idempotency_key: idempotencyKey } = {}) {
+  async captureText({ session_id: sessionId, expected_revision: expectedRevision, text, language = 'und', idempotency_key: idempotencyKey, target_field_id: targetFieldId, target_section_id: targetSectionId, capture_mode: captureMode } = {}) {
     const session = await this.sessionStore.load(sessionId);
     assertExpectedRevision(session, expectedRevision);
     if (session.phase === 'CONFIRMED') throw workflowError('Confirmed reports are immutable.', 'REPORT_SESSION_FINAL', 409);
@@ -1777,11 +1808,13 @@ export class AuthoritativeCaptureService {
     if (rawText.length > 20_000) throw workflowError('Technician text exceeds 20000 characters.', 'TECHNICIAN_TEXT_TOO_LARGE', 413);
     const sourceDigest = digest(Buffer.from(rawText, 'utf8'));
     const normalizedLanguage = String(language || 'und');
+    const captureContext = await this.captureContext(session, { target_field_id: targetFieldId, target_section_id: targetSectionId, capture_mode: captureMode });
     const identityHash = this.captureIdentity({
       session,
       sourceHash: `sha256:${sourceDigest}`,
       model: 'manual-entry',
       language: normalizedLanguage,
+      captureContext,
     });
     const existing = await this.sessionStore.claimCapture({ identity_hash: identityHash, idempotency_key: idempotencyKey });
     if (existing) return this.reuseCapture(existing);
@@ -1791,7 +1824,7 @@ export class AuthoritativeCaptureService {
       source_hash: `sha256:${sourceDigest}`,
       storage_ref: storageRef,
       created_at: this.clock(),
-      metadata: { language: normalizedLanguage, report_binding: reportBinding(session) },
+      metadata: { language: normalizedLanguage, report_binding: reportBinding(session), capture_context: captureContext },
     });
     const record = {
       identity_hash: identityHash,
@@ -1802,6 +1835,7 @@ export class AuthoritativeCaptureService {
       model: 'manual-entry',
       language: normalizedLanguage,
       processing_version: PROCESSING_VERSION,
+      capture_context: captureContext,
       status: 'CAPTURED',
       transcript_id: null,
       review_id: null,
@@ -1821,6 +1855,7 @@ export class AuthoritativeCaptureService {
       provider: 'technician-text',
       model: 'manual-entry',
       segments: [],
+      captureContext,
       createdAt: this.clock(),
     }));
     const completed = await this.finishTranscript({ session: processing.session, evidence, transcript, supportType: 'MANUAL_TECHNICIAN_INPUT' });
@@ -1838,7 +1873,7 @@ export class AuthoritativeCaptureService {
     return completed;
   }
 
-  async captureAudio({ session_id: sessionId, expected_revision: expectedRevision, wav_buffer: wavBuffer, model = 'base', language = 'auto', idempotency_key: idempotencyKey } = {}) {
+  async captureAudio({ session_id: sessionId, expected_revision: expectedRevision, wav_buffer: wavBuffer, model = 'base', language = 'auto', idempotency_key: idempotencyKey, target_field_id: targetFieldId, target_section_id: targetSectionId, capture_mode: captureMode } = {}) {
     const session = await this.sessionStore.load(sessionId);
     assertExpectedRevision(session, expectedRevision);
     if (session.phase === 'CONFIRMED') throw workflowError('Confirmed reports are immutable.', 'REPORT_SESSION_FINAL', 409);
@@ -1846,11 +1881,13 @@ export class AuthoritativeCaptureService {
     const audio = await this.artifactStore.putAudio(wavBuffer);
     const normalizedModel = String(this.modelResolver ? await this.modelResolver() : (model || 'base'));
     const normalizedLanguage = String(language || 'auto');
+    const captureContext = await this.captureContext(session, { target_field_id: targetFieldId, target_section_id: targetSectionId, capture_mode: captureMode });
     const identityHash = this.captureIdentity({
       session,
       sourceHash: audio.source_hash,
       model: normalizedModel,
       language: normalizedLanguage,
+      captureContext,
     });
     const existing = await this.sessionStore.claimCapture({ identity_hash: identityHash, idempotency_key: idempotencyKey });
     if (existing) return this.reuseCapture(existing);
@@ -1859,7 +1896,7 @@ export class AuthoritativeCaptureService {
       source_hash: audio.source_hash,
       storage_ref: `artifact://audio/${audio.audio_id}.wav`,
       created_at: this.clock(),
-      metadata: { bytes: audio.bytes, wav: audio.wav, report_binding: reportBinding(session) },
+      metadata: { bytes: audio.bytes, wav: audio.wav, report_binding: reportBinding(session), capture_context: captureContext },
     });
     const record = {
       identity_hash: identityHash,
@@ -1870,6 +1907,7 @@ export class AuthoritativeCaptureService {
       model: normalizedModel,
       language: normalizedLanguage,
       processing_version: PROCESSING_VERSION,
+      capture_context: captureContext,
       status: 'CAPTURED',
       transcript_id: null,
       evidence_span_ids: [],

@@ -442,6 +442,9 @@ async function handleApi(request, response, url, traceId, config, services) {
       model: request.headers['x-stt-model'],
       language: request.headers['x-stt-language'],
       idempotency_key: request.headers['idempotency-key'],
+      target_field_id: request.headers['x-target-field-id'],
+      target_section_id: request.headers['x-target-section-id'],
+      capture_mode: request.headers['x-capture-mode'],
     });
     const status = result.failure ? 'RETRYABLE_ERROR' : 'PASS';
     writeJson(response, result.reused ? 200 : result.failure ? 202 : 201, toolEnvelope('capture_report_audio', traceId, status, result, {

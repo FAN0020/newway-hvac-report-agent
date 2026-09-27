@@ -109,6 +109,9 @@ export function createTranscriptArtifact(input = {}) {
     context_binding: normalizeBinding(input.context_binding, 'context_binding', ['context_id', 'context_version', 'scope_id']),
     created_at: requiredTimestamp(input.created_at, 'created_at', code),
     segments,
+    capture_context: input.capture_context === undefined || input.capture_context === null
+      ? null
+      : copy(input.capture_context),
   };
   return deepFreeze({ transcript_id: contentAddressedId('transcript', body, input.transcript_id), ...body });
 }

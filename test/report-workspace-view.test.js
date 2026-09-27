@@ -174,6 +174,31 @@ test('recording expands exactly the report sections that still contain blank fie
   });
 });
 
+test('schema wildcard families render materialized evidence fields in their declared section', () => {
+  const wildcardTemplate = {
+    ...template,
+    schema: { fields: [
+      ...template.schema.fields,
+      { id: 'measurement.*', label: 'Measurements', section: 'Rectification', type: 'measurement', repeating: true, displayOrder: 31 },
+    ] },
+  };
+  const result = view({
+    template: wildcardTemplate,
+    agent_state: agent({ fields: [
+      known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
+      known('asset.internal_fleet_no', '8300-354', 'AUTHORITATIVE_SYSTEM_DATA'),
+      { ...known('measurement.pressure', 120), unit: 'psi' },
+    ] }),
+  });
+  const measurement = result.report_sections.flatMap((section) => section.fields)
+    .find((field) => field.field_id === 'measurement.pressure');
+
+  assert.ok(measurement);
+  assert.equal(measurement.name, 'Measurements — pressure');
+  assert.equal(measurement.value, '120 psi');
+  assert.equal(result.report_sections.find((section) => section.title === 'Rectification').fields.includes(measurement), true);
+});
+
 test('correction task ignores non-material items and shows the next material interpretation', () => {
   const result = view({
     session: session('CORRECTION_IF_NEEDED'),
