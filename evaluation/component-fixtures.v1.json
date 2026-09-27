@@ -23,6 +23,95 @@
     "POWER-GRID-TERM-002":["asset.equipment","inspection.item","measurement.resistivity"],
     "POWER-GRID-MISSING-003":["asset.equipment","inspection.item","completion.state"]
   },
+  "fact_value_targets": {
+    "HVAC-NORMAL-001":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"AC 104"},
+      {"kind":"action","field":"work_performed","value":"cleared the drain line","match":"contains"},
+      {"kind":"completion","field":"completion_status","value":"complete","match":"contains"}
+    ],
+    "HVAC-TERM-002":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"AC 105"},
+      {"kind":"number_unit","field":"measurement.capacitance","value":"35","unit":"µF"},
+      {"kind":"number_unit","field":"measurement.capacitance","value":"32","unit":"µF"},
+      {"kind":"action","field":"inspection_findings","value":"inspected the capacitor","match":"contains"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"replace","match":"contains"}]}
+    ],
+    "HVAC-MISSING-003":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"AC 106"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"top up refrigerant","match":"contains"}]},
+      {"kind":"completion","field":"completion_status","value":"out of service","match":"contains"}
+    ],
+    "SBS-BUS-NORMAL-001":[
+      {"kind":"equipment_id","field":"asset.registration_no","value":"SG3050Z"},
+      {"kind":"action","field":"parts.replaced","value":"true"},
+      {"kind":"completion","field":"completion.state","value":"completed"}
+    ],
+    "SBS-BUS-TERM-002":[
+      {"kind":"equipment_id","field":"asset.registration_no","value":"SG3051Z"},
+      {"kind":"number_unit","field":"measurement.pressure","value":"6.2","unit":"bar"},
+      {"kind":"number_unit","field":"measurement.pressure","value":"6.4","unit":"bar"},
+      {"kind":"action","field":"work_performed","value":"adjusted the brake","match":"contains"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"steering","match":"contains"}]}
+    ],
+    "SBS-BUS-MISSING-003":[
+      {"kind":"equipment_id","field":"asset.registration_no","value":"SG3052Z"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"parts.replaced","value":"true"}]},
+      {"kind":"completion","field":"completion.state","value":"pending"}
+    ],
+    "SBS-RAIL-NORMAL-001":[
+      {"kind":"equipment_id","field":"asset.train_set","value":"C751A 7001/7002"},
+      {"kind":"equipment_id","field":"asset.car","value":"Car 3"},
+      {"kind":"action","field":"parts.replaced","value":"true"},
+      {"kind":"completion","field":"completion.state","value":"completed"}
+    ],
+    "SBS-RAIL-TERM-002":[
+      {"kind":"equipment_id","field":"asset.train_set","value":"C751C 8001"},
+      {"kind":"number_unit","field":"measurement.wear","value":"3","unit":"mm"},
+      {"kind":"action","field":"inspection_findings","value":"collector shoe","match":"contains"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"parts.replaced","value":"true"}]}
+    ],
+    "SBS-RAIL-MISSING-003":[
+      {"kind":"equipment_id","field":"asset.train_set","value":"C951 9001"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"parts.replaced","value":"true"}]},
+      {"kind":"completion","field":"completion.state","value":"out_of_service"}
+    ],
+    "OILFIELD-NORMAL-001":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"P-12"},
+      {"kind":"number_unit","field":"measurement.value","value":"40","unit":"m"},
+      {"kind":"action","field":"inspection.item","value":"inspected the buried pipeline coating","match":"contains"},
+      {"kind":"completion","field":"completion.state","value":"completed"}
+    ],
+    "OILFIELD-TERM-002":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"P-13"},
+      {"kind":"number_unit","field":"measurement.pressure","value":"1.5","unit":"MPa"},
+      {"kind":"action","field":"inspection.item","value":"closed transport process","match":"contains"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"route selection","match":"contains"}]}
+    ],
+    "OILFIELD-MISSING-003":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"P-14"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"contractor management","match":"contains"}]},
+      {"kind":"completion","field":"completion.state","value":"not_completed"}
+    ],
+    "POWER-GRID-NORMAL-001":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"T-2"},
+      {"kind":"number_unit","field":"measurement.breakdown_voltage","value":"62","unit":"kV"},
+      {"kind":"number_unit","field":"measurement.temperature","value":"26","unit":"°C"},
+      {"kind":"action","field":"inspection.item","value":"sampled insulating oil","match":"contains"},
+      {"kind":"completion","field":"completion.state","value":"completed"}
+    ],
+    "POWER-GRID-TERM-002":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"C-7"},
+      {"kind":"equipment_id","field":"asset.charger_id","value":"4"},
+      {"kind":"number_unit","field":"measurement.resistivity","value":"2.5","unit":"MΩ"},
+      {"kind":"action","field":"inspection.item","value":"DC charger number four","match":"contains"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"repair","match":"contains"}]}
+    ],
+    "POWER-GRID-MISSING-003":[
+      {"kind":"equipment_id","field":"asset.equipment_id","value":"T-3"},
+      {"kind":"negation","prohibited":[{"kind":"action","field":"work_performed","value":"sampled","match":"contains"}]},
+      {"kind":"completion","field":"completion.state","value":"deferred"}
+    ]
+  },
   "missing": [
     {"case_id":"HVAC-NORMAL-001","facts":[{"field":"customer_complaint","value":"no cooling","support_status":"DIRECT_TRANSCRIPT"},{"field":"inspection_findings","value":"blocked drain","support_status":"DIRECT_TRANSCRIPT"}],"expected":["work_performed","test_results","completion_status"]},
     {"case_id":"SBS-BUS-NORMAL-001","facts":[{"field":"asset.registration_no","value":"SG3050Z","support_status":"DIRECT_TRANSCRIPT"},{"field":"work.type","value":"corrective","support_status":"DIRECT_TRANSCRIPT"}],"expected":["inspection_findings","work_performed","tests_results","completion_state","safety_hv_notes","compliance_audit","provenance"]},
