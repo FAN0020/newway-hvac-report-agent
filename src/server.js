@@ -283,6 +283,19 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
+  const semanticReplayMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/transcripts\/([^/]+)\/semantic-replay$/u);
+  if (request.method === 'POST' && semanticReplayMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.applySemanticReplay({
+      session_id: decodeURIComponent(semanticReplayMatch[1]),
+      transcript_id: decodeURIComponent(semanticReplayMatch[2]),
+      expected_revision: input.expected_revision,
+    });
+    writeJson(response, 200, toolEnvelope('apply_semantic_replay', traceId, 'PASS', result));
+    return;
+  }
+
   const agentStateMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/agent-state$/u);
   if (request.method === 'GET' && agentStateMatch) {
     const result = await captureService.getAgentState(decodeURIComponent(agentStateMatch[1]));

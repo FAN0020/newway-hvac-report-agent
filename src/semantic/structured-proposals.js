@@ -3,6 +3,7 @@ import { SEMANTIC_TYPES } from './atomic-facts.js';
 import { identifierIsCertain } from './identifier-certainty.js';
 
 const TYPE_SET = new Set(SEMANTIC_TYPES);
+export const STRUCTURED_VERIFIER_VERSION = 'structured-proposal-verifier.v2';
 const TECHNICIAN_ONLY_TYPES = new Set([
   'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
   'TEST_ACTION', 'TEST_OUTCOME', 'TEST_OBSERVATION', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP', 'ROOT_CAUSE',
@@ -250,7 +251,8 @@ export function verifyStructuredFactProposals({
       continue;
     }
     facts.push(Object.freeze({
-      fact_id: `fact_${stableId({ transcript_id: transcriptId, semantic_type: semanticType, value: normalizedValue, char_start: start, char_end: end, claim_kind: claimKind })}`,
+      fact_id: `fact_${stableId({ version: STRUCTURED_VERIFIER_VERSION, transcript_id: transcriptId,
+        semantic_type: semanticType, value: normalizedValue, char_start: start, char_end: end, claim_kind: claimKind })}`,
       semantic_type: semanticType,
       value: normalizedValue,
       claim_kind: claimKind,

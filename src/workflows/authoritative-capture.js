@@ -17,13 +17,13 @@ import { buildAuthoritativeReport, buildReportHistorySummary, runAuthoritativeAg
 import { renderReportPdf } from '../export/template-pdf.js';
 import { formatReportName, reportCreationDate } from '../report-naming.js';
 import { reportToText } from '../tools/report-integrity.js';
-import { extractAtomicFacts } from '../semantic/atomic-facts.js';
+import { extractAtomicFacts, ATOMIC_FACTS_VERSION } from '../semantic/atomic-facts.js';
 import { extractConversationalFacts, CONVERSATIONAL_FACTS_VERSION } from '../semantic/conversational-facts.js';
 import { segmentAssertions, ASSERTION_SEGMENTER_VERSION } from '../semantic/assertion-segmentation.js';
 import { evaluateAssertionCoverage, unresolvedSemanticWindows, ASSERTION_COVERAGE_VERSION } from '../semantic/assertion-coverage.js';
 import { SemanticExtractor, SEMANTIC_EXTRACTOR_VERSION } from '../semantic/semantic-extractor.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
-import { extractCuedFieldAssignments } from '../semantic/structured-proposals.js';
+import { extractCuedFieldAssignments, STRUCTURED_VERIFIER_VERSION } from '../semantic/structured-proposals.js';
 import { normalizeContextualTranscript } from '../semantic/transcript-normalization.js';
 import { deriveCaptureTimeAssignments } from '../semantic/temporal-fields.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
@@ -35,8 +35,8 @@ import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
 
-const PROCESSING_VERSION = 'authoritative-capture.v4';
-const EXTRACTION_VERSION = 'atomic-semantic-extraction.v6';
+const PROCESSING_VERSION = 'authoritative-capture.v5';
+const EXTRACTION_VERSION = 'atomic-semantic-extraction.v7';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
 const ATTACHMENT_PURPOSES = new Set([
   'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
@@ -483,6 +483,8 @@ export class AuthoritativeCaptureService {
 
   async persistAgentState(session) {
     const chain = await this.sessionStore.loadChain(session.session_id);
+    const supersededCandidateIds = new Set(chain.audit_events.flatMap((event) =>
+      event.payload?.superseded_field_candidate_ids || []));
     const latestTraceId = [...chain.audit_events].reverse()
       .map((event) => event.payload?.semantic_trace_id).find(Boolean);
     const semanticTrace = latestTraceId
@@ -490,7 +492,7 @@ export class AuthoritativeCaptureService {
     const agentState = runAuthoritativeAgent({
       session,
       template: await this.resolveTemplate(session.template_binding.template_id),
-      candidates: chain.field_candidates,
+      candidates: chain.field_candidates.filter((candidate) => !supersededCandidateIds.has(candidate.candidate_id)),
       guidance_contexts: chain.guidance_contexts,
       semantic_trace: semanticTrace,
       created_at: this.clock(),
@@ -558,6 +560,75 @@ export class AuthoritativeCaptureService {
         previous_missing_information: previous?.missing_information || [],
         replayed_missing_information: current.missing_information,
       },
+    };
+  }
+
+  async applySemanticReplay({ session_id: sessionId, transcript_id: transcriptId,
+    expected_revision: expectedRevision } = {}) {
+    const chain = await this.sessionStore.loadChain(sessionId);
+    const session = chain.session;
+    if (session.phase !== 'RESOLVE') {
+      throw workflowError('Semantic replay requires a report in Resolve.', 'SEMANTIC_REPLAY_PHASE_MISMATCH', 409);
+    }
+    const transcript = chain.transcripts.find((item) => item.transcript_id === transcriptId);
+    if (!transcript) throw workflowError('Transcript does not belong to this ReportSession.', 'TRANSCRIPT_BINDING_MISMATCH', 404);
+    const review = chain.transcript_reviews.find((item) => item.transcript_id === transcriptId && item.decisions?.length);
+    const projection = transcriptProjection(transcript, review?.items || [], review?.decisions || []);
+    const priorEvent = [...chain.audit_events].reverse().find((event) =>
+      event.payload?.transcript_id === transcriptId && event.payload?.semantic_trace_id);
+    const previous = priorEvent
+      ? await this.sessionStore.readRecord('semantic-traces', priorEvent.payload.semantic_trace_id) : null;
+    if (previous?.pipeline_versions?.field_mapping === EXTRACTION_VERSION
+      && previous?.pipeline_versions?.verifier === STRUCTURED_VERIFIER_VERSION
+      && previous.input_text_sha256 === `sha256:${digest(projection.effectiveText)}`
+      && (!this.semanticModel || previous.model.model === this.semanticModel)
+      && !previous.model.error) {
+      return { session, semantic_trace: previous, agent_state: chain.agent_state, reused: true };
+    }
+    assertExpectedRevision(session, expectedRevision);
+    const acceptedItems = (review?.items || []).filter((item) => review.decisions.some((decision) =>
+      decision.review_item_id === item.review_item_id && decision.decision === 'ACCEPT'));
+    const oldSuperseded = new Set(chain.audit_events.flatMap((event) =>
+      event.payload?.superseded_field_candidate_ids || []));
+    const previousCandidateIds = chain.field_candidates.filter((candidate) =>
+      candidate.source_ref === transcriptId && !oldSuperseded.has(candidate.candidate_id))
+      .map((candidate) => candidate.candidate_id);
+    const extraction = await this.extractCandidates({
+      session, transcript,
+      supportType: transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE',
+      extractionText: projection.effectiveText,
+      mapSourceSpan: projection.mapSpan,
+      confirmationRequirements: review?.confirmation_requirements || [],
+      correctionContext: acceptedItems.length ? {
+        transcript_review_id: review.review_id,
+        effective_projection_hash: review.effective_projection_hash,
+        items: acceptedItems,
+      } : null,
+    });
+    if (previous?.trace_id === extraction.semantic_trace?.trace_id) {
+      return { session, semantic_trace: previous, agent_state: chain.agent_state, reused: true };
+    }
+    const newIds = new Set(extraction.candidates.map((candidate) => candidate.candidate_id));
+    const superseded = previousCandidateIds.filter((id) => !newIds.has(id));
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: sessionId, expected_revision: session.revision,
+      event_type: 'STRUCTURED_CANDIDATES_CREATED', occurred_at: this.clock(),
+      details: {
+        transcript_id: transcriptId, semantic_trace_id: extraction.semantic_trace.trace_id,
+        replayed_from_trace_id: previous?.trace_id || null,
+        field_candidate_ids: extraction.candidates.map((candidate) => candidate.candidate_id),
+        superseded_field_candidate_ids: superseded,
+      },
+      additions: {
+        evidence_span_ids: extraction.spans.map((span) => span.span_id),
+        field_candidate_ids: [...newIds],
+      },
+    });
+    const computed = await this.persistAgentState(recorded.session);
+    return {
+      session: computed.session, transcript, semantic_trace: extraction.semantic_trace,
+      candidates: extraction.candidates, superseded_field_candidate_ids: superseded,
+      agent_state: computed.agent_state, reused: false,
     };
   }
 
@@ -1018,16 +1089,14 @@ export class AuthoritativeCaptureService {
       const finalCoverage = evaluateAssertionCoverage({ assertions, facts: atomicFacts, text: extractionText })
         .map((assertion) => assertion.fact_ids.some((id) => conflictedFactIds.has(id))
           ? { ...assertion, status: 'AMBIGUOUS' } : assertion);
-      traceSink.value = {
-        trace_id: `trace_${digest(JSON.stringify({ transcript_id: transcript.transcript_id, extractionText,
-          versions: [EXTRACTION_VERSION, ASSERTION_SEGMENTER_VERSION, CONVERSATIONAL_FACTS_VERSION] }))}`,
+      const traceBody = {
         session_id: session.session_id,
         transcript_id: transcript.transcript_id,
         input_text_sha256: `sha256:${digest(extractionText)}`,
         pipeline_versions: {
           ontology: 'canonical-report-facts.v1', segmenter: ASSERTION_SEGMENTER_VERSION,
-          coverage: ASSERTION_COVERAGE_VERSION, deterministic: CONVERSATIONAL_FACTS_VERSION,
-          extractor: SEMANTIC_EXTRACTOR_VERSION, verifier: 'structured-proposal-verifier.v1',
+          coverage: ASSERTION_COVERAGE_VERSION, deterministic: `${ATOMIC_FACTS_VERSION}+${CONVERSATIONAL_FACTS_VERSION}`,
+          extractor: SEMANTIC_EXTRACTOR_VERSION, verifier: STRUCTURED_VERIFIER_VERSION,
           field_mapping: EXTRACTION_VERSION,
         },
         assertions: finalCoverage,
@@ -1051,6 +1120,7 @@ export class AuthoritativeCaptureService {
         conflicts,
         missing_information: missing,
       };
+      traceSink.value = { trace_id: `trace_${digest(JSON.stringify(traceBody))}`, ...traceBody };
     }
     return assignments;
   }
@@ -1932,7 +2002,7 @@ export class AuthoritativeCaptureService {
         items: acceptedItems,
       } : null,
     });
-    const { spans, candidates, facts } = extraction;
+    const { spans, candidates, facts, semantic_trace: semanticTrace } = extraction;
     const guided = await this.retrieveGuidance({
       session,
       transcript,
@@ -1947,6 +2017,7 @@ export class AuthoritativeCaptureService {
       occurred_at: this.clock(),
       details: {
         transcript_id: transcript.transcript_id,
+        semantic_trace_id: semanticTrace?.trace_id || null,
         transcript_review_id: review.review_id,
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
         guidance_context_ids: guided.guidanceContext ? [guided.guidanceContext.guidance_context_id] : [],
@@ -1980,6 +2051,7 @@ export class AuthoritativeCaptureService {
       review,
       spans,
       candidates,
+      semantic_trace: semanticTrace,
       guidance_context: guided.guidanceContext,
       reused: false,
       next_action: 'RESOLVE_REPORT_FIELDS',

@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { identifierIsCertain } from './identifier-certainty.js';
 
+export const ATOMIC_FACTS_VERSION = 'atomic-facts.v7';
+
 export const SEMANTIC_TYPES = Object.freeze([
   'WORK_ORDER',
   'EQUIPMENT_OR_ASSET',
@@ -132,7 +134,8 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     const key = JSON.stringify([semanticType, normalizedValue, unit || null, start, end, claimKind]);
     if (seen.has(key)) return;
     seen.add(key);
-    const identity = { transcript_id: transcriptId, semantic_type: semanticType, value: normalizedValue, unit: unit || null, char_start: start, char_end: end, claim_kind: claimKind };
+    const identity = { version: ATOMIC_FACTS_VERSION, transcript_id: transcriptId, semantic_type: semanticType,
+      value: normalizedValue, unit: unit || null, char_start: start, char_end: end, claim_kind: claimKind };
     facts.push(Object.freeze({
       fact_id: `fact_${stableId(identity)}`,
       semantic_type: semanticType,

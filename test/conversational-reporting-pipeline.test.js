@@ -180,6 +180,42 @@ test('same-source retry reuses the capture and canonical fact records', async (t
   }
 });
 
+test('applying a versioned replay supersedes legacy transcript candidates and is idempotent', async (t) => {
+  const entry = corpus.cases[0];
+  const { result, service, sessionStore } = await capture(t, entry);
+  const work = result.candidates.find((candidate) => candidate.field_id === 'work_performed');
+  const legacyCandidate = { ...work, candidate_id: 'candidate_legacy_work',
+    claim: { kind: 'VALUE', value: 'tightened the bracket and re-tested' },
+    extraction: { method: 'deterministic-rule', version: 'atomic-semantic-extraction.v6' } };
+  await sessionStore.putRecord('field-candidates', legacyCandidate.candidate_id, legacyCandidate);
+  const priorTrace = { ...result.semantic_trace, trace_id: 'trace_legacy_fixture',
+    pipeline_versions: { ...result.semantic_trace.pipeline_versions, field_mapping: 'atomic-semantic-extraction.v6' } };
+  await sessionStore.putRecord('semantic-traces', priorTrace.trace_id, priorTrace);
+  const prior = await sessionStore.recordEvent({
+    session_id: result.session.session_id, expected_revision: result.session.revision,
+    event_type: 'STRUCTURED_CANDIDATES_CREATED', occurred_at: '2026-09-28T06:01:00.000Z',
+    details: { transcript_id: result.transcript.transcript_id, semantic_trace_id: priorTrace.trace_id,
+      field_candidate_ids: [legacyCandidate.candidate_id] },
+    additions: { field_candidate_ids: [legacyCandidate.candidate_id] },
+  });
+  const migrated = await service.applySemanticReplay({
+    session_id: result.session.session_id, transcript_id: result.transcript.transcript_id,
+    expected_revision: prior.session.revision,
+  });
+  assert.equal(migrated.reused, false);
+  assert.deepEqual(migrated.superseded_field_candidate_ids, [legacyCandidate.candidate_id]);
+  assert.equal(migrated.agent_state.report_fields.find((field) => field.field_id === 'work_performed').value,
+    'tightened the bracket');
+  assert.equal(migrated.agent_state.report_fields.find((field) => field.field_id === 'work_performed').state,
+    'KNOWN_VALUE');
+  const retry = await service.applySemanticReplay({
+    session_id: result.session.session_id, transcript_id: result.transcript.transcript_id,
+    expected_revision: prior.session.revision,
+  });
+  assert.equal(retry.reused, true);
+  assert.equal(retry.session.revision, migrated.session.revision);
+});
+
 test('competing asset identities remain a field conflict with targeted resolution', async (t) => {
   const entry = { id: 'conflicting-buses', template_id: 'bus-defect-rectification-corrective-maintenance',
     text: 'Work order 1234. I worked on bus 204. Later I worked on bus 205.' };

@@ -2,7 +2,7 @@ import { mergeFieldCandidates } from './merge-engine.js';
 import { evaluateActiveCompleteness, validateReportFields } from './validation-engine.js';
 import { planResolutions } from './resolution-planner.js';
 
-export const AGENT_PROCESSING_VERSION = 'authoritative-report-agent.v1';
+export const AGENT_PROCESSING_VERSION = 'authoritative-report-agent.v2';
 
 export function runAuthoritativeAgent({ session, template, candidates = [], guidance_contexts: guidanceContexts = [],
   semantic_trace: semanticTrace = null, created_at: createdAt } = {}) {

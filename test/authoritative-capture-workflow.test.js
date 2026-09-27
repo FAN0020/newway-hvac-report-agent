@@ -1161,6 +1161,11 @@ test('accepting a material correction preserves raw evidence while candidates re
   assert.equal(rawText.slice(span.start_offset, span.end_offset), 'Bus MAN 9-5 had a door fault');
   assert.equal(span.quote_hash.startsWith('sha256:'), true);
   assert.equal((await sessionStore.loadChain(created.session.session_id)).transcripts[0].raw_text, rawText);
+  assert.deepEqual((await service.getSemanticTrace(created.session.session_id)).semantic_trace, decided.semantic_trace);
+  const replayed = await service.replaySemanticTrace({
+    session_id: created.session.session_id, transcript_id: decided.transcript.transcript_id,
+  });
+  assert.equal(replayed.replayed_trace.trace_id, decided.semantic_trace.trace_id);
 });
 
 test('a corrected component mention cannot become a used part or completed action', async (t) => {

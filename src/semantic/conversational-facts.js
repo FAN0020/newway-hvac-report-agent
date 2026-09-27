@@ -27,7 +27,8 @@ export function extractConversationalFacts({ raw_text: rawText, transcript_id: t
     const key = JSON.stringify([semanticType, start, end, value]);
     if (seen.has(key)) return;
     seen.add(key);
-    const identity = { transcript_id: transcriptId, semantic_type: semanticType, value, char_start: start, char_end: end, claim_kind: claimKind };
+    const identity = { version: CONVERSATIONAL_FACTS_VERSION, transcript_id: transcriptId,
+      semantic_type: semanticType, value, char_start: start, char_end: end, claim_kind: claimKind };
     facts.push(Object.freeze({
       fact_id: `fact_${stableId(identity)}`,
       semantic_type: semanticType,
