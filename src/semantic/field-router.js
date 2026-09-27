@@ -21,9 +21,46 @@ function matches(pattern, candidate) {
 }
 
 function compatiblePatterns(field, semanticType) {
-  const declared = Array.isArray(field.semanticRoles) ? field.semanticRoles : [];
-  if (declared.includes(semanticType)) return [field.id];
+  if (Array.isArray(field.semanticRoles)) {
+    return field.semanticRoles.includes(semanticType) ? [field.id] : [];
+  }
   return FIELD_COMPATIBILITY[semanticType] || [];
+}
+
+const TECHNICIAN_OWNED_FACTS = new Set([
+  'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
+  'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP',
+]);
+const COMPLETED_OR_OBSERVED_FACTS = new Set([
+  'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
+  'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE',
+]);
+
+function hasCompatibleContext(fact) {
+  if (TECHNICIAN_OWNED_FACTS.has(fact.semantic_type) && fact.source_role !== 'TECHNICIAN') return false;
+  if (COMPLETED_OR_OBSERVED_FACTS.has(fact.semantic_type)
+    && !(['CURRENT', 'PAST', 'COMPLETED'].includes(fact.temporality)
+      || (fact.claim_kind === 'EXPLICIT_NONE' && fact.temporality === 'NEGATED'))) return false;
+  return true;
+}
+
+function checklistKind(fieldId) {
+  return /^check\.[^.]+\.(?:observation|action)$/u.test(fieldId);
+}
+
+function subjectTokens(text) {
+  return new Set(String(text || '').toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu)
+    ?.map((token) => token.length > 3 && token.endsWith('s') ? token.slice(0, -1) : token) || []);
+}
+
+function checklistSubject(fields, fact) {
+  const checklists = fields.filter((field) => checklistKind(field.id));
+  if (!checklists.length) return null;
+  const tokenSets = checklists.map((field) => subjectTokens(field.id.split('.')[1].replaceAll('_', ' ')));
+  const words = subjectTokens(`${fact.value || ''} ${fact.evidence_quote || ''}`);
+  const matches = checklists.filter((_, index) => [...tokenSets[index]].some((token) => words.has(token)
+    && tokenSets.filter((set) => set.has(token)).length === 1));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function materializeFieldId(field, fact) {
@@ -57,6 +94,13 @@ function chooseField(fields, fact, captureContext) {
     const selected = fields.find((field) => matches(field.id, target) || matches(target, field.id));
     if (selected) return selected;
   }
+  if (['INSPECTION_FINDING', 'COMPLETED_ACTION'].includes(fact.semantic_type)
+    && fields.some((field) => checklistKind(field.id))) {
+    const specific = checklistSubject(fields, fact);
+    if (specific) return specific;
+    return fields.find((field) => field.id === (fact.semantic_type === 'INSPECTION_FINDING'
+      ? 'inspection_findings' : 'work_performed')) || null;
+  }
   if (fact.semantic_type === 'EQUIPMENT_OR_ASSET') {
     const kind = fact.attributes?.identifier_kind;
     const preferred = kind === 'FLEET' ? 'asset.internal_fleet_no'
@@ -81,11 +125,18 @@ export function routeAtomicFacts({ facts = [], template, capture_context: captur
   const assignments = [];
   const unassigned = [];
   for (const fact of facts) {
+    if (!hasCompatibleContext(fact)) {
+      unassigned.push({ fact, reason: 'INCOMPATIBLE_SEMANTIC_CONTEXT' });
+      continue;
+    }
     const fields = eligibleFields(template, fact);
     const selected = chooseField(fields, fact, captureContext);
     const fieldId = selected ? materializeFieldId(selected, fact) : null;
     if (!fieldId) {
-      unassigned.push({ fact, reason: fields.length ? 'UNMATERIALIZED_SCHEMA_FIELD' : 'NO_COMPATIBLE_FIELD' });
+      const reason = !fields.length ? 'NO_COMPATIBLE_FIELD'
+        : !selected && fields.some((field) => checklistKind(field.id))
+          ? 'AMBIGUOUS_CHECKLIST_SUBJECT' : 'UNMATERIALIZED_SCHEMA_FIELD';
+      unassigned.push({ fact, reason });
       continue;
     }
     assignments.push({

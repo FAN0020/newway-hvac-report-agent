@@ -12,6 +12,29 @@ function valueOf(entry) {
   return value && typeof value === 'object' && Object.hasOwn(value, 'value') ? String(value.value) : String(value);
 }
 
+function routedClaim(entry) {
+  return {
+    semantic_type: entry.semantic_type,
+    field_id: entry.field_id,
+    value: valueOf(entry),
+    ...(entry.unit === undefined ? {} : { unit: entry.unit }),
+  };
+}
+
+function sharedSpanPairs(facts) {
+  const pairs = [];
+  for (let first = 0; first < facts.length; first += 1) {
+    for (let second = first + 1; second < facts.length; second += 1) {
+      const a = facts[first];
+      const b = facts[second];
+      if (a.transcript_id === b.transcript_id && a.char_start < b.char_end && b.char_start < a.char_end) {
+        pairs.push([a.semantic_type, b.semantic_type].sort().join('+'));
+      }
+    }
+  }
+  return pairs.sort();
+}
+
 async function evaluate(entry) {
   const template = templateFor(entry.template_id);
   const captures = entry.captures || [entry.effective_input || entry.input];
@@ -54,8 +77,23 @@ for (const entry of corpus.cases) {
           && facts.some((fact) => fact.fact_id === item.fact.fact_id)), `${expected.semantic_type} should route to ${expected.field_id}`);
       }
     }
+    assert.deepEqual(
+      result.assignments.map(routedClaim).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      entry.expected.filter((item) => item.field_id !== null).map(routedClaim)
+        .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      `${entry.id} must not route extra or duplicate claims`,
+    );
+    assert.deepEqual(
+      sharedSpanPairs(result.atomicFacts),
+      (entry.allow_shared_span_for || []).map((pair) => [...pair].sort().join('+')).sort(),
+      `${entry.id} must reuse or overlap evidence spans only for explicitly compatible fact pairs`,
+    );
     for (const fieldId of entry.forbidden_fields || []) {
       assert.equal(result.assignments.some((item) => item.field_id === fieldId), false, `${fieldId} must remain unassigned`);
+    }
+    for (const semanticType of entry.forbidden_fact_types || []) {
+      assert.equal(result.atomicFacts.some((fact) => fact.semantic_type === semanticType), false,
+        `${entry.id} must not propose unsupported ${semanticType} facts`);
     }
     for (const value of entry.forbidden_values || []) {
       assert.equal(result.assignments.some((item) => valueOf(item) === value), false, `whole-clause value must not be routed: ${value}`);

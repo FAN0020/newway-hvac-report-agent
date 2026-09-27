@@ -245,7 +245,7 @@ const RAIL_HANDOVER_FIELDS = [
   field('work.trigger', 'Trigger / fault', 'Maintenance record', 20, { required: true }),
   field('inspection_findings', 'Findings', 'Maintenance record', 21, { required: true }),
   field('work_performed', 'Work performed', 'Maintenance record', 22, { required: true }),
-  field('parts.part_number', 'Parts / materials', 'Maintenance record', 23, { semanticRoles: Object.freeze(['PART_USED', 'PART_REFERENCE']) }),
+  field('parts.part_number', 'Parts / materials', 'Maintenance record', 23),
   field('test.result', 'Measurements / test results', 'Maintenance record', 24, { required: true, critical: true, requiresTechnicianConfirmation: true }),
   ...completion('SBS_RAIL', [
     ['completion.outstanding_issues', 'Outstanding items'], ['handover.area_cleared', 'Area cleared / housekeeping', true, true],

@@ -32,7 +32,7 @@ export class OllamaProvider {
     }
   }
 
-  async generateJson({ model, system, prompt, signal }) {
+  async generateJson({ model, system, prompt, signal, formatSchema }) {
     if (!model) throw Object.assign(new Error('Ollama model is required.'), { code: 'OLLAMA_MODEL_REQUIRED', status: 400 });
     const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
     const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -46,7 +46,7 @@ export class OllamaProvider {
           model,
           stream: false,
           think: false,
-          format: 'json',
+          format: formatSchema || 'json',
           options: { temperature: 0, seed: 42 },
           messages: [
             { role: 'system', content: system },

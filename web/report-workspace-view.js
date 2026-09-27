@@ -354,9 +354,11 @@ export function deriveWorkspaceView(input = {}) {
   const materialized = fields.filter((field) => !fixedIds.has(field.field_id)
     && declaredFields.some((definition) => definition.id.endsWith('.*') && field.field_id.startsWith(definition.id.slice(0, -1)))).length;
   const total = declaredFields.filter((field) => !field.id.endsWith('.*')).length + materialized || fields.length;
+  const workOrder = valueFor(fields, 'work.work_order_id');
+  const asset = valueFor(fields, 'asset.internal_fleet_no', 'Bus ID needs resolution');
   const identity = [
-    valueFor(fields, 'work.work_order_id'),
-    valueFor(fields, 'asset.internal_fleet_no', 'Bus ID needs resolution'),
+    workOrder === '—' ? valueFor(fields, 'work_order') : workOrder,
+    asset === '—' ? valueFor(fields, 'equipment') : asset,
     valueFor(fields, 'technician.name'),
   ].filter((value) => value !== '—').join(' · ');
   return {

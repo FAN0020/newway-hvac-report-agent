@@ -8,7 +8,7 @@ import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
 import { pcmWav } from './helpers.js';
 
-async function fixture(t, name, { whisper, templateProvider, modelResolver, clock = () => '2026-09-27T06:00:00.000Z', reportTimeZone } = {}) {
+async function fixture(t, name, { whisper, templateProvider, modelResolver, semanticProvider, semanticModel, clock = () => '2026-09-27T06:00:00.000Z', reportTimeZone } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-${name}`);
   await fs.rm(root, { recursive: true, force: true });
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -19,6 +19,8 @@ async function fixture(t, name, { whisper, templateProvider, modelResolver, cloc
     sessionStore,
     whisperProvider: whisper || { transcribe: async () => { throw new Error('Unexpected transcription.'); } },
     modelResolver,
+    semanticProvider,
+    semanticModel,
     templateProvider,
     clock,
     reportTimeZone,
@@ -250,6 +252,138 @@ test('natural HVAC narration populates clause-specific fields without whole-narr
   }
 });
 
+test('a natural sealed repair is preserved as completed work', async (t) => {
+  const { service } = await fixture(t, 'semantic-sealed-work');
+  const created = await service.createSession({
+    template_id: 'hvac-service-report', template_version: '1.0.0',
+    job_context_ref: 'job-context:SEMANTIC-SEALED-WORK',
+  });
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'I inspected the return-air flange and found a hairline crack. I sealed the flange with approved sealant.',
+    language: 'en', idempotency_key: 'semantic-sealed-work-1',
+  });
+  const work = result.agent_state.report_fields.find((field) => field.field_id === 'work_performed');
+  assert.match(work?.value || '', /sealed the flange with approved sealant/iu);
+});
+
+test('configured structured extraction proposes a grounded natural finding before deterministic fallback', async (t) => {
+  const input = 'The return-air flange had a hairline crack.';
+  const semanticProvider = { generateJson: async () => ({ data: { facts: [{
+    semantic_type: 'INSPECTION_FINDING', value: 'hairline crack', evidence_quote: input,
+    char_start: 0, char_end: input.length, source_role: 'TECHNICIAN', temporality: 'CURRENT',
+  }] } }) };
+  const { service } = await fixture(t, 'structured-grounded-finding', { semanticProvider, semanticModel: 'local-test-model' });
+  const created = await service.createSession({
+    template_id: 'hvac-service-report', template_version: '1.0.0',
+    job_context_ref: 'job-context:STRUCTURED-GROUNDED-FINDING',
+  });
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: input, language: 'en', idempotency_key: 'structured-grounded-finding-1',
+  });
+  const candidate = result.candidates.find((item) => item.field_id === 'inspection_findings');
+  assert.equal(candidate.claim.value, 'hairline crack');
+  assert.equal(candidate.extraction.method, 'structured-semantic-proposal');
+  assert.equal(result.agent_state.report_fields.find((field) => field.field_id === 'test_results').state, 'UNKNOWN');
+});
+
+test('the original mixed-sentence narration keeps the inspection object separate from completed work', async (t) => {
+  const { service } = await fixture(t, 'semantic-original-mixed-sentence');
+  const created = await service.createSession({
+    template_id: 'hvac-service-report', template_version: '1.0.0',
+    job_context_ref: 'job-context:SEMANTIC-ORIGINAL-MIXED',
+  });
+  const narration = 'Hello, this is technician Alex and the work order is 1122344. The equipment needed is ABCD and the customer complained that the office was not cooling. I inspected the BFGH and I did HIJM. The completion status is done and the test result is passed.';
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: narration, language: 'en', idempotency_key: 'semantic-original-mixed-1',
+  });
+  const values = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field.value]));
+  assert.equal(values.work_order, '1122344');
+  assert.equal(values.equipment, 'ABCD');
+  assert.equal(values.customer_complaint, 'the office was not cooling');
+  assert.equal(values.inspection_findings, 'the BFGH');
+  assert.equal(values.work_performed, 'HIJM');
+  assert.equal(values.completion_status, 'done');
+  assert.equal(values.test_results, 'passed');
+  assert.equal(result.candidates.filter((candidate) => candidate.field_id === 'work_performed').length, 1);
+});
+
+test('a recommendation in the same sentence does not erase completed repair evidence', async (t) => {
+  const { service } = await fixture(t, 'semantic-mixed-future');
+  const created = await busSession(service, 'SEMANTIC-MIXED-FUTURE');
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'I replaced the leaking valve, but recommend replacing the compressor next visit.',
+    language: 'en', idempotency_key: 'semantic-mixed-future-1',
+  });
+  const fields = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field]));
+  assert.equal(fields.work_performed.value, 'replaced the leaking valve');
+  assert.equal(fields['parts.part_number'].value, 'leaking valve');
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'parts.part_number' && String(candidate.claim.value).includes('compressor')), false);
+});
+
+test('a negated action in one clause does not erase a different completed action', async (t) => {
+  const { service } = await fixture(t, 'semantic-mixed-negation');
+  const created = await busSession(service, 'SEMANTIC-MIXED-NEGATION');
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'The compressor was not replaced, but I installed the valve.',
+    language: 'en', idempotency_key: 'semantic-mixed-negation-1',
+  });
+  const values = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field.value]));
+  assert.equal(values.work_performed, 'installed the valve');
+  assert.equal(values['parts.part_number'], 'the valve');
+  assert.equal(result.candidates.some((candidate) => String(candidate.claim.value).includes('compressor')), false);
+});
+
+test('a customer-reported failure does not become a technician test result', async (t) => {
+  const { service } = await fixture(t, 'semantic-customer-failure');
+  const created = await service.createSession({
+    template_id: 'hvac-service-report', template_version: '1.0.0',
+    job_context_ref: 'job-context:SEMANTIC-CUSTOMER-FAILURE',
+  });
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'The customer reported that the compressor failed.',
+    language: 'en', idempotency_key: 'semantic-customer-failure-1',
+  });
+  const fields = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field]));
+  assert.equal(fields.customer_complaint.value, 'the compressor failed');
+  assert.equal(fields.test_results.state, 'UNKNOWN');
+});
+
+test('a technician test outcome before a customer statement keeps technician ownership', async (t) => {
+  const { service } = await fixture(t, 'semantic-speaker-transition');
+  const created = await service.createSession({
+    template_id: 'hvac-service-report', template_version: '1.0.0',
+    job_context_ref: 'job-context:SEMANTIC-SPEAKER-TRANSITION',
+  });
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'The post-work test passed and the customer reported no further cooling complaints.',
+    language: 'en', idempotency_key: 'semantic-speaker-transition-1',
+  });
+  const values = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field.value]));
+  assert.equal(values.test_results, 'passed');
+  assert.equal(values.customer_complaint, 'no further cooling complaints');
+});
+
+test('a negated test pass does not become a passing result', async (t) => {
+  const { service } = await fixture(t, 'semantic-negated-test');
+  const created = await busSession(service, 'SEMANTIC-NEGATED-TEST');
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'I tested the door. The door did not pass the post-work test.',
+    language: 'en', idempotency_key: 'semantic-negated-test-1',
+  });
+  const field = result.agent_state.report_fields.find((entry) => entry.field_id === 'test.result');
+  assert.notEqual(field.value, 'passed');
+  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'test.result' && candidate.claim.value === 'passed'), false);
+});
+
 test('customer report, finding, work, test action and outcome remain semantically separate', async (t) => {
   const { service } = await fixture(t, 'semantic-bus-separation');
   const created = await busSession(service, 'SEMANTIC-SEPARATION');
@@ -291,6 +425,24 @@ test('natural compound speech keeps multiple completed actions without creating 
   assert.equal(fields['test.result'].value, 'passed');
   assert.equal(fields['completion.state'].value, 'READY');
   assert.equal(fields['completion.outstanding_issues'].state, 'EXPLICIT_NONE');
+});
+
+test('coalesced work retains separate original-word spans instead of swallowing intervening complaint', async (t) => {
+  const { service, sessionStore } = await fixture(t, 'semantic-additive-spans');
+  const created = await busSession(service, 'SEMANTIC-ADDITIVE-SPANS');
+  const input = 'I replaced the valve. The customer reported no cooling. I tightened the contactor.';
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: input, language: 'en', idempotency_key: 'semantic-additive-spans-1',
+  });
+  const candidate = result.candidates.find((item) => item.field_id === 'work_performed');
+  assert.equal(candidate.claim.value, 'replaced the valve; tightened the contactor');
+  assert.equal(candidate.evidence_refs.length, 2);
+  const quotes = await Promise.all(candidate.evidence_refs.map(async (ref) => {
+    const span = await sessionStore.readRecord('evidence-spans', ref.span_id);
+    return result.transcript.raw_text.slice(span.start_offset, span.end_offset);
+  }));
+  assert.deepEqual(quotes, ['I replaced the valve', 'I tightened the contactor']);
 });
 
 test('test action without an outcome leaves test result unknown', async (t) => {
@@ -345,6 +497,44 @@ test('field-specific capture context is preserved without overriding semantic co
   assert.deepEqual(result.transcript.capture_context, result.evidence.metadata.capture_context);
   assert.equal(result.candidates.some((candidate) => candidate.field_id === 'test.result'), false);
   assert.equal(result.candidates.some((candidate) => candidate.field_id === 'work_performed'), true);
+});
+
+test('standalone completion dictation is interpreted only in its compatible target field', async (t) => {
+  const { service } = await fixture(t, 'semantic-targeted-completion');
+  const created = await busSession(service, 'SEMANTIC-TARGETED-COMPLETION');
+  const result = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'Completed.', language: 'en', idempotency_key: 'semantic-targeted-completion-1',
+    target_field_id: 'completion.state', target_section_id: 'Completion and handover', capture_mode: 'FIELD_DICTATION',
+  });
+  const fields = Object.fromEntries(result.agent_state.report_fields.map((field) => [field.field_id, field]));
+  assert.equal(fields['completion.state'].value, 'READY');
+  for (const fieldId of ['work.trigger', 'inspection_findings', 'work_performed', 'test.result', 'parts.part_number']) {
+    assert.equal(fields[fieldId].state, 'UNKNOWN');
+  }
+});
+
+test('a compatible dictated correction supersedes the prior AI field value without losing it', async (t) => {
+  const { service, sessionStore } = await fixture(t, 'semantic-dictated-supersession');
+  const created = await busSession(service, 'SEMANTIC-DICTATED-SUPERSESSION');
+  const first = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: 'The post-work test failed.', language: 'en', idempotency_key: 'semantic-dictated-first',
+  });
+  assert.equal(first.agent_state.report_fields.find((field) => field.field_id === 'test.result').value, 'failed');
+  const second = await service.captureText({
+    session_id: created.session.session_id, expected_revision: first.session.revision,
+    text: 'Passed.', language: 'en', idempotency_key: 'semantic-dictated-second',
+    target_field_id: 'test.result', target_section_id: 'Completion and handover', capture_mode: 'FIELD_DICTATION',
+  });
+  const field = second.agent_state.report_fields.find((entry) => entry.field_id === 'test.result');
+  assert.equal(field.value, 'passed');
+  assert.notEqual(field.state, 'CONFLICT');
+  assert.equal(field.candidates.some((candidate) => candidate.claim.value === 'failed'), true);
+  assert.equal(field.candidates.some((candidate) => candidate.claim.value === 'passed'), true);
+  assert.ok(field.superseded_candidate_ids.length);
+  const reloaded = await sessionStore.loadChain(created.session.session_id);
+  assert.equal(reloaded.agent_state.report_fields.find((entry) => entry.field_id === 'test.result').value, 'passed');
 });
 
 test('audio bytes exist before Whisper and the transcript preserves provider timestamps and exact bindings', async (t) => {
@@ -717,38 +907,23 @@ test('accepting a material correction preserves raw evidence while candidates re
   assert.equal((await sessionStore.loadChain(created.session.session_id)).transcripts[0].raw_text, rawText);
 });
 
-test('accepted terminology correction adds only correction-eligible facts and cannot invent an inspection action', async (t) => {
-  const { service, sessionStore } = await fixture(t, 'fact-centric-correction');
+test('a corrected component mention cannot become a used part or completed action', async (t) => {
+  const { service } = await fixture(t, 'fact-centric-correction');
   const created = await service.createSession({
     template_id: 'rail-maintenance-completion-handover',
     template_version: '1.0.0',
     job_context_ref: 'job-context:RAIL-SEMANTIC-TRAP',
   });
   const rawText = 'Door control module 40 was mentioned during inspection.';
-  const pending = await service.captureText({
+  const captured = await service.captureText({
     session_id: created.session.session_id,
     expected_revision: created.session.revision,
     text: rawText,
     language: 'en',
   });
-  assert.equal(pending.session.phase, 'CORRECTION_IF_NEEDED');
-
-  const decided = await service.decideTranscriptReview({
-    session_id: created.session.session_id,
-    expected_revision: pending.session.revision,
-    review_id: pending.review.review_id,
-    decisions: pending.review.items.map((item) => ({
-      review_item_id: item.review_item_id,
-      decision: item.kind === 'CORRECTION' ? 'ACCEPT' : 'NO_CHANGE',
-    })),
-  });
-
-  const fields = new Set(decided.candidates.map((candidate) => candidate.field_id));
-  assert.ok(fields.has('parts.part_number'));
-  assert.ok(!fields.has('inspection_findings'));
-  assert.ok(!fields.has('work_performed'));
-  for (const candidate of decided.candidates) {
-    const span = await sessionStore.readRecord('evidence-spans', candidate.evidence_refs[0].span_id);
-    assert.equal(span.quote_hash, hashContract(rawText.slice(span.start_offset, span.end_offset)));
-  }
+  assert.equal(captured.session.phase, 'RESOLVE');
+  assert.equal(captured.review, null);
+  assert.equal(captured.transcript.raw_text, rawText);
+  assert.equal(captured.candidates.some((candidate) => ['parts.part_number', 'inspection_findings', 'work_performed'].includes(candidate.field_id)), false);
+  assert.equal(captured.agent_state.report_fields.find((field) => field.field_id === 'parts.part_number').state, 'UNKNOWN');
 });

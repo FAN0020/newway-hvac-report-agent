@@ -300,6 +300,18 @@ test('header and report summary use only authoritative Agent state and place unr
   assert.equal(result.report_sections.flatMap((section) => section.fields).some((field) => field.editing), false);
 });
 
+test('HVAC report header shows captured work order and equipment instead of stale empty copy', () => {
+  const result = deriveWorkspaceView({
+    template: { name: 'HVAC Service Report', schema: { fields: [
+      { id: 'work_order', label: 'Work order', section: 'Job identity' },
+      { id: 'equipment', label: 'Equipment', section: 'Job identity' },
+    ] } },
+    session: session(),
+    agent_state: agent({ fields: [known('work_order', '1122345'), known('equipment', 'ABCD')] }),
+  });
+  assert.equal(result.job_header.identity_line, '1122345 · ABCD');
+});
+
 test('inline conflict choices identify their authoritative and technician sources', () => {
   const system = known('asset.internal_fleet_no', '8300-354', 'AUTHORITATIVE_SYSTEM_DATA').candidates[0];
   const transcript = known('asset.internal_fleet_no', '8300-345').candidates[0];

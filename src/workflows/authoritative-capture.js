@@ -19,6 +19,7 @@ import { formatReportName, reportCreationDate } from '../report-naming.js';
 import { reportToText } from '../tools/report-integrity.js';
 import { extractAtomicFacts } from '../semantic/atomic-facts.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
+import { proposeStructuredAtomicFacts } from '../semantic/structured-proposals.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
 import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
 import { buildFollowUpQuestions } from '../v2/guided-reporting.js';
@@ -28,8 +29,8 @@ import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
 
-const PROCESSING_VERSION = 'authoritative-capture.v2';
-const EXTRACTION_VERSION = 'atomic-semantic-extraction.v3';
+const PROCESSING_VERSION = 'authoritative-capture.v3';
+const EXTRACTION_VERSION = 'atomic-semantic-extraction.v4';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
 const ATTACHMENT_PURPOSES = new Set([
   'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
@@ -129,7 +130,7 @@ function exactFactSpan(fact, rawText) {
 
 const ADDITIVE_FIELD_SEMANTICS = new Set(['COMPLETED_ACTION', 'PART_USED']);
 
-function coalesceAdditiveAssignments(assignments, sourceText) {
+function coalesceAdditiveAssignments(assignments) {
   const groups = new Map();
   for (const assignment of assignments) {
     if (assignment.claim_kind !== 'VALUE' || !ADDITIVE_FIELD_SEMANTICS.has(assignment.semantic_type)) continue;
@@ -153,14 +154,12 @@ function coalesceAdditiveAssignments(assignments, sourceText) {
     if (group.length < 2) continue;
     const values = [...new Set(group.map((item) => String(item.value).trim()).filter(Boolean))];
     if (values.length < 2) continue;
-    const start = Math.min(...group.map((item) => item.source_span.start));
-    const end = Math.max(...group.map((item) => item.source_span.end));
     const [first] = group;
     const factIds = group.map((item) => item.fact?.fact_id).filter(Boolean);
     replacements.set(first, {
       ...first,
       value: values.join('; '),
-      source_span: { start, end, text: sourceText.slice(start, end) },
+      source_spans: group.map((item) => item.source_span),
       fact_ids: factIds,
     });
     for (const item of group.slice(1)) consumed.add(item);
@@ -234,6 +233,8 @@ export class AuthoritativeCaptureService {
     jobContextProvider,
     templateProvider,
     modelResolver,
+    semanticProvider,
+    semanticModel,
     exportWriter,
     pdfRenderer = renderReportPdf,
     clock = () => new Date().toISOString(),
@@ -252,6 +253,8 @@ export class AuthoritativeCaptureService {
     this.jobContextProvider = jobContextProvider || null;
     this.templateProvider = templateProvider || null;
     this.modelResolver = modelResolver || null;
+    this.semanticProvider = semanticProvider || null;
+    this.semanticModel = String(semanticModel || '');
     this.exportWriter = exportWriter || ((snapshotId, payload) => this.sessionStore.writeOfficialExport(snapshotId, payload));
     this.pdfRenderer = pdfRenderer;
     this.clock = clock;
@@ -794,12 +797,30 @@ export class AuthoritativeCaptureService {
   async extractFacts({ session, transcript, extractionText = transcript.raw_text }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
     if (template.adapter?.id === 'manual-schema-v1') return [];
-    const atomicFacts = await extractAtomicFacts({
+    const deterministic = await extractAtomicFacts({
       scope_id: session.context_binding.scope_id,
       raw_text: extractionText,
       transcript_id: transcript.transcript_id,
       capture_context: transcript.capture_context,
     });
+    const proposed = await proposeStructuredAtomicFacts({
+      provider: this.semanticProvider,
+      model: this.semanticModel,
+      scope_id: session.context_binding.scope_id,
+      transcript_id: transcript.transcript_id,
+      raw_text: extractionText,
+      capture_context: transcript.capture_context,
+    });
+    const protectedTypes = new Set(['WORK_ORDER', 'EQUIPMENT_OR_ASSET', 'MEASUREMENT', 'TEST_OUTCOME', 'COMPLETION_STATE']);
+    const overlaps = (a, b) => a.char_start < b.char_end && b.char_start < a.char_end;
+    const modelFacts = proposed.facts
+      .filter((fact) => !protectedTypes.has(fact.semantic_type)
+        || !deterministic.some((fallback) => fallback.semantic_type === fact.semantic_type && overlaps(fact, fallback)))
+      .map((fact) => ({ ...fact, extraction_method: 'structured-semantic-proposal' }));
+    const atomicFacts = [
+      ...modelFacts,
+      ...deterministic.filter((fact) => !modelFacts.some((proposal) => proposal.semantic_type === fact.semantic_type && overlaps(proposal, fact))),
+    ].sort((a, b) => a.char_start - b.char_start || a.semantic_type.localeCompare(b.semantic_type));
     return routeAtomicFacts({
       facts: atomicFacts,
       template,
@@ -825,16 +846,17 @@ export class AuthoritativeCaptureService {
       confirmedCorrections,
       preExtractedFacts,
     });
-    const facts = coalesceAdditiveAssignments(extractedFacts, extractionText);
+    const facts = coalesceAdditiveAssignments(extractedFacts);
     const spans = [];
     const candidates = [];
     for (const fact of facts) {
-      const extractedSource = exactFactSpan(fact, extractionText);
-      const source = mapSourceSpan(extractedSource);
+      const extractedSources = (fact.source_spans || [fact.source_span])
+        .map((sourceSpan) => exactFactSpan({ source_span: sourceSpan }, extractionText));
+      const sources = extractedSources.map(mapSourceSpan);
       const requiredConfirmations = confirmationRequirements.filter((item) => item.field_id === fact.field);
       const correctionItems = (correctionContext?.items || []).filter((item) => (
         item.affected_fields?.includes(fact.field)
-        || (source.start < item.source_span.end && source.end > item.source_span.start)
+        || sources.some((source) => source.start < item.source_span.end && source.end > item.source_span.start)
       ));
       const correctionProvenance = correctionItems.length ? {
         transcript_review_id: correctionContext.transcript_review_id,
@@ -842,13 +864,13 @@ export class AuthoritativeCaptureService {
         effective_projection_hash: correctionContext.effective_projection_hash,
         decisions: correctionItems.map((item) => ({ review_item_id: item.review_item_id, decision: 'ACCEPT' })),
       } : null;
-      const span = createEvidenceSpan({
+      const factSpans = sources.map((source) => createEvidenceSpan({
         evidence_id: transcript.transcript_id,
         start_offset: source.start,
         end_offset: source.end,
         quote: source.text,
         source_text: transcript.raw_text,
-      });
+      }));
       const measuredValue = fact.unit !== undefined && /^[-+]?\d+(?:[.,]\d+)?$/u.test(String(fact.value))
         ? Number(String(fact.value).replace(',', '.'))
         : fact.value;
@@ -861,9 +883,9 @@ export class AuthoritativeCaptureService {
         unit: fact.unit,
         support_type: supportType,
         assessment: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'VALID',
-        evidence_refs: [{ evidence_id: transcript.transcript_id, span_id: span.span_id }],
+        evidence_refs: factSpans.map((span) => ({ evidence_id: transcript.transcript_id, span_id: span.span_id })),
         source_ref: transcript.transcript_id,
-        extraction: { method: 'deterministic-rule', version: EXTRACTION_VERSION },
+        extraction: { method: fact.fact?.extraction_method || 'deterministic-rule', version: EXTRACTION_VERSION },
         risk_class: fact.critical || requiredConfirmations.length ? 'CRITICAL' : 'STANDARD',
         confidence_class: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
         source_context: {
@@ -882,9 +904,9 @@ export class AuthoritativeCaptureService {
         correction_provenance: correctionProvenance,
         confirmation_requirement_ids: requiredConfirmations.map((item) => item.requirement_id),
       });
-      await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
+      for (const span of factSpans) await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
       await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
-      spans.push(span);
+      spans.push(...factSpans);
       candidates.push(candidate);
     }
     return { spans, candidates, facts };
@@ -1533,7 +1555,22 @@ export class AuthoritativeCaptureService {
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
       },
     });
-    const computed = await this.persistAgentState(completed.session);
+    let computed = await this.persistAgentState(completed.session);
+    const targetFieldId = transcript.capture_context?.capture_mode === 'FIELD_DICTATION'
+      ? transcript.capture_context.target_field_id : null;
+    const dictated = targetFieldId
+      ? candidates.filter((candidate) => candidate.field_id === targetFieldId)
+      : [];
+    if (dictated.length === 1) {
+      const selected = await this.selectFieldRepresentation({
+        session_id: completed.session.session_id,
+        expected_revision: computed.session.revision,
+        field_id: targetFieldId,
+        selection: { kind: 'CANDIDATE', candidate_id: dictated[0].candidate_id },
+        idempotency_key: `field-dictation:${transcript.transcript_id}`,
+      });
+      computed = { session: selected.session, agent_state: selected.agent_state };
+    }
     return {
       session: computed.session,
       evidence,

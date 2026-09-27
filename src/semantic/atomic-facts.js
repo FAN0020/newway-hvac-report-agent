@@ -17,8 +17,12 @@ export const SEMANTIC_TYPES = Object.freeze([
   'FOLLOW_UP',
 ]);
 
-const ACTION_VERBS = 'cleared|replaced|installed|repaired|reseated|secured|tightened|cleaned|adjusted|lubricated|reset|removed|refitted|restored|completed|did';
-const TEST_VERBS = 'tested|checked|verified|ran';
+const ACTION_VERBS = 'cleared|replaced|installed|repaired|reseated|secured|sealed|tightened|cleaned|adjusted|lubricated|reset|removed|refitted|restored|completed|did';
+const TEST_VERBS = 'tested|verified|ran';
+const TECHNICIAN_OWNED_FACTS = new Set([
+  'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
+  'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP',
+]);
 
 function normalize(value) {
   return String(value || '').trim().replace(/[.,;:!?]+$/u, '').replace(/\s+/gu, ' ');
@@ -43,6 +47,35 @@ function sentences(rawText) {
     const start = match.index + leading;
     const end = match.index + match[0].length - trailing;
     result.push({ text: rawText.slice(start, end), start, end });
+  }
+  return result;
+}
+
+// A punctuation-delimited sentence can contain several different job claims. Keep
+// offsets in the original transcript while separating independent predicates.
+function clauses(rawText) {
+  const result = [];
+  const boundary = /(?:[,;]\s*(?:(?:and|but|so)\s+)?|\s+\b(?:and|but|so)\s+)(?=(?:I|we|my|it|both|customer|the customer|the job|completion|the completion|test|the test|no follow[- ]?up|nothing else|recommend(?:ed)?|suggest(?:ed)?|replaced|installed|repaired|reseated|secured|sealed|tightened|cleared|cleaned|adjusted|lubricated|reset|removed|refitted|restored|did|tested|checked|verified|ran|passed|failed)\b)/giu;
+  for (const sentence of sentences(rawText)) {
+    let cursor = 0;
+    let speaker = /^(?:the\s+)?customer\s+(?:reported|complained|said)\b/iu.test(sentence.text) ? 'CUSTOMER' : 'TECHNICIAN';
+    const push = (start, end) => {
+      const piece = sentence.text.slice(start, end);
+      const leading = piece.search(/\S/u);
+      if (leading < 0) return;
+      const trailing = piece.match(/\s*$/u)?.[0].length || 0;
+      const charStart = sentence.start + start + leading;
+      const charEnd = sentence.start + end - trailing;
+      const text = rawText.slice(charStart, charEnd);
+      if (/^(?:I|we|my|no\s+follow[- ]?up|nothing\s+else)\b/iu.test(text)) speaker = 'TECHNICIAN';
+      if (/^(?:the\s+)?customer\b/iu.test(text)) speaker = 'CUSTOMER';
+      result.push({ text, start: charStart, end: charEnd, sourceRole: speaker });
+    };
+    for (const match of sentence.text.matchAll(boundary)) {
+      push(cursor, match.index);
+      cursor = match.index + match[0].length;
+    }
+    push(cursor, sentence.text.length);
   }
   return result;
 }
@@ -79,6 +112,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
 
   const add = ({ semanticType, value, unit, match, sentence, claimKind = 'VALUE', temporality = 'CURRENT', sourceRole = 'TECHNICIAN', attributes = {} }) => {
     if (!match) return;
+    if (sentence.sourceRole === 'CUSTOMER' && TECHNICIAN_OWNED_FACTS.has(semanticType)) return;
     const start = sentence.start + match.index;
     const quote = match[0];
     const end = start + quote.length;
@@ -108,8 +142,9 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     }));
   };
 
-  for (const sentence of sentences(text)) {
+  for (const sentence of clauses(text)) {
     const body = sentence.text;
+    const customerSpeech = sentence.sourceRole === 'CUSTOMER';
     let match;
 
     match = /\bwork\s+order(?:\s+(?:number|no\.?))?\s*(?:is|was|:|#)?\s*([A-Z0-9-]+)/iu.exec(body);
@@ -151,12 +186,12 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     }
 
     const found = /\b(?:I|we)?\s*(?:found|observed|identified|detected)\s+(.+?)(?=\s+(?:and|so)\s+(?:I|we)?\s*(?:cleared|replaced|installed|repaired|reseated|secured|tightened|tested|checked|verified|ran)\b|,\s*(?:I|we)\s+(?:cleared|replaced|installed|repaired|reseated|secured|tightened|tested|checked|verified|ran)\b|[.;!?]|$)/iu.exec(body);
-    if (found && !/\bInspection\s+found\b/u.test(body)) add({ semanticType: 'INSPECTION_FINDING', value: trimCaptured(found[1]), match: found, sentence });
+    if (found && !customerSpeech && !/\bInspection\s+found\b/u.test(body)) add({ semanticType: 'INSPECTION_FINDING', value: trimCaptured(found[1]), match: found, sentence });
     match = /\bInspection\s+found\s+(.+?)(?=[.;!?]|$)/u.exec(body);
-    if (match) add({ semanticType: 'INSPECTION_FINDING', value: normalize(match[0]), match, sentence });
+    if (match && !customerSpeech) add({ semanticType: 'INSPECTION_FINDING', value: normalize(match[0]), match, sentence });
     match = /\bBus\s+.+?\s+had\s+(.+?)(?=[.;!?]|$)/iu.exec(body);
-    if (match) add({ semanticType: 'INSPECTION_FINDING', value: normalize(match[0]), match, sentence });
-    if (!found) {
+    if (match && !customerSpeech) add({ semanticType: 'INSPECTION_FINDING', value: normalize(match[0]), match, sentence });
+    if (!found && !customerSpeech) {
       match = /\b(?:I|we)\s+(?:inspected|checked)\s+(.+?)(?=\s*[,;]|\s+and\s+(?:I|we)?\s*(?:replaced|installed|repaired|reseated|secured|cleared|tested|ran)\b|[.!?]|$)/iu.exec(body);
       if (match) add({ semanticType: 'INSPECTION_FINDING', value: trimCaptured(match[1]), match, sentence });
     }
@@ -173,7 +208,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     const negatedAction = new RegExp(`\\b(?:was|were|is|are|did|do|does|have|has|had)?\\s*(?:not|never|didn't|did not)\\s+(?:${ACTION_VERBS}|replace|install|change)\\b`, 'iu').test(body)
       || /\b(?:was|were|is|are)\s+not\s+(?:replaced|installed|repaired|changed)\b/iu.test(body);
     const futureAction = /\b(?:recommend|suggest|should|next\s+(?:visit|week|service)|later|in\s+future)\b/iu.test(body);
-    if (!negatedAction && !futureAction) {
+    if (!customerSpeech && !negatedAction && !futureAction) {
       const passiveActionPattern = new RegExp(`\\b(?:the\\s+)?(.+?)\\s+was\\s+(installed|replaced|repaired|reseated|secured|refitted)\\b`, 'igu');
       for (const action of body.matchAll(passiveActionPattern)) {
         const object = normalize(action[1]).replace(/^(?:the|a|an)\s+/iu, '');
@@ -186,6 +221,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
         let object = trimCaptured(action[2]);
         const verb = action[1].toLocaleLowerCase();
         object = resolvePronouns(object, facts);
+        if (verb === 'did' && /^not\b/iu.test(object)) continue;
         const value = verb === 'did' ? object : `${verb} ${object}`;
         add({ semanticType: 'COMPLETED_ACTION', value, match: action, sentence, attributes: { action_verb: verb } });
         if (['replaced', 'installed', 'refitted'].includes(verb)) {
@@ -199,6 +235,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
       for (const action of body.matchAll(continuedActionPattern)) {
         const verb = action[1].toLocaleLowerCase();
         const object = resolvePronouns(trimCaptured(action[2]), facts);
+        if (verb === 'did' && /^not\b/iu.test(object)) continue;
         const value = verb === 'did' ? object : `${verb} ${object}`;
         add({ semanticType: 'COMPLETED_ACTION', value, match: action, sentence, attributes: { action_verb: verb } });
         if (['replaced', 'installed', 'refitted'].includes(verb)) {
@@ -212,6 +249,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
       if (leadingAction) {
         const verb = leadingAction[1].toLocaleLowerCase();
         const object = resolvePronouns(trimCaptured(leadingAction[2]), facts);
+        if (verb === 'did' && /^not\b/iu.test(object)) continue;
         const value = verb === 'did' ? object : `${verb} ${object}`;
         add({ semanticType: 'COMPLETED_ACTION', value, match: leadingAction, sentence, attributes: { action_verb: verb } });
         if (['replaced', 'installed', 'refitted'].includes(verb)) add({
@@ -224,20 +262,31 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
       }
     }
 
-    for (const tested of body.matchAll(/\b([\p{L}][\p{L}-]*(?:\s+[\p{L}][\p{L}-]*){0,3})\s+was\s+tested\b/igu)) {
+    for (const tested of customerSpeech ? [] : body.matchAll(/\b([\p{L}][\p{L}-]*(?:\s+[\p{L}][\p{L}-]*){0,3})\s+was\s+tested\b/igu)) {
       const object = normalize(tested[1]).replace(/^(?:the|a|an)\s+/iu, '');
       add({ semanticType: 'TEST_ACTION', value: `tested ${object}`, match: tested, sentence, attributes: { action_verb: 'tested', voice: 'PASSIVE' } });
     }
     const testPattern = new RegExp(`\\b(?:I|we)?\\s*(${TEST_VERBS})\\s+(.+?)(?=\\s+and\\s+(?:it|the|both)(?:\\s+(?:was|were|is))?\\s*(?:pass(?:ed)?|fail(?:ed)?|normal|okay|ok)\\b|[,.;!?]|$)`, 'igu');
-    for (const tested of body.matchAll(testPattern)) {
+    for (const tested of customerSpeech ? [] : body.matchAll(testPattern)) {
       const verb = tested[1].toLocaleLowerCase();
       const object = trimCaptured(tested[2]);
       add({ semanticType: 'TEST_ACTION', value: `${verb} ${object}`, match: tested, sentence, attributes: { action_verb: verb } });
     }
 
-    for (const outcome of body.matchAll(/\b(pass(?:ed)?|fail(?:ed)?|normal|successful|unsuccessful)\b/igu)) {
+    const explicitTestContext = /\b(?:test(?:ed|ing|s)?|result|cycles?|post-work)\b/iu.test(body);
+    const priorTestAction = [...facts].reverse().find((fact) => fact.semantic_type === 'TEST_ACTION');
+    const standaloneOutcome = /^(?:(?:it|both|they)\s+(?:(?:was|were|is|are)\s+)?)?(?:passed|failed|normal|successful|unsuccessful)[.!?]*$/iu.test(body.trim());
+    const adjacentToTest = priorTestAction
+      && /^(?:[\s,.;!?]|\band\b)*$/iu.test(text.slice(priorTestAction.char_end, sentence.start));
+    const impliedTestContext = standaloneOutcome && adjacentToTest;
+    const targetedTestResult = captureContext?.target_field_id && /(?:^|\.)(?:test_results|result)$/u.test(captureContext.target_field_id);
+    for (const outcome of customerSpeech || !(explicitTestContext || impliedTestContext || targetedTestResult)
+      ? [] : body.matchAll(/\b(pass(?:ed)?|fail(?:ed)?|normal|successful|unsuccessful)\b/igu)) {
       const raw = outcome[1].toLocaleLowerCase();
-      const value = raw.startsWith('pass') || ['normal', 'successful'].includes(raw) ? 'passed' : 'failed';
+      const before = body.slice(Math.max(0, outcome.index - 24), outcome.index);
+      const negated = /\b(?:not|never|didn['’]?t|wasn['’]?t|weren['’]?t)\s*$/iu.test(before);
+      if (negated && !raw.startsWith('pass')) continue;
+      const value = negated ? 'failed' : raw.startsWith('pass') || ['normal', 'successful'].includes(raw) ? 'passed' : 'failed';
       add({ semanticType: 'TEST_OUTCOME', value, match: outcome, sentence });
     }
 
@@ -255,6 +304,11 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     if (match) add({ semanticType: 'COMPLETION_STATE', value: 'done', match, sentence });
     match = /\b(?:the\s+)?job\s+is\s+(complete|completed|done)\b/iu.exec(body);
     if (match) add({ semanticType: 'COMPLETION_STATE', value: match[1].toLocaleLowerCase().replace('completed', 'complete'), match, sentence });
+    if (captureContext?.capture_mode === 'FIELD_DICTATION'
+      && /(?:^|\.)(?:completion_status|state)$/u.test(String(captureContext.target_field_id || ''))
+      && /^(?:done|complete|completed|ready|not ready)[.!?]?$/iu.test(body.trim())) {
+      add({ semanticType: 'COMPLETION_STATE', value: lowerInitial(body), match: { 0: body, index: 0 }, sentence });
+    }
 
     match = /\bno\s+parts\s+(?:were\s+)?(?:used|changed)\b|\bdid(?:n't|\s+not)\s+(?:change|use|replace)\s+(?:any\s+)?parts\b/iu.exec(body);
     if (match) add({ semanticType: 'PART_USED', value: null, match, sentence, claimKind: 'EXPLICIT_NONE' });

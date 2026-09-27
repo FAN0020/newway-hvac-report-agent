@@ -17,14 +17,26 @@ function normalizedUnit(unit) {
 }
 
 export function candidateRuleViolations(candidate, definition = {}) {
-  if (candidate.claim?.kind !== 'VALUE') return [];
-  const { value, unit } = candidateValue(candidate);
   const violations = [];
   const push = (code, reason) => violations.push({ code, reason });
-  if (candidate.semantic?.semantic_type && Array.isArray(definition.semanticRoles)
-    && !definition.semanticRoles.includes(candidate.semantic.semantic_type)) {
-    push('SEMANTIC_FIELD_MISMATCH', `${candidate.semantic.semantic_type} is not compatible with ${definition.id || candidate.field_id}.`);
+  const semantic = candidate.semantic;
+  if (semantic?.semantic_type) {
+    if (Array.isArray(definition.semanticRoles) && !definition.semanticRoles.includes(semantic.semantic_type)) {
+      push('SEMANTIC_FIELD_MISMATCH', `${semantic.semantic_type} is not compatible with ${definition.id || candidate.field_id}.`);
+    }
+    if (semantic.source_role === 'CUSTOMER' && semantic.semantic_type !== 'CUSTOMER_OBSERVATION') {
+      push('SEMANTIC_SOURCE_MISMATCH', 'A customer report cannot establish technician-observed or performed work.');
+    }
+    if (['COMPLETED_ACTION', 'PART_USED', 'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE'].includes(semantic.semantic_type)
+      && ['FUTURE', 'NEGATED', 'RECOMMENDED'].includes(semantic.temporality)) {
+      push('SEMANTIC_TEMPORALITY_MISMATCH', 'Future, recommended, or negated work cannot establish a completed job fact.');
+    }
   }
+  if (candidate.support_type === 'RAG_GUIDANCE' || candidate.evidence_refs?.some((ref) => String(ref.evidence_id).startsWith('guidance_'))) {
+    push('INELIGIBLE_EVIDENCE', 'GuidanceContext is not eligible job evidence.');
+  }
+  if (candidate.claim?.kind !== 'VALUE') return violations;
+  const { value, unit } = candidateValue(candidate);
   const type = definition.type || 'string';
   if ((type === 'number' || type === 'measurement') && (typeof value !== 'number' || !Number.isFinite(value))) {
     push('TYPE_MISMATCH', `${definition.id || candidate.field_id} requires a finite numeric value.`);
@@ -60,9 +72,6 @@ export function candidateRuleViolations(candidate, definition = {}) {
   }
   if (/^(asset\.|work\.(?:work_order_id|order_id)$)/u.test(candidate.field_id) && (typeof value !== 'string' || !value.trim() || GARBLED_RE.test(value))) {
     push('INVALID_IDENTITY', 'Asset and work-order identities must be non-empty and non-garbled.');
-  }
-  if (candidate.support_type === 'RAG_GUIDANCE' || candidate.evidence_refs?.some((ref) => String(ref.evidence_id).startsWith('guidance_'))) {
-    push('INELIGIBLE_EVIDENCE', 'GuidanceContext is not eligible job evidence.');
   }
   return violations;
 }

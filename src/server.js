@@ -88,6 +88,8 @@ const authoritativeCapture = new AuthoritativeCaptureService({
   sessionStore: reportSessions,
   whisperProvider: whisper,
   modelResolver: () => speechToText.resolveModel(),
+  semanticProvider: ollama,
+  semanticModel: String(process.env.HVAC_OLLAMA_MODEL || ''),
   scopeRegistryProvider: ensureV2Registry,
   uploadStore: v2UploadStore,
   templateProvider: async (templateId) => (
