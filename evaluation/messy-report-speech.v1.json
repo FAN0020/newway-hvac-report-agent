@@ -1,0 +1,118 @@
+{
+  "schema_version": "messy-report-speech.v1",
+  "provenance": "Synthetic, hand-authored technician-language regression cases; not a field recording or human Gold annotation.",
+  "cases": [
+    {
+      "id": "messy-hvac-reordered",
+      "split": "dev",
+      "category": "positive",
+      "template_id": "hvac-service-report",
+      "scope_id": "HVAC",
+      "input": "Uh, done now. Testing after seal, passed. AC-104 is the unit, work order 7712. Room felt warm, customer said. Return flange, hairline crack there. I sealed that flange with sealant.",
+      "required": [
+        { "field_id": "work_order", "contains": "7712" },
+        { "field_id": "equipment", "contains": "AC-104" },
+        { "field_id": "customer_complaint", "contains": "warm" },
+        { "field_id": "inspection_findings", "contains": "hairline crack" },
+        { "field_id": "work_performed", "contains": "sealed" },
+        { "field_id": "test_results", "contains": "passed" },
+        { "field_id": "completion_status", "contains": "done" }
+      ],
+      "forbidden": [],
+      "rationale": "Facts arrive out of report order, with filler and a customer attribution after the complaint.",
+      "tags": ["reordering", "filler", "multi-field"]
+    },
+    {
+      "id": "messy-bus-fragments",
+      "split": "dev",
+      "category": "positive",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "scope_id": "SBS_BUS",
+      "input": "Bus 354, uh. Normal, door ran twice, both cycles normal. No parts changed. Customer said door was sticking. Controller connector loose, found it there. Reseated connector and secured it. Ready to return to service.",
+      "required": [
+        { "field_id": "asset.internal_fleet_no", "contains": "354" },
+        { "field_id": "work.trigger", "contains": "sticking" },
+        { "field_id": "inspection_findings", "contains": "loose" },
+        { "field_id": "work_performed", "contains": "reseated" },
+        { "field_id": "parts.part_number", "claim_kind": "EXPLICIT_NONE" },
+        { "field_id": "test.result", "contains": "passed" },
+        { "field_id": "completion.state", "contains": "READY" }
+      ],
+      "forbidden": [],
+      "rationale": "Short fragments, repeated result wording, and reversed order must still map to supported fields.",
+      "tags": ["fragments", "reordering", "explicit-none"]
+    },
+    {
+      "id": "messy-hvac-self-correction",
+      "split": "dev",
+      "category": "edge",
+      "template_id": "hvac-service-report",
+      "scope_id": "HVAC",
+      "input": "WO, um, work order is 5521. Compressor no, didn't replace it. Customer said cooling weak. Found iced coil. I cleared ice off the coil. Test, after that, normal. Job complete.",
+      "required": [
+        { "field_id": "work_order", "contains": "5521" },
+        { "field_id": "customer_complaint", "contains": "cooling weak" },
+        { "field_id": "inspection_findings", "contains": "iced coil" },
+        { "field_id": "work_performed", "contains": "cleared ice" },
+        { "field_id": "test_results", "contains": "passed" },
+        { "field_id": "completion_status", "contains": "complete" }
+      ],
+      "forbidden": [
+        { "field_id": "work_performed", "contains": "replace" }
+      ],
+      "rationale": "A negated false start cannot replace the supported repair, and a fragmentary test outcome remains separate.",
+      "tags": ["self-correction", "negation", "fragments"]
+    },
+    {
+      "id": "messy-no-invention",
+      "split": "dev",
+      "category": "negative",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "scope_id": "SBS_BUS",
+      "input": "Compressor... uh, wasn't replaced today. Next visit maybe replace it. I looked, no post-work test result yet.",
+      "required": [],
+      "forbidden": [
+        { "field_id": "work_performed" },
+        { "field_id": "parts.part_number" },
+        { "field_id": "test.result" }
+      ],
+      "rationale": "Future or negated work and an absent result must not become completed report claims.",
+      "tags": ["negation", "future", "abstention"]
+    },
+    {
+      "id": "messy-uncertain-identifiers",
+      "split": "test",
+      "category": "ambiguous",
+      "template_id": "hvac-service-report",
+      "scope_id": "HVAC",
+      "input": "Work order maybe 9976? No, could be 9978. I cannot confirm. Unit AHU... maybe AHU-3, not sure.",
+      "required": [],
+      "forbidden": [
+        { "field_id": "work_order" },
+        { "field_id": "equipment" }
+      ],
+      "rationale": "A model must abstain rather than choose between uncertain or truncated identities.",
+      "tags": ["uncertain", "identifiers", "abstention"]
+    },
+    {
+      "id": "messy-bus-retest",
+      "split": "test",
+      "category": "edge",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "scope_id": "SBS_BUS",
+      "input": "Door test failed first... wait, after I reseated the connector it passed twice. Customer said front door stuck. Found loose connector. Bus 407. No parts used.",
+      "required": [
+        { "field_id": "asset.internal_fleet_no", "contains": "407" },
+        { "field_id": "work.trigger", "contains": "front door stuck" },
+        { "field_id": "inspection_findings", "contains": "loose connector" },
+        { "field_id": "work_performed", "contains": "reseated" },
+        { "field_id": "parts.part_number", "claim_kind": "EXPLICIT_NONE" },
+        { "field_id": "test.result", "contains": "failed" },
+        { "field_id": "test.result", "contains": "passed" }
+      ],
+      "forbidden": [],
+      "rationale": "A later passing retest does not silently erase an earlier failure; both outcomes retain provenance.",
+      "tags": ["retest", "conflict", "reordering"]
+    }
+  ]
+}

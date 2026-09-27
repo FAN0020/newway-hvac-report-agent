@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { identifierIsCertain } from './identifier-certainty.js';
 
 export const SEMANTIC_TYPES = Object.freeze([
   'WORK_ORDER',
@@ -116,6 +117,8 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     const start = sentence.start + match.index;
     const quote = match[0];
     const end = start + quote.length;
+    if (['WORK_ORDER', 'EQUIPMENT_OR_ASSET'].includes(semanticType)
+      && !identifierIsCertain(text, start, end)) return;
     const normalizedValue = claimKind === 'VALUE' ? normalize(value) : null;
     if (claimKind === 'VALUE' && !normalizedValue) return;
     const key = JSON.stringify([semanticType, normalizedValue, unit || null, start, end, claimKind]);

@@ -45,6 +45,41 @@ test('a unique exact quote is located deterministically when model character cou
   assert.equal(result.facts[0].char_start, text.indexOf(quote));
 });
 
+test('a compact model proposal needs only an exact quote and never controls evidence metadata', () => {
+  const text = 'Customer said room warm. I sealed the flange.';
+  const result = verifyStructuredFactProposals({
+    transcript_id: 'compact-proposal', raw_text: text,
+    proposals: [
+      { semantic_type: 'CUSTOMER_OBSERVATION', value: 'room warm', evidence_quote: 'Customer said room warm' },
+      { semantic_type: 'COMPLETED_ACTION', value: 'sealed the flange', evidence_quote: 'I sealed the flange' },
+    ],
+  });
+  assert.deepEqual(result.facts.map((fact) => [fact.source_role, fact.temporality]), [
+    ['CUSTOMER', 'CURRENT'], ['TECHNICIAN', 'CURRENT'],
+  ]);
+  assert.deepEqual(result.facts.map((fact) => text.slice(fact.char_start, fact.char_end)), [
+    'Customer said room warm', 'I sealed the flange',
+  ]);
+});
+
+test('a fragment with postposed customer attribution stays a customer observation', () => {
+  const quote = 'Room felt warm, customer said';
+  const result = verifyStructuredFactProposals({
+    transcript_id: 'postposed-role', raw_text: `${quote}.`,
+    proposals: [{ semantic_type: 'CUSTOMER_OBSERVATION', value: 'Room felt warm', evidence_quote: quote }],
+  });
+  assert.equal(result.facts[0]?.source_role, 'CUSTOMER');
+});
+
+test('an asset named before its label may fill equipment when the exact quote grounds it', () => {
+  const quote = 'AC-104 is the unit';
+  const result = verifyStructuredFactProposals({
+    transcript_id: 'postposed-asset', raw_text: `${quote}.`,
+    proposals: [{ semantic_type: 'EQUIPMENT_OR_ASSET', value: 'AC-104', evidence_quote: quote }],
+  });
+  assert.equal(result.facts[0]?.value, 'AC-104');
+});
+
 test('an ambiguous repeated quote cannot be offset-repaired into arbitrary evidence', () => {
   const quote = 'The test passed';
   const text = `${quote}. ${quote}.`;
@@ -84,6 +119,18 @@ test('a finding or customer complaint cannot be mislabeled as a work order', () 
     assert.deepEqual(result.facts, []);
     assert.deepEqual(result.rejections, [{ index: 0, reason: 'SEMANTIC_TYPE_MISMATCH' }]);
   }
+});
+
+test('uncertain identifiers cannot become authoritative even if a quote itself is exact', () => {
+  const text = 'Work order maybe 9976? No, could be 9978.';
+  const result = verifyStructuredFactProposals({
+    transcript_id: 'uncertain-model-id', raw_text: text,
+    proposals: [
+      { semantic_type: 'WORK_ORDER', value: 'maybe', evidence_quote: 'Work order maybe' },
+      { semantic_type: 'WORK_ORDER', value: '9976', evidence_quote: '9976' },
+    ],
+  });
+  assert.deepEqual(result.facts, []);
 });
 
 test('a customer complaint cannot be mislabeled as equipment', () => {
@@ -186,6 +233,34 @@ test('a prior test does not make an unrelated leading verb a structured test out
       char_start: start, char_end: start + 6, evidence_quote: 'passed' }],
   });
   assert.equal(supported.facts[0]?.value, 'passed');
+});
+
+test('a fragmentary passing retest after a repair retains the earlier test context', () => {
+  const raw_text = 'Door test failed first... wait, after I reseated the connector it passed twice.';
+  const evidence_quote = 'it passed twice';
+  const supported = verifyStructuredFactProposals({
+    transcript_id: 'fragmentary-retest', raw_text,
+    proposals: [{ semantic_type: 'TEST_OUTCOME', value: 'passed', evidence_quote }],
+  });
+  assert.equal(supported.facts[0]?.value, 'passed');
+  const unsupported = verifyStructuredFactProposals({
+    transcript_id: 'no-test-context', raw_text: 'The compressor failed. After I reseated it, it passed twice.',
+    proposals: [{ semantic_type: 'TEST_OUTCOME', value: 'passed', evidence_quote: 'it passed twice' }],
+  });
+  assert.deepEqual(unsupported.facts, []);
+});
+
+test('a measured post-test state can be an outcome only for the named test subject', () => {
+  const supported = verifyStructuredFactProposals({
+    transcript_id: 'cooling-outcome', raw_text: 'I ran a cooling test. Cooling was normal.',
+    proposals: [{ semantic_type: 'TEST_OUTCOME', value: 'normal', evidence_quote: 'Cooling was normal' }],
+  });
+  assert.equal(supported.facts[0]?.value, 'normal');
+  const unrelated = verifyStructuredFactProposals({
+    transcript_id: 'unrelated-outcome', raw_text: 'I ran a cooling test. The room was normal.',
+    proposals: [{ semantic_type: 'TEST_OUTCOME', value: 'normal', evidence_quote: 'The room was normal' }],
+  });
+  assert.deepEqual(unrelated.facts, []);
 });
 
 test('an outcome proposal cannot carry the whole multi-fact narration as its evidence', () => {

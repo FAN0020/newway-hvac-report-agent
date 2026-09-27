@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { SEMANTIC_TYPES } from './atomic-facts.js';
+import { identifierIsCertain } from './identifier-certainty.js';
 
 const TYPE_SET = new Set(SEMANTIC_TYPES);
 const TECHNICIAN_ONLY_TYPES = new Set([
@@ -37,6 +38,7 @@ function evidenceRole(text, start, end) {
   for (const marker of context.matchAll(markers)) {
     role = /^(?:the\s+)?customer\b/iu.test(marker[0]) ? 'CUSTOMER' : 'TECHNICIAN';
   }
+  if (/\b(?:the\s+)?customer\s+(?:said|reported|complained)\s*$/iu.test(context)) role = 'CUSTOMER';
   return role;
 }
 
@@ -48,6 +50,7 @@ function evidenceTemporality(quote) {
 
 function nonAtomicEvidence(quote) {
   const withoutTrailingPunctuation = quote.replace(/[.!?;\s]+$/u, '');
+  if (/^[^.!?;\n]+,\s*(?:the\s+)?customer\s+(?:said|reported|complained)$/iu.test(withoutTrailingPunctuation)) return false;
   return /[.!?;\n]\s*\S/u.test(withoutTrailingPunctuation)
     || /,\s*(?:(?:and|but|so)\s+)?(?:I|we|it|both|(?:the\s+)?customer|(?:the\s+)?test|(?:the\s+)?job|(?:the\s+)?completion|replaced|installed|repaired|tested|checked|verified|passed|failed)\b/iu.test(quote);
 }
@@ -58,13 +61,22 @@ function hasTestContext(text, start, end, captureContext) {
   const boundary = Math.max(prior.lastIndexOf('.'), prior.lastIndexOf('!'), prior.lastIndexOf('?'), prior.lastIndexOf('\n'));
   const sentence = text.slice(boundary + 1, end);
   if (/\b(?:test(?:ed|ing|s)?|result|post[- ]?work|cycles?|verification)\b/iu.test(sentence)) return true;
+  const outcome = text.slice(start, end);
+  const recent = text.slice(Math.max(0, start - 160), start);
+  if (/^\s*(?:it|they|both)\s+(?:passed|failed)\b/iu.test(outcome)
+    && /\b(?:test(?:ed|ing|s)?|cycles?|verification)\b[\s\S]{0,140}\b(?:after|then|retest(?:ed)?|again)\b/iu.test(recent)) return true;
+  const earlier = prior.slice(0, boundary);
+  const previousBoundary = Math.max(earlier.lastIndexOf('.'), earlier.lastIndexOf('!'), earlier.lastIndexOf('?'), earlier.lastIndexOf('\n'));
+  const previous = prior.slice(previousBoundary + 1, boundary).toLocaleLowerCase();
+  const namedOutcome = /^\s*(?:the\s+)?([\p{L}][\p{L}-]{1,30})\s+(?:was|is)\s+(?:normal|abnormal|within\s+(?:specification|spec|limits|range))\b/iu.exec(outcome);
+  if (namedOutcome && !/\b(?:no\s+test|test\s+(?:not|wasn['’]?t)\s+performed)\b/iu.test(previous)) {
+    const subject = namedOutcome[1].toLocaleLowerCase();
+    if (previous.includes(`${subject} test`) || previous.includes(`test ${subject}`)) return true;
+  }
   if (!/^\s*(?:it|both|they|passed|failed)\b/iu.test(text.slice(start, end))) return false;
   // A bare outcome word is supported by a preceding test only when it closes
   // its own clause and that test was in the immediately preceding sentence.
   if (text.slice(end).match(/^[^.!?;\n]*/u)?.[0].trim()) return false;
-  const earlier = prior.slice(0, boundary);
-  const previousBoundary = Math.max(earlier.lastIndexOf('.'), earlier.lastIndexOf('!'), earlier.lastIndexOf('?'), earlier.lastIndexOf('\n'));
-  const previous = prior.slice(previousBoundary + 1, boundary);
   return /\b(?:test(?:ed|ing|s)?|cycles?|verification)\b/iu.test(previous);
 }
 
@@ -77,7 +89,7 @@ function hasIdentifierContext(semanticType, quote, value, captureContext) {
   }
   if (semanticType === 'EQUIPMENT_OR_ASSET') {
     if (words(value).length > 5) return false;
-    return /\b(?:equipment|asset|fleet|registration|station|chainage|location)\b|\b(?:unit|bus|line)\s+[A-Z0-9]/iu.test(quote)
+    return /\b(?:equipment|asset|fleet|registration|station|chainage|location)\b|\b(?:unit|bus|line)\s+[A-Z0-9]|\b[A-Z0-9][A-Z0-9-]*\s+(?:is|was)\s+(?:the\s+)?(?:unit|bus|asset)\b/iu.test(quote)
       || ((target === 'equipment' || target.startsWith('asset.')) && quote.trim() === value);
   }
   return true;
@@ -126,6 +138,11 @@ export function verifyStructuredFactProposals({
       rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
       continue;
     }
+    if (['WORK_ORDER', 'EQUIPMENT_OR_ASSET'].includes(semanticType)
+      && !identifierIsCertain(text, start, end)) {
+      rejections.push({ index, reason: 'UNCERTAIN_IDENTIFIER' });
+      continue;
+    }
     if (claimKind === 'EXPLICIT_NONE' && !(
       (semanticType === 'PART_USED' && /\b(?:no\s+parts\s+(?:were\s+)?used|did(?:n['’]?t|\s+not)\s+(?:use|change|replace)\s+(?:any\s+)?parts)\b/iu.test(quote))
       || (semanticType === 'FOLLOW_UP' && /\b(?:no\s+follow[- ]?up\s+(?:is\s+)?required|nothing\s+else\s+needed)\b/iu.test(quote))
@@ -138,14 +155,14 @@ export function verifyStructuredFactProposals({
       continue;
     }
     const sourceRole = evidenceRole(text, start, end);
-    if (proposal.source_role !== sourceRole
+    if ((proposal.source_role && proposal.source_role !== sourceRole)
       || (semanticType === 'CUSTOMER_OBSERVATION' && sourceRole !== 'CUSTOMER')
       || (TECHNICIAN_ONLY_TYPES.has(semanticType) && sourceRole === 'CUSTOMER')) {
       rejections.push({ index, reason: 'SOURCE_ROLE_MISMATCH' });
       continue;
     }
     const temporality = evidenceTemporality(quote);
-    if (proposal.temporality !== temporality
+    if ((proposal.temporality && proposal.temporality !== temporality)
       || (['COMPLETED_ACTION', 'PART_USED'].includes(semanticType) && temporality !== 'CURRENT')) {
       rejections.push({ index, reason: 'TEMPORALITY_MISMATCH' });
       continue;
@@ -202,14 +219,15 @@ export function verifyStructuredFactProposals({
 }
 
 const EXTRACTION_SYSTEM = [
-  'Identify atomic facts explicitly supported by the technician transcript. Return one JSON object with a facts array, or an empty facts array when uncertain.',
-  'Do not write a report or choose report fields. A sentence with multiple claims needs separate small evidence spans, one per fact.',
-  'Each fact requires semantic_type, extractive value, source_role (TECHNICIAN or CUSTOMER), temporality (CURRENT or FUTURE),',
-  'claim_kind (VALUE or EXPLICIT_NONE), char_start, char_end, and evidence_quote. Use VALUE for every positive stated fact with a non-null value.',
-  'Use EXPLICIT_NONE only when the technician explicitly says no parts were used or no follow-up is required, and set value to null. Offsets are JavaScript UTF-16 character offsets into raw_text;',
-  'evidence_quote must equal raw_text.slice(char_start, char_end) exactly. Values must use words actually present in the evidence quote.',
-  'Customer reports are not technician findings. A test action is not a test outcome. Mentioned, negated, or future parts are not parts used.',
-  'Never infer a passed test from an action or a failed test from a failed component. Abstain instead of guessing.',
+  'Extract atomic facts from messy, out-of-order technician speech. Return JSON with a facts array, empty when nothing is reliable.',
+  'Do not write a report or choose field IDs. For each fact return only semantic_type, an extractive value, claim_kind, and evidence_quote.',
+  'The evidence_quote must be an exact short contiguous substring of raw_text. Copy its spelling and punctuation exactly. The value must use only words present in that quote.',
+  'Use separate short quotes for separate claims even when they occur in one sentence. Do not copy a whole multi-fact narration into one fact.',
+  'Classify work orders, assets, customer observations, technician findings, completed actions, used parts, measurements, test actions, test outcomes, completion states, recommendations and follow-up separately.',
+  'A fragment can still be meaningful: "AC-104 is the unit" is equipment; "Room felt warm, customer said" is a customer observation; "Testing after seal, passed" contains a test outcome "passed".',
+  'Use VALUE with a non-null value for stated facts. Use EXPLICIT_NONE with null only for explicit no parts used or no follow-up required.',
+  'A customer report is not a technician finding. A test action is not a passed result. Mentioned, negated or future parts are not used parts.',
+  'Never guess an unclear identifier, invent an action or result, or turn an earlier failure into a later pass. Abstain when unsupported.',
 ].join(' ');
 
 const FACT_OUTPUT_SCHEMA = Object.freeze({
@@ -223,13 +241,9 @@ const FACT_OUTPUT_SCHEMA = Object.freeze({
           semantic_type: { type: 'string', enum: SEMANTIC_TYPES },
           value: { type: ['string', 'null'] },
           claim_kind: { type: 'string', enum: ['VALUE', 'EXPLICIT_NONE'] },
-          source_role: { type: 'string', enum: ['TECHNICIAN', 'CUSTOMER'] },
-          temporality: { type: 'string', enum: ['CURRENT', 'FUTURE', 'NEGATED'] },
-          char_start: { type: 'integer', minimum: 0 },
-          char_end: { type: 'integer', minimum: 1 },
           evidence_quote: { type: 'string', minLength: 1 },
         },
-        required: ['semantic_type', 'value', 'claim_kind', 'source_role', 'temporality', 'char_start', 'char_end', 'evidence_quote'],
+        required: ['semantic_type', 'value', 'claim_kind', 'evidence_quote'],
       },
     },
   },
@@ -260,7 +274,7 @@ export async function proposeStructuredAtomicFacts({
         capture_context: captureContext,
         semantic_types: SEMANTIC_TYPES,
         output_keys: ['facts'],
-        required_fact_keys: ['semantic_type', 'value', 'claim_kind', 'source_role', 'temporality', 'char_start', 'char_end', 'evidence_quote'],
+        required_fact_keys: ['semantic_type', 'value', 'claim_kind', 'evidence_quote'],
       }),
       signal,
     });

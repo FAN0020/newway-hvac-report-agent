@@ -153,6 +153,20 @@ test('recording exposes one explicit stop-and-fill action', () => {
   });
 });
 
+test('text and microphone composer remains available after the first capture until final submission', () => {
+  const states = [
+    view({ transcript: { raw_text: 'I checked the unit.' } }),
+    view({ agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }),
+    view({ session: session('REVIEW'), agent_state: agent({ complete: true }) }),
+    view({ session: session('CONTEXT') }),
+  ];
+  for (const state of states) assert.equal(state.active_task.composer_visible, true, state.active_task.kind);
+  for (const phase of ['READY', 'CONFIRMED']) {
+    const state = view({ session: session(phase), agent_state: agent({ complete: true }) });
+    assert.notEqual(state.active_task.composer_visible, true, phase);
+  }
+});
+
 test('recording expands exactly the report sections that still contain blank fields', () => {
   const result = view({
     session: session('CONTEXT'),

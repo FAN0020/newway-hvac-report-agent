@@ -29,7 +29,7 @@ test('workspace has one capture primary, one embedded microphone, and two second
   assert.match(client, /Upload recording/);
   assert.match(client, /Attach evidence/);
   assert.match(client, /submitLabel: 'Continue'/);
-  assert.match(client, /const submit = button\(submitLabel, 'primary'/);
+  assert.match(client, /const submit = button\(submitLabel, submitStyle/);
   assert.doesNotMatch(client, /Update report|workspace-analyze|workspace-confirm-check/);
 });
 
@@ -62,7 +62,7 @@ test('generated report is the correction workspace and keeps structured field co
   const client = await fs.readFile('web/template-app.js', 'utf8');
   for (const type of ['SELECT_OR_PROVIDE', 'SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'CONFIRM_OR_REPLACE']) assert.match(client, new RegExp(type));
   assert.match(client, /function renderInlineResolution/);
-  assert.match(client, /Fill missing details/);
+  assert.match(client, /Describe any missing details in one statement/);
   assert.match(client, /Report draft/);
   assert.match(client, /Original words/);
   assert.match(client, /My edit/);
@@ -147,14 +147,12 @@ test('successful evidence attachment is visibly acknowledged without becoming a 
   assert.match(client, /workspace\.attachmentStatus = `Evidence attached:/);
 });
 
-test('one global missing-details composer can update several unresolved fields without a wizard', async () => {
+test('the global missing-details composer stays visible after capture without another click', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
-  assert.match(client, /addingDetail/);
-  assert.match(client, /Fill missing details/);
   assert.match(client, /renderReporterComposer\(panel,[\s\S]*submitLabel: 'Fill report'/s);
-  assert.match(client, /state\.addingDetail = false/);
-  assert.match(client, /async function uploadAudio[\s\S]*workspace\.addingDetail = false/s);
-  assert.match(client, /button\('Cancel', 'text-button'/);
+  assert.match(client, /if \(task\.kind === 'CAPTURED'\)[\s\S]*renderReporterComposer\(panel/s);
+  assert.match(client, /function renderReview\(panel\)[\s\S]*renderReporterComposer\(panel/s);
+  assert.doesNotMatch(client, /addingDetail/);
 });
 
 test('malformed audio asks for a replacement recording instead of claiming transcription can retry', async () => {

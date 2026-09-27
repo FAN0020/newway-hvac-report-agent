@@ -289,6 +289,40 @@ test('configured structured extraction proposes a grounded natural finding befor
   assert.equal(result.agent_state.report_fields.find((field) => field.field_id === 'test_results').state, 'UNKNOWN');
 });
 
+test('capture saves an evidence-backed report-field JSON artifact, omitting unsupported model guesses', async (t) => {
+  const input = 'Work order 7712. AC-104 is the unit. Room felt warm, customer said. I sealed the flange.';
+  const semanticProvider = { generateJson: async () => ({ data: { facts: [
+    { semantic_type: 'EQUIPMENT_OR_ASSET', value: 'AC-104', claim_kind: 'VALUE', evidence_quote: 'AC-104 is the unit' },
+    { semantic_type: 'CUSTOMER_OBSERVATION', value: 'Room felt warm', claim_kind: 'VALUE', evidence_quote: 'Room felt warm, customer said' },
+    { semantic_type: 'COMPLETED_ACTION', value: 'sealed the flange', claim_kind: 'VALUE', evidence_quote: 'I sealed the flange' },
+    { semantic_type: 'TEST_OUTCOME', value: 'passed', claim_kind: 'VALUE', evidence_quote: 'I sealed the flange' },
+  ] } }) };
+  const { service, root } = await fixture(t, 'semantic-json-artifact', { semanticProvider, semanticModel: 'local-test-model' });
+  const created = await service.createSession({
+    template_id: 'hvac-service-report', template_version: '1.0.0', job_context_ref: 'new-report:semantic-json-artifact',
+  });
+  const captured = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: input, language: 'en', idempotency_key: 'semantic-json-artifact-1',
+  });
+  const directory = path.join(root, 'authority', 'records', 'semantic-extractions');
+  const files = await fs.readdir(directory);
+  assert.equal(files.length, 1);
+  const artifact = JSON.parse(await fs.readFile(path.join(directory, files[0]), 'utf8'));
+  assert.equal(artifact.schema_version, 'report-field-extraction.v1');
+  assert.equal(artifact.session_id, created.session.session_id);
+  assert.equal(artifact.transcript_id, captured.transcript.transcript_id);
+  assert.equal(artifact.model, 'local-test-model');
+  assert.equal(artifact.model_contributed, true);
+  assert.deepEqual(artifact.fields.map((field) => field.field_id).sort(),
+    captured.candidates.map((candidate) => candidate.field_id).sort());
+  assert.equal(artifact.fields.some((field) => field.field_id === 'test_results'), false);
+  for (const field of artifact.fields) {
+    assert.equal(input.slice(field.evidence.start, field.evidence.end), field.evidence.quote);
+    assert.equal(field.value, captured.candidates.find((candidate) => candidate.field_id === field.field_id)?.claim.value);
+  }
+});
+
 test('the original mixed-sentence narration keeps the inspection object separate from completed work', async (t) => {
   const { service } = await fixture(t, 'semantic-original-mixed-sentence');
   const created = await service.createSession({

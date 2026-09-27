@@ -40,7 +40,6 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     editingField: null,
     reviewFullReport: false,
     history: null,
-    addingDetail: false,
     focusActiveTask: false,
     recordingFieldId: null,
   };
@@ -53,7 +52,7 @@ for (const property of [
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
   'history',
-  'addingDetail', 'focusActiveTask', 'recordingFieldId',
+  'focusActiveTask', 'recordingFieldId',
 ]) {
   Object.defineProperty(state, property, {
     get() { return activeWorkspace()?.[property] ?? null; },
@@ -521,6 +520,7 @@ function renderReporterComposer(container, {
   microphoneId,
   placeholder,
   submitLabel = 'Continue',
+  submitStyle = 'primary',
   compact = false,
   onSubmit,
 } = {}) {
@@ -531,7 +531,7 @@ function renderReporterComposer(container, {
   textarea.placeholder = placeholder; textarea.value = workspace.interaction.statement;
   textarea.setAttribute('aria-label', placeholder);
   const actions = element('div', 'capture-actions');
-  const submit = button(submitLabel, 'primary', () => onSubmit(textarea.value.trim())); submit.disabled = !textarea.value.trim();
+  const submit = button(submitLabel, submitStyle, () => onSubmit(textarea.value.trim())); submit.disabled = !textarea.value.trim();
   textarea.addEventListener('input', () => { workspace.interaction.statement = textarea.value; submit.disabled = !textarea.value.trim(); });
   textarea.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && textarea.value.trim()) onSubmit(textarea.value.trim());
@@ -593,16 +593,11 @@ function renderReportReview(panel, task) {
   panel.append(element('p', 'eyebrow', 'REPORT DRAFT'), element('h3', '', task.title));
   panel.lastChild.id = 'active-task-title';
   panel.append(element('p', 'task-note', 'Review the report below. Missing or conflicting details are shown where they belong.'));
-  if (state.addingDetail) {
-    const composer = renderReporterComposer(panel, {
-      inputId: 'workspace-missing-details', microphoneId: 'workspace-missing-details-microphone',
-      placeholder: 'Describe any missing details in one statement.',
-      submitLabel: 'Fill report', onSubmit: captureText,
-    });
-    composer.actions.append(button('Cancel', 'text-button', () => { state.addingDetail = false; state.interaction.statement = ''; renderWorkspace(); }));
-  } else {
-    panel.append(button('Fill missing details by voice or text', 'primary', () => { state.addingDetail = true; renderWorkspace(); }));
-  }
+  renderReporterComposer(panel, {
+    inputId: 'workspace-missing-details', microphoneId: 'workspace-missing-details-microphone',
+    placeholder: 'Describe any missing details in one statement.',
+    submitLabel: 'Fill report', onSubmit: captureText,
+  });
   if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
 }
 
@@ -610,6 +605,12 @@ function renderReview(panel) {
   panel.append(element('p', 'eyebrow', 'REVIEW'), element('h3', '', 'Review the completed report')); panel.lastChild.id = 'active-task-title';
   panel.append(element('p', 'task-note', 'Check the report fields and their sources. You can still edit any field below before submitting this exact version.'));
   panel.append(button('Submit report', 'primary', submitReport));
+  panel.append(element('p', 'task-note', 'Need to add anything else? You can still speak or type more details.'));
+  renderReporterComposer(panel, {
+    inputId: 'workspace-more-details', microphoneId: 'workspace-more-details-microphone',
+    placeholder: 'Describe any additional details for this report.',
+    submitLabel: 'Add to report', submitStyle: 'secondary', onSubmit: captureText,
+  });
 }
 
 function renderActiveTask(view) {
@@ -637,7 +638,13 @@ function renderActiveTask(view) {
   }
   if (task.kind === 'CAPTURED') {
     panel.append(element('p', 'success-kicker', '✓ Captured'), element('h3', '', 'Initial statement captured')); panel.lastChild.id = 'active-task-title';
-    const transcript = element('details', 'transcript-disclosure'); transcript.append(element('summary', '', 'View transcript'), element('p', '', state.transcript?.raw_text || '')); panel.append(transcript, button('Add more detail', 'primary', () => { state.transcript = null; renderWorkspace(); })); return;
+    const transcript = element('details', 'transcript-disclosure'); transcript.append(element('summary', '', 'View transcript'), element('p', '', state.transcript?.raw_text || '')); panel.append(transcript);
+    renderReporterComposer(panel, {
+      inputId: 'workspace-more-details', microphoneId: 'workspace-more-details-microphone',
+      placeholder: 'Describe any additional details for this report.',
+      submitLabel: 'Add to report', onSubmit: captureText,
+    });
+    return;
   }
   panel.append(element('span', 'task-spinner'), element('h3', '', processingTitle(task.kind))); panel.lastChild.id = 'active-task-title';
 }
@@ -699,7 +706,7 @@ async function captureText() {
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/text`, { method: 'POST', body: { expected_revision: workspace.session.revision, text, language: 'auto', idempotency_key: crypto.randomUUID() } });
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript || null; workspace.transcriptReview = result.review || null; workspace.interaction.statement = ''; setProcessing('CHECKING_COMPLETENESS', workspace);
-    await refreshSession(workspace); await enterReviewIfComplete(workspace); workspace.addingDetail = false;
+    await refreshSession(workspace); await enterReviewIfComplete(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', 'Your statement is still in the text box.', workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -817,7 +824,6 @@ async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) 
       setProcessing('CHECKING_COMPLETENESS', workspace);
       await refreshSession(workspace);
       await enterReviewIfComplete(workspace);
-      workspace.addingDetail = false;
     }
   } catch (error) {
     const kind = !error.status ? 'NETWORK' : error.status < 500 ? 'AUDIO_UPLOAD' : 'STT';

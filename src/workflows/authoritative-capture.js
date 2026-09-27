@@ -849,6 +849,7 @@ export class AuthoritativeCaptureService {
     const facts = coalesceAdditiveAssignments(extractedFacts);
     const spans = [];
     const candidates = [];
+    const fields = [];
     for (const fact of facts) {
       const extractedSources = (fact.source_spans || [fact.source_span])
         .map((sourceSpan) => exactFactSpan({ source_span: sourceSpan }, extractionText));
@@ -908,7 +909,32 @@ export class AuthoritativeCaptureService {
       await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
       spans.push(...factSpans);
       candidates.push(candidate);
+      fields.push({
+        field_id: fact.field,
+        semantic_type: fact.semantic_type,
+        claim_kind: candidate.claim.kind,
+        value: candidate.claim.kind === 'VALUE' ? candidate.claim.value : null,
+        extraction_method: candidate.extraction.method,
+        evidence: {
+          transcript_id: transcript.transcript_id,
+          start: sources[0].start, end: sources[0].end, quote: sources[0].text,
+        },
+        evidence_spans: sources.map((source) => ({ start: source.start, end: source.end, quote: source.text })),
+      });
     }
+    const artifact = {
+      schema_version: 'report-field-extraction.v1',
+      artifact_role: 'evidence-backed-projection',
+      session_id: session.session_id,
+      transcript_id: transcript.transcript_id,
+      template_id: session.template_binding.template_id,
+      model: this.semanticModel || null,
+      model_contributed: fields.some((field) => field.extraction_method === 'structured-semantic-proposal'),
+      input_text_sha256: `sha256:${digest(extractionText)}`,
+      fields,
+    };
+    const artifactId = `extraction_${digest(JSON.stringify(artifact))}`;
+    await this.sessionStore.putRecord('semantic-extractions', artifactId, { artifact_id: artifactId, ...artifact });
     return { spans, candidates, facts };
   }
 

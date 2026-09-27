@@ -231,7 +231,7 @@ function deriveActiveTask(input) {
   }
   if (session.phase === 'CONTEXT') {
     return {
-      kind: 'CAPTURE', title: 'Tell us what happened',
+      kind: 'CAPTURE', title: 'Tell us what happened', composer_visible: true,
       microphone_available: input.interaction?.microphone_available !== false,
       primary_action: action('CAPTURE_STATEMENT', 'Submit statement'),
     };
@@ -247,13 +247,13 @@ function deriveActiveTask(input) {
   const next = agentState?.resolution_queue?.[0];
   if (next) {
     return {
-      kind: 'REPORT_REVIEW', title: `${agentState.resolution_queue.length} ${agentState.resolution_queue.length === 1 ? 'detail needs' : 'details need'} attention`,
+      kind: 'REPORT_REVIEW', title: `${agentState.resolution_queue.length} ${agentState.resolution_queue.length === 1 ? 'detail needs' : 'details need'} attention`, composer_visible: true,
       remaining: agentState.resolution_queue.length,
       primary_action: action('CAPTURE_MISSING_DETAILS', 'Fill missing details'),
     };
   }
   if (session.phase === 'REVIEW') {
-    return { kind: 'REVIEW', title: 'Review the completed report', primary_action: action('SUBMIT_REPORT', 'Submit report') };
+    return { kind: 'REVIEW', title: 'Review the completed report', composer_visible: true, primary_action: action('SUBMIT_REPORT', 'Submit report') };
   }
   if (session.phase === 'READY') {
     return { kind: 'READY', title: 'Report is ready to submit', primary_action: action('SUBMIT_REPORT', 'Submit report') };
@@ -263,12 +263,12 @@ function deriveActiveTask(input) {
   }
   if (transcript) {
     return {
-      kind: 'CAPTURED', title: 'Initial statement captured', transcript_available: true,
+      kind: 'CAPTURED', title: 'Initial statement captured', transcript_available: true, composer_visible: true,
       primary_action: action('CAPTURE_MORE', 'Add more detail'),
     };
   }
   return {
-    kind: 'CAPTURE', title: 'Tell us what happened',
+    kind: 'CAPTURE', title: 'Tell us what happened', composer_visible: true,
     microphone_available: input.interaction?.microphone_available !== false,
     primary_action: action('CAPTURE_STATEMENT', 'Submit statement'),
   };
