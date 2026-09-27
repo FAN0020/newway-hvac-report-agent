@@ -1,5 +1,5 @@
 import { PcmWavRecorder } from './audio-recorder.js';
-import { deriveChangeSummary, deriveReportHistoryRow, deriveWorkspaceView, fieldControlKind, sessionRecoveryError, showFieldStateLabel, showResolutionPrompt, sortReportHistoryItems, transcriptCorrections } from './report-workspace-view.js';
+import { deriveChangeSummary, deriveReportHistoryRow, deriveWorkspaceView, fieldControlKind, sessionRecoveryError, showResolutionPrompt, sortReportHistoryItems, transcriptCorrections } from './report-workspace-view.js';
 import { parseTechnicianFieldAnswer } from './report-input.js';
 import { createReportWorkspaceRegistry, registerRuntimeTemplate } from './report-runtime.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
@@ -414,39 +414,46 @@ function representationChoice(option, onSelect) {
 
 function renderFieldDictationAction(container, field) {
   const workspace = activeWorkspace();
-  const actions = element('div', 'field-dictation-actions');
   const recordingThisField = recorderWorkspace === workspace
     && workspace.recordingFieldId === field.field_id
     && workspace.processing === 'RECORDING';
   if (recordingThisField) {
-    const status = element('span', 'recording-time inline-field-recording-time', `Recording ${formatElapsed()}`);
-    status.role = 'status'; status.setAttribute('aria-live', 'polite');
-    const stop = button('Stop & fill report', 'primary', stopRecording);
+    const stop = button('■', 'field-microphone is-recording', stopRecording);
     stop.id = 'workspace-stop-recording';
     stop.setAttribute('aria-label', `Stop recording for ${field.name} and fill report`);
-    actions.append(status, stop);
+    stop.title = 'Stop and fill report';
+    container.append(stop);
   } else {
     const microphoneInUse = Boolean(recorder);
-    const dictate = button('● Dictate edit', 'secondary', () => startRecording(field.field_id));
-    dictate.disabled = !workspace.interaction.microphone_available || microphoneInUse;
-    dictate.setAttribute('aria-label', microphoneInUse
-      ? 'Microphone is in use by another report field'
-      : `Dictate a replacement for ${field.name}`);
-    actions.append(dictate);
+    if (!workspace.interaction.microphone_available || microphoneInUse) return;
+    const dictate = button('🎙', 'field-microphone', () => startRecording(field.field_id));
+    dictate.setAttribute('aria-label', `Dictate a replacement for ${field.name}`);
+    dictate.title = 'Dictate field value';
+    container.append(dictate);
   }
-  container.append(actions);
 }
 
-function renderManualFieldEditor(container, field, { label = 'My edit', placeholder = '' } = {}) {
-  const group = element('div', 'field-representation-group');
-  group.append(element('span', 'representation-label', label));
+function renderManualFieldEditor(container, field, { placeholder = '' } = {}) {
+  const group = element('div', 'field-edit-form');
   const row = element('div', 'manual-field-entry');
   const input = element('input'); input.value = field.value === '—' ? '' : field.value;
   input.placeholder = placeholder || `Enter ${field.name.toLowerCase()}`;
-  input.setAttribute('aria-label', `${label} for ${field.name}`);
-  const save = button('Save', 'secondary', () => saveField(field.field_id, input.value));
+  input.setAttribute('aria-label', `Value for ${field.name}`);
+  const save = button('Save', 'primary', () => saveField(field.field_id, input.value));
+  save.disabled = !input.value.trim();
+  input.addEventListener('input', () => { save.disabled = !input.value.trim(); });
   input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && input.value.trim()) save.click(); });
-  row.append(input, save); group.append(row); renderFieldDictationAction(group, field); container.append(group);
+  const inputShell = element('div', 'field-input-shell');
+  inputShell.append(input); renderFieldDictationAction(inputShell, field);
+  row.append(inputShell);
+  const recordingThisField = recorderWorkspace === activeWorkspace() && activeWorkspace().recordingFieldId === field.field_id && activeWorkspace().processing === 'RECORDING';
+  if (recordingThisField) {
+    const status = element('span', 'recording-time inline-field-recording-time', `Recording ${formatElapsed()}`);
+    status.role = 'status'; status.setAttribute('aria-live', 'polite'); group.append(status);
+  }
+  const footer = element('div', 'field-editor-footer');
+  footer.append(button('Cancel', 'text-button', () => closeFieldEditor(field.field_id)), save);
+  group.append(row, footer); container.append(group);
 }
 
 function renderSemanticCauseEditor(container, field) {
@@ -460,7 +467,8 @@ function renderSemanticCauseEditor(container, field) {
   const confirmed = button('Save as confirmed', 'secondary', () => {
     if (input.value.trim()) selectFieldRepresentation(field.field_id, { kind: 'SEMANTIC_STATE', state: 'CONFIRMED', value: input.value.trim() });
   });
-  actions.append(suspected, confirmed); group.append(input, actions); renderFieldDictationAction(group, field); container.append(group);
+  const inputShell = element('div', 'field-input-shell'); inputShell.append(input); renderFieldDictationAction(inputShell, field);
+  actions.append(suspected, confirmed); group.append(inputShell, actions); container.append(group);
 }
 
 function renderRepresentationGroup(container, title, options, field) {
@@ -486,18 +494,14 @@ function closeFieldEditor(fieldId) {
   action?.focus({ preventScroll: true });
 }
 
-function appendFieldEditorFooter(editor, field) {
-  const footer = element('div', 'field-editor-footer');
-  if (field.has_provenance) footer.append(button('Source details', 'text-button', () => showProvenance(field.field_id)));
-  footer.append(button('Close editor', 'text-button', () => closeFieldEditor(field.field_id)));
-  editor.append(footer);
-}
-
 function renderInlineResolution(container, field) {
   const item = field.resolution_item;
   if (!item) return;
   const editor = element('div', 'inline-field-editor unresolved-field-editor');
-  if (showResolutionPrompt(item)) editor.append(element('p', 'inline-question', item.prompt));
+  if (['CRITICAL', 'CONFLICT', 'ERROR'].includes(field.ui_kind) && showResolutionPrompt(item)) {
+    const prompt = field.ui_kind === 'CRITICAL' && !field.display_value ? `Choose the observed ${field.name}.` : item.prompt;
+    editor.append(element('p', 'inline-question', prompt));
+  }
   const choices = element('div', 'task-choices inline-choices');
   const choose = (label, selection, note = '') => {
     const choice = button(label, 'choice-button', () => selectFieldRepresentation(field.field_id, selection));
@@ -517,44 +521,70 @@ function renderInlineResolution(container, field) {
     choose('None', { kind: 'EXPLICIT_NONE' });
   } else if (item.answer_type === 'CONFIRM_OR_REPLACE') {
     const options = item.options?.length ? item.options : field.representations?.drafts || [];
-    for (const option of options) choose(`Use ${option.value}${option.unit ? ` ${option.unit}` : ''}`, { kind: 'CANDIDATE', candidate_id: option.candidate_id }, option.source_label || 'Report evidence');
+    for (const option of options) choose(`Confirm ${option.value}${option.unit ? ` ${option.unit}` : ''}`, { kind: 'CANDIDATE', candidate_id: option.candidate_id }, option.source_label || 'Report evidence');
   }
   if (choices.childElementCount) editor.append(choices);
   if (item.answer_type === 'SEMANTIC_STATE') renderSemanticCauseEditor(editor, field);
   else if (item.answer_type !== 'SINGLE_SELECT') renderManualFieldEditor(editor, field);
-  appendFieldEditorFooter(editor, field);
+  if (item.answer_type === 'SINGLE_SELECT' || item.answer_type === 'SEMANTIC_STATE') editor.append(button('Cancel', 'text-button', () => closeFieldEditor(field.field_id)));
+  if (field.has_provenance) editor.append(button('View source', 'text-button field-source-detail', () => showProvenance(field.field_id)));
   container.append(editor);
   setTimeout(() => editor.querySelector('button, input')?.focus(), 0);
 }
 
 function renderFieldEditor(container, field) {
   const editor = element('div', 'inline-field-editor');
-  renderRepresentationGroup(editor, 'AI draft', field.representations?.drafts, field);
-  renderRepresentationGroup(editor, 'Original words', field.representations?.original_words, field);
-  renderRepresentationGroup(editor, 'My edit', field.representations?.manual, field);
   renderManualFieldEditor(editor, field);
-  appendFieldEditorFooter(editor, field);
+  if (field.representations?.drafts?.length || field.representations?.original_words?.length || field.representations?.manual?.length || field.has_provenance) {
+    const disclosure = element('details', 'field-source-disclosure');
+    disclosure.append(element('summary', '', 'Other values and source'));
+    renderRepresentationGroup(disclosure, 'Report evidence', field.representations?.drafts, field);
+    renderRepresentationGroup(disclosure, 'Original words', field.representations?.original_words, field);
+    renderRepresentationGroup(disclosure, 'Earlier edits', field.representations?.manual, field);
+    if (field.has_provenance) disclosure.append(button('View source details', 'text-button', () => showProvenance(field.field_id)));
+    editor.append(disclosure);
+  }
   container.append(editor); setTimeout(() => editor.querySelector('input')?.focus(), 0);
 }
 
 function renderField(section, field) {
   const isEditing = state.editingField === field.field_id;
-  const row = element('div', `report-field state-${field.state.toLowerCase()}${field.requires_review ? ' requires-review' : ''}${field.updated ? ' is-updated' : ''}${isEditing ? ' is-editing' : ''}`);
-  const copy = element('div', 'report-field-copy'); copy.append(element('span', 'field-name', field.name));
-  const value = element('strong', 'field-value', field.value); value.title = field.value; copy.append(value);
+  const row = element('div', `report-field state-${field.state.toLowerCase()} ui-${field.ui_kind.toLowerCase()}${field.requires_review ? ' requires-review' : ''}${field.updated ? ' is-updated' : ''}${isEditing ? ' is-editing' : ''}`);
+  const copy = element('div', 'report-field-copy');
+  const name = element('span', 'field-name', field.name);
+  if (field.required) {
+    const required = element('span', 'field-required', ' *'); required.setAttribute('aria-label', 'Required'); name.append(required);
+  }
+  copy.append(name);
+  if (field.display_value && (!isEditing || ['CRITICAL', 'CONFLICT', 'ERROR'].includes(field.ui_kind))) {
+    const value = element('strong', 'field-value', field.display_value); value.title = field.display_value; copy.append(value);
+  }
   const meta = element('div', 'field-meta');
   if (field.updated) meta.append(element('span', 'field-updated', 'Updated'));
-  if (showFieldStateLabel(field)) meta.append(element('span', 'field-state', field.label));
-  copy.append(meta);
+  if (field.display_hint && field.ui_kind !== 'OPTIONAL_EMPTY') meta.append(element('span', 'field-state', field.display_hint));
+  if (meta.childElementCount && !isEditing) copy.append(meta);
   const actions = element('div', 'report-field-actions');
   if (!isEditing) {
     const controlKind = fieldControlKind(state.session?.phase, field);
     if (controlKind === 'EDIT') {
-      const edit = button(field.action.kind === 'EDIT' ? '✎' : field.action.label, `text-button field-action${field.action.kind === 'EDIT' ? ' quiet-edit' : ''}`, () => { state.editingField = field.field_id; renderWorkspace(); });
-      edit.setAttribute('aria-expanded', 'false');
-      edit.setAttribute('aria-label', `${field.action.label.replace('+ ', '')} ${field.name}`);
-      edit.dataset.fieldId = field.field_id;
-      actions.append(edit);
+      const openEditor = () => { state.editingField = field.field_id; renderWorkspace(); };
+      const addAction = (label, className, onClick, ariaLabel = `${label} ${field.name}`) => {
+        const action = button(label, `text-button field-action ${className}`, onClick);
+        action.setAttribute('aria-label', ariaLabel);
+        if (onClick === openEditor) action.setAttribute('aria-expanded', 'false');
+        action.dataset.fieldId = field.field_id;
+        actions.append(action);
+      };
+      if (field.ui_kind === 'MISSING_REQUIRED') addAction('Add', 'field-add', openEditor);
+      else if (field.ui_kind === 'OPTIONAL_EMPTY') addAction('Optional', 'field-optional', openEditor, `Add optional ${field.name}`);
+      else if (field.ui_kind === 'CONFLICT') addAction('Resolve', 'field-resolve', openEditor);
+      else if (field.ui_kind === 'CRITICAL') addAction(field.display_value ? 'Confirm' : 'Choose', 'field-critical', openEditor, `Review critical ${field.name}`);
+      else if (field.ui_kind === 'ERROR') addAction('Correct', 'field-error', openEditor);
+      else if (field.ui_kind === 'NEEDS_CONFIRMATION' && field.confirm_selection) {
+        addAction('Confirm', 'field-confirm', () => selectFieldRepresentation(field.field_id, field.confirm_selection));
+        addAction('Edit', 'field-confirm-edit', openEditor);
+      } else if (field.ui_kind === 'NEEDS_CONFIRMATION') addAction('Review', 'field-confirm', openEditor);
+      else addAction('✎', 'quiet-edit', openEditor, `Edit ${field.name}`);
     } else if (controlKind === 'SOURCE') {
       const source = button('ⓘ', 'text-button field-action quiet-source', () => showProvenance(field.field_id));
       source.setAttribute('aria-label', `Source for ${field.name}`);
@@ -562,7 +592,9 @@ function renderField(section, field) {
     }
   }
   row.append(copy, actions);
-  if (field.resolution_item && isEditing) renderInlineResolution(row, field);
+  const needsStructuredChoice = ['SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'SELECT_OR_PROVIDE'].includes(field.resolution_item?.answer_type)
+    || (field.ui_kind === 'NEEDS_CONFIRMATION' && !field.confirm_selection);
+  if (field.resolution_item && isEditing && (['CONFLICT', 'CRITICAL', 'ERROR'].includes(field.ui_kind) || needsStructuredChoice)) renderInlineResolution(row, field);
   else if (isEditing) renderFieldEditor(row, field);
   return row;
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as workspaceView from '../web/report-workspace-view.js';
+import { listPredefinedTemplates } from '../web/template-catalog.js';
 import {
   deriveWorkspaceView,
   sessionRecoveryError,
@@ -152,6 +153,81 @@ test('compact report rows derive Add, Edit, and Review actions from authoritativ
   assert.deepEqual(fieldAction({ ...known('completion.state', 'READY'), resolution_item: item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state') }), {
     kind: 'REVIEW', label: 'Confirm',
   });
+});
+
+test('shared field presentation keeps ordinary blanks, confirmation, conflict, and safety distinct', () => {
+  const uncertain = { ...known('work.date_time', '2026-09-28 03:42'), state: 'UNCERTAIN' };
+  const conflicting = { ...unknown('asset.internal_fleet_no'), state: 'CONFLICT', candidates: [
+    { candidate_id: 'candidate_a', claim: { kind: 'VALUE', value: '8300-354' } },
+    { candidate_id: 'candidate_b', claim: { kind: 'VALUE', value: '8300-355' } },
+  ] };
+  const safety = { ...known('completion.state', 'READY'), state: 'UNCERTAIN' };
+  const result = view({
+    template: { ...template, schema: { fields: [
+      ...template.schema.fields,
+      { id: 'work.date_time', label: 'Date / Time', section: 'Job Identity', required: true },
+    ] } },
+    agent_state: agent({
+      fields: [unknown('work.work_order_id'), conflicting, unknown('diagnosis.root_cause'), unknown('parts.part_number'), safety, uncertain],
+      queue: [
+        item('MISSING', 'VALUE', 'work.work_order_id'),
+        { ...item('CONFLICT', 'SELECT_OR_PROVIDE', 'asset.internal_fleet_no'), options: [
+          { candidate_id: 'candidate_a', value: '8300-354' }, { candidate_id: 'candidate_b', value: '8300-355' },
+        ] },
+        item('SAFETY_CONFIRMATION', 'CONFIRM_OR_REPLACE', 'completion.state'),
+        item('UNCERTAIN', 'CONFIRM_OR_REPLACE', 'work.date_time'),
+      ],
+    }),
+  });
+  const fields = result.report_sections.flatMap((section) => section.fields);
+  const byId = (id) => fields.find((field) => field.field_id === id);
+  assert.deepEqual([byId('work.work_order_id').ui_kind, byId('work.work_order_id').display_value, byId('work.work_order_id').required], ['MISSING_REQUIRED', null, true]);
+  assert.deepEqual([byId('parts.part_number').ui_kind, byId('parts.part_number').display_value, byId('parts.part_number').display_hint], ['OPTIONAL_EMPTY', null, 'Optional']);
+  assert.deepEqual([byId('work.date_time').ui_kind, byId('work.date_time').display_value, byId('work.date_time').confirm_selection], [
+    'NEEDS_CONFIRMATION', '28 Sep 2026 · 03:42', { kind: 'CANDIDATE', candidate_id: 'candidate_work.date_time' },
+  ]);
+  assert.deepEqual([byId('asset.internal_fleet_no').ui_kind, byId('asset.internal_fleet_no').display_hint], ['CONFLICT', '2 values found']);
+  assert.deepEqual([byId('completion.state').ui_kind, byId('completion.state').confirm_selection], ['CRITICAL', null]);
+  assert.equal(result.report_sections.find((section) => section.title === 'Job Identity').needs_attention, 3);
+});
+
+test('a missing safety field keeps its structured confirmation action', () => {
+  const result = view({
+    agent_state: agent({
+      fields: [unknown('completion.state')],
+      queue: [{ ...item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state'), options: [{ value: 'READY' }, { value: 'NOT_READY' }] }],
+    }),
+  });
+  const field = result.report_sections.flatMap((section) => section.fields).find((entry) => entry.field_id === 'completion.state');
+  assert.equal(field.ui_kind, 'CRITICAL');
+  assert.equal(field.resolution_control.kind, 'BUTTON_GROUP');
+  assert.equal(field.confirm_selection, null);
+});
+
+test('the same compact field projection preserves order and optional semantics in dense templates', () => {
+  const predefined = listPredefinedTemplates();
+  const templates = [
+    predefined.find((entry) => entry.templateId === 'hvac-service-report'),
+    predefined.find((entry) => entry.templateId === 'bus-preventive-maintenance-inspection'),
+    predefined.find((entry) => entry.templateId === 'plain-rail-preventive-inspection'),
+    { ...template, schema: { fields: Array.from({ length: 50 }, (_, index) => ({
+      id: `dense.field_${index}`, label: `Field ${index + 1}`, section: `Section ${Math.floor(index / 10) + 1}`,
+      required: index % 5 !== 0, displayOrder: index,
+    })) } },
+  ];
+  assert.deepEqual(templates.map((entry) => entry.schema.fields.length), [7, 32, 39, 50]);
+  for (const reportTemplate of templates) {
+    const fields = reportTemplate.schema.fields.filter((definition) => !definition.id.endsWith('.*'));
+    const result = deriveWorkspaceView({
+      template: reportTemplate, session: session(),
+      agent_state: agent({ fields: fields.map((definition) => unknown(definition.id)) }),
+      interaction: { statement: '', microphone_available: true },
+    });
+    const rendered = result.report_sections.flatMap((section) => section.fields);
+    assert.deepEqual(rendered.map((field) => field.field_id), fields.map((definition) => definition.id));
+    assert.ok(rendered.every((field) => field.display_value === null));
+    assert.ok(rendered.every((field) => field.ui_kind === (field.required ? 'MISSING_REQUIRED' : 'OPTIONAL_EMPTY')));
+  }
 });
 
 test('field state copy appears only when it adds information beyond the value', () => {

@@ -153,19 +153,19 @@ test('completed critical fields do not create a second per-field review count', 
   assert.deepEqual(result.report_sections.map((section) => section.review_priority), [0, 0, 0, 0]);
 });
 
-test('field provenance is secondary inside Edit and ordinary values have no Accept action', async () => {
+test('field provenance is progressively disclosed inside Edit and ordinary values have no Accept action', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   const renderField = client.slice(client.indexOf('function renderField('), client.indexOf('function renderReportSections('));
   const renderEditor = client.slice(client.indexOf('function renderFieldEditor('), client.indexOf('function renderField('));
-  const editorFooter = client.slice(client.indexOf('function appendFieldEditorFooter('), client.indexOf('function renderInlineResolution('));
 
-  assert.doesNotMatch(renderField, /button\('Source'/u);
-  assert.doesNotMatch(renderField, /field-source/u);
-  assert.match(renderEditor, /AI draft/u);
+  assert.match(renderField, /quiet-source/u);
+  assert.doesNotMatch(renderField, /button\('Source details'/u);
+  assert.match(renderEditor, /field-source-disclosure/u);
+  assert.match(renderEditor, /Report evidence/u);
   assert.match(renderEditor, /Original words/u);
-  assert.match(renderEditor, /My edit/u);
-  assert.match(renderEditor, /appendFieldEditorFooter\(editor, field\)/u);
-  assert.match(editorFooter, /Source details/u);
+  assert.match(renderEditor, /Earlier edits/u);
+  assert.match(renderEditor, /showProvenance\(field\.field_id\)/u);
+  assert.doesNotMatch(client, /My edit/u);
   assert.doesNotMatch(client, /button\(['"]Accept['"]/u);
 });
 

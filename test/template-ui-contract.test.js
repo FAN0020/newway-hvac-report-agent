@@ -58,9 +58,11 @@ test('capture and report display are progressive, read-first, and source-aware',
   assert.match(client, /showProvenance/);
   assert.match(client, /state\.editingField === field\.field_id/);
   assert.match(client, /section\.fields\.some\(\(field\) => field\.field_id === state\.editingField\)/u);
-  assert.match(client, /AI draft/);
+  assert.match(client, /Report evidence/);
   assert.match(client, /Original words/);
-  assert.match(client, /My edit/);
+  assert.match(client, /Earlier edits/);
+  assert.match(client, /field-source-disclosure/);
+  assert.doesNotMatch(client, /My edit/);
   assert.match(client, /field\.resolution_item/);
   assert.doesNotMatch(workspace, /<main[\s>]/u);
   assert.doesNotMatch(workspace, /confidence|chunk[_ -]?id|trace[_ -]?id|model|provider|raw json/iu);

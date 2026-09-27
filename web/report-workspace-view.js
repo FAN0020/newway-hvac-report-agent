@@ -154,6 +154,17 @@ function displayValue(field) {
   return '—';
 }
 
+function reportValue(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/u);
+  if (!match) return value;
+  const [, year, month, day, hour, minute] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)));
+  if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() !== Number(month) - 1
+    || date.getUTCDate() !== Number(day) || date.getUTCHours() !== Number(hour) || date.getUTCMinutes() !== Number(minute)) return value;
+  const monthName = new Intl.DateTimeFormat('en', { month: 'short', timeZone: 'UTC' }).format(date);
+  return `${Number(day)} ${monthName} ${year} · ${hour}:${minute}`;
+}
+
 function sourceLabel(field) {
   if (field?.state === 'CONFLICT') return null;
   const selected = new Set(field?.selected_candidate_ids || []);
@@ -458,10 +469,34 @@ function buildSections(template, agentState, sessionPhase, processing, chain, ch
       display.actionable = false;
     }
     const resolutionItem = projectResolutionItem(resolutionByField.get(field.field_id), field);
+    const required = Boolean(definition.required || ['MISSING', 'CONDITIONAL_REQUIREMENT'].includes(resolutionItem?.type));
+    const critical = resolutionItem?.type === 'SAFETY_CONFIRMATION';
+    const activeCandidates = (field.candidates || []).filter((candidate) => field.active_candidate_ids?.includes(candidate.candidate_id));
+    const confirmCandidate = !critical && resolutionItem?.answer_type === 'CONFIRM_OR_REPLACE'
+      && activeCandidates.length === 1 && claimValue(activeCandidates[0]) === display.value
+      ? activeCandidates[0] : null;
+    let uiKind = 'SUPPORTED';
+    if (sessionPhase === 'CONFIRMED') uiKind = 'CONFIRMED';
+    if (field.state === 'UNKNOWN') uiKind = required ? 'MISSING_REQUIRED' : 'OPTIONAL_EMPTY';
+    if (['UNCERTAIN', 'INFERRED'].includes(field.state) || (resolutionItem && field.state !== 'UNKNOWN')) uiKind = 'NEEDS_CONFIRMATION';
+    if (field.state === 'INVALID') uiKind = 'ERROR';
+    if (field.state === 'CONFLICT') uiKind = 'CONFLICT';
+    if (critical) uiKind = 'CRITICAL';
+    const displayHint = uiKind === 'OPTIONAL_EMPTY' ? 'Optional'
+      : uiKind === 'CONFLICT' ? `${new Set((resolutionItem?.options || activeCandidates).map((option) => `${option.value ?? claimValue(option)}${option.unit || ''}`)).size} values found`
+        : uiKind === 'ERROR' ? 'Invalid value'
+          : uiKind === 'CRITICAL' ? display.value === '—' ? 'Safety confirmation' : 'Critical value'
+            : uiKind === 'NEEDS_CONFIRMATION' ? 'Needs confirmation' : null;
     const projected = {
       ...display,
       name: definition.label,
       state: field.state,
+      ui_kind: uiKind,
+      required,
+      critical,
+      display_value: display.value === '—' ? null : reportValue(display.value),
+      display_hint: displayHint,
+      confirm_selection: confirmCandidate ? { kind: 'CANDIDATE', candidate_id: confirmCandidate.candidate_id } : null,
       updated: updated.has(field.field_id),
       editing: false,
       has_provenance: Boolean(field.candidates?.some((candidate) => candidate.evidence_refs?.length)),

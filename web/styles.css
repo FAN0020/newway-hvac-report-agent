@@ -676,7 +676,9 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .report-field { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; justify-content: space-between; padding: 10px 18px; border-right: 1px solid #edf0ed; border-bottom: 1px solid #edf0ed; }
 .report-field.is-editing { grid-column: 1 / -1; border-right: 0; }
 .report-field:nth-child(2n) { border-right: 0; }
-.report-field.requires-review { background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); outline: 1px solid rgba(169, 103, 16, .28); outline-offset: -1px; }
+.report-field.requires-review { box-shadow: inset 2px 0 0 #c5984d; }
+.report-field.ui-conflict, .report-field.ui-critical { background: #fffbf4; box-shadow: inset 3px 0 0 var(--amber); }
+.report-field.ui-error { background: #fff8f6; box-shadow: inset 3px 0 0 #b65b4b; }
 .report-field-copy { display: grid; min-width: 0; gap: 3px; }
 .field-name { color: var(--muted); font-size: .68rem; font-weight: 720; }
 .field-value { overflow-wrap: anywhere; font-size: .82rem; }
@@ -687,8 +689,8 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .report-field-actions { display: flex; flex: 0 0 auto; gap: 7px; align-items: start; }
 .report-field-actions .text-button { min-height: 32px; padding: 5px 0; font-size: .66rem; }
 .report-field-actions .field-action { color: var(--green-2); font-weight: 800; }
-.inline-field-editor { display: grid; grid-column: 1 / -1; gap: 12px; margin-top: 5px; padding-top: 12px; border-top: 1px solid #dde7e2; }
-.unresolved-field-editor { padding: 12px; border: 1px solid #ead8b8; border-radius: 9px; background: #fffdf8; }
+.inline-field-editor { display: grid; grid-column: 1 / -1; gap: 8px; margin-top: 2px; padding-top: 9px; border-top: 1px solid #dde7e2; }
+.unresolved-field-editor { padding: 10px; border: 1px solid #ead8b8; border-radius: 8px; background: #fffdf8; }
 .inline-question { margin: 0; color: var(--ink); font-size: .76rem; font-weight: 760; }
 .field-representation-group { display: grid; gap: 6px; }
 .representation-label { color: var(--muted); font-size: .66rem; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
@@ -697,14 +699,23 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .representation-choice:hover, .representation-choice:focus-visible { border-color: var(--green-2); background: var(--mint); }
 .representation-choice.selected { border-color: var(--green-2); background: var(--mint); box-shadow: inset 3px 0 0 var(--green-2); }
 .representation-choice small { color: var(--muted); font-size: .62rem; font-weight: 600; }
+.field-edit-form { display: grid; gap: 8px; }
 .manual-field-entry { display: flex; gap: 8px; align-items: stretch; }
-.manual-field-entry input { min-width: 0; min-height: 42px; flex: 1 1 auto; }
-.manual-field-entry button { flex: 0 0 auto; }
-.field-dictation-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.field-input-shell { display: flex; width: min(100%, 640px); min-width: 0; align-items: center; border: 1px solid #b9c8c1; border-radius: 8px; background: white; }
+.field-input-shell:focus-within { outline: 2px solid var(--green-2); outline-offset: 2px; }
+.field-input-shell input { min-width: 0; min-height: 40px; flex: 1 1 auto; border: 0; background: transparent; }
+.field-input-shell input:focus { outline: 0; }
+.field-microphone { display: grid; width: 42px; min-width: 42px; min-height: 42px; place-items: center; padding: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0 8px 8px 0; background: transparent; color: var(--green-2); font-size: 1rem; cursor: pointer; }
+.field-microphone.is-recording { color: #a4312c; }
+.field-microphone:focus-visible { outline: 2px solid var(--green-2); outline-offset: -3px; }
+.field-source-disclosure { display: grid; gap: 8px; color: var(--muted); font-size: .7rem; }
+.field-source-disclosure > summary { width: fit-content; cursor: pointer; }
+.field-source-disclosure[open] { padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.field-source-detail { width: fit-content; min-height: 30px; justify-self: start; padding: 3px 0; font-size: .7rem; }
 .inline-field-recording-time { min-width: 90px; }
 .semantic-cause-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .inline-choices { margin-top: 0; }
-.state-conflict, .state-invalid, .state-uncertain, .state-inferred { background: #fffaf1; }
+.report-field.ui-needs_confirmation { box-shadow: inset 2px 0 0 #cfab70; }
 .report-field.is-updated { background: #f3faf6; box-shadow: inset 3px 0 0 #85b99f; }
 .evidence-dialog { width: min(520px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: white; box-shadow: 0 20px 70px rgba(0,0,0,.2); }
 .evidence-dialog::backdrop { background: rgba(13, 30, 24, .45); }
@@ -741,10 +752,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .report-field, .report-field:nth-child(2n) { border-right: 0; }
   .report-field-actions .text-button { min-width: 44px; min-height: 44px; padding: 9px 3px; }
   .inline-field-editor button { min-height: 44px; }
-  .manual-field-entry { align-items: stretch; flex-direction: column; }
-  .manual-field-entry button { width: 100%; }
-  .field-dictation-actions { align-items: stretch; flex-direction: column; }
-  .field-dictation-actions button { width: 100%; }
+  .field-input-shell { width: 100%; }
   .transcript-disclosure summary { min-height: 44px; padding-block: 12px; }
   .report-summary-heading { padding-inline: 14px; }
   .report-section-accordion > summary { padding-inline: 14px; }
@@ -796,9 +804,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .report-section-static > h2 { margin: 0; padding: 13px 19px; border-bottom: 1px solid var(--line); color: var(--green); font-size: .87rem; letter-spacing: 0; }
 .report-section-static .report-section-fields { border-top: 0; }
 .report-section-accordion > summary strong { font-size: .87rem; }
-.report-field { padding-block: 13px; }
+.report-field { padding: 9px 14px; gap: 4px 8px; }
 .field-name { font-size: .71rem; }
-.field-value { font-size: .88rem; }
+.field-value { font-size: .82rem; line-height: 1.35; }
+.field-required { color: #8b5a21; font-weight: 900; }
+.report-field-actions { align-self: end; gap: 4px 9px; }
+.report-field-actions .field-action { min-height: 28px; padding: 3px 2px; font-size: .7rem; }
+.report-field-actions .field-optional { color: var(--muted); font-weight: 600; }
+.report-field-actions .field-confirm-edit { color: var(--muted); font-weight: 600; }
+.report-field.ui-needs_confirmation .report-field-actions, .report-field.ui-critical .report-field-actions { grid-column: 1 / -1; }
+.report-field.ui-needs_confirmation .field-state { color: #906527; }
+.report-field.ui-optional_empty .field-state { color: var(--muted); }
+.report-field.ui-error .field-state { color: #a43830; }
 .report-field-actions .quiet-edit, .report-field-actions .quiet-source { width: 32px; min-width: 32px; padding: 4px; color: var(--muted); font-size: .95rem; opacity: .42; }
 .report-field:hover .quiet-edit, .report-field:focus-within .quiet-edit, .report-field:hover .quiet-source, .report-field:focus-within .quiet-source { opacity: 1; }
 .active-task-panel { min-height: 0; padding: 17px 19px; border-color: var(--line); box-shadow: none; }
@@ -809,6 +826,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .active-task-panel.density-contextual h3 { font-size: .84rem; }
 .field-editor-footer { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
 .field-editor-footer .text-button { width: fit-content; min-height: 36px; padding: 6px 2px; font-size: .72rem; }
+.field-editor-footer { justify-content: flex-end; }
+.field-editor-footer .primary { min-height: 36px; padding: 6px 14px; }
 .active-task-panel.density-compact > .primary { margin-top: 15px; }
 .compact-composer textarea { height: 44px; min-height: 44px; padding-block: 10px; resize: none; }
 .compact-composer:focus-within textarea, .compact-composer.has-text textarea { height: auto; min-height: 92px; resize: vertical; }
@@ -829,6 +848,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .job-header-copy h1 { font-size: 1.2rem; }
   .job-progress { min-width: 106px; }
   .report-field-actions .quiet-edit, .report-field-actions .quiet-source { min-width: 44px; opacity: .7; }
+  .report-field-actions .field-action { min-height: 44px; }
   .active-task-panel { min-height: 0; }
   .compact-composer textarea { height: 48px; min-height: 48px; }
   .compact-composer:focus-within textarea, .compact-composer.has-text textarea { height: auto; min-height: 96px; }

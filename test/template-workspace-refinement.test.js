@@ -63,9 +63,10 @@ test('generated report is the correction workspace and keeps structured field co
   for (const type of ['SELECT_OR_PROVIDE', 'SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'CONFIRM_OR_REPLACE']) assert.match(client, new RegExp(type));
   assert.match(client, /function renderInlineResolution/);
   assert.match(client, /Tell us anything you know…/);
-  assert.match(client, /AI draft/);
+  assert.match(client, /Report evidence/);
   assert.match(client, /Original words/);
-  assert.match(client, /My edit/);
+  assert.match(client, /Earlier edits/);
+  assert.doesNotMatch(client, /My edit/);
   assert.doesNotMatch(client, /function renderResolution/);
   assert.doesNotMatch(client, /Why is this required\?/);
   assert.match(client, /function renderReporterComposer/);
@@ -76,24 +77,27 @@ test('generated report is the correction workspace and keeps structured field co
 
 test('missing-field controls stay collapsed until the selected report row is opened', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
-  assert.match(client, /field\.resolution_item && isEditing\) renderInlineResolution/);
-  assert.match(client, /field\.action\.label/);
+  assert.match(client, /field\.resolution_item && isEditing &&/);
+  assert.match(client, /field\.ui_kind === 'MISSING_REQUIRED'/);
+  assert.match(client, /addAction\('Add', 'field-add', openEditor\)/);
   assert.doesNotMatch(client, /if \(field\.resolution_item\) renderInlineResolution/);
 });
 
 test('an opened missing-field editor can be dismissed without changing the report', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
-  const inlineEditor = client.slice(client.indexOf('function renderInlineResolution('), client.indexOf('function renderFieldEditor('));
-  assert.match(client, /function appendFieldEditorFooter\([\s\S]*button\('Close editor'/u);
-  assert.match(inlineEditor, /appendFieldEditorFooter\(editor, field\)/u);
+  const editor = client.slice(client.indexOf('function renderManualFieldEditor('), client.indexOf('function renderSemanticCauseEditor('));
+  assert.match(editor, /button\('Cancel', 'text-button', \(\) => closeFieldEditor\(field\.field_id\)\)/u);
+  assert.match(client, /function closeFieldEditor\(fieldId\)[\s\S]*state\.editingField = null/u);
 });
 
-test('inline editors group source and close controls as secondary actions', async () => {
+test('inline editors show Save and Cancel only while editing and disclose source on demand', async () => {
   const [client, css] = await Promise.all([fs.readFile('web/template-app.js', 'utf8'), fs.readFile('web/styles.css', 'utf8')]);
-  const inlineEditor = client.slice(client.indexOf('function renderInlineResolution('), client.indexOf('function renderFieldEditor('));
+  const manualEditor = client.slice(client.indexOf('function renderManualFieldEditor('), client.indexOf('function renderSemanticCauseEditor('));
   const normalEditor = client.slice(client.indexOf('function renderFieldEditor('), client.indexOf('function renderField('));
-  assert.match(inlineEditor, /appendFieldEditorFooter\(editor, field\)/u);
-  assert.match(normalEditor, /appendFieldEditorFooter\(editor, field\)/u);
+  assert.match(manualEditor, /button\('Save'/u);
+  assert.match(manualEditor, /button\('Cancel'/u);
+  assert.match(normalEditor, /field-source-disclosure/u);
+  assert.match(normalEditor, /View source details/u);
   assert.match(css, /\.field-editor-footer/u);
 });
 
@@ -118,9 +122,11 @@ test('inline field editing offers report-owned dictation and exposes one stop ac
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /recordingFieldId: null/);
   assert.match(client, /function renderFieldDictationAction/);
-  assert.match(client, /Dictate edit/);
+  assert.match(client, /field-microphone/);
+  assert.match(client, /inputShell\.append\(input\); renderFieldDictationAction\(inputShell, field\)/);
+  assert.doesNotMatch(client, /Dictate edit/);
   assert.match(client, /startRecording\(field\.field_id\)/);
-  assert.match(client, /Stop & fill report/);
+  assert.match(client, /Stop recording for \$\{field\.name\} and fill report/);
   assert.match(client, /workspace\.recordingFieldId = fieldId/);
   assert.match(client, /workspace\.recordingFieldId === field\.field_id/);
   assert.match(client, /headers\['x-target-field-id'\] = fieldId/);
@@ -216,6 +222,8 @@ test('field source stays secondary inside the inline editor', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /const isEditing = state\.editingField === field\.field_id/);
   const row = client.slice(client.indexOf('function renderField('), client.indexOf('function renderReportSections('));
-  assert.doesNotMatch(row, /button\('Source'/);
-  assert.match(client, /button\('Source details'/);
+  assert.match(row, /quiet-source/);
+  assert.doesNotMatch(row, /button\('Source details'/);
+  assert.match(client, /field-source-disclosure/);
+  assert.match(client, /View source details/);
 });
