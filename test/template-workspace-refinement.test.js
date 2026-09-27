@@ -108,6 +108,16 @@ test('successful evidence attachment is visibly acknowledged without becoming a 
   assert.match(client, /workspace\.attachmentStatus = `Evidence attached:/);
 });
 
+test('human review can reopen the shared capture composer without bypassing review', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /addingDetail/);
+  assert.match(client, /Add more detail/);
+  assert.match(client, /renderReporterComposer\(panel,[\s\S]*submitLabel: 'Continue review'/s);
+  assert.match(client, /state\.addingDetail = false/);
+  assert.match(client, /async function uploadAudio[\s\S]*workspace\.addingDetail = false/s);
+  assert.match(client, /button\('Cancel', 'text-button'/);
+});
+
 test('malformed audio asks for a replacement recording instead of claiming transcription can retry', async () => {
   const [client, view] = await Promise.all([
     fs.readFile('web/template-app.js', 'utf8'),

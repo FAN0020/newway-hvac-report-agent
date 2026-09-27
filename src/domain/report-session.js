@@ -14,7 +14,7 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   PROCESSING: Object.freeze(['CORRECTION_IF_NEEDED', 'RESOLVE']),
   CORRECTION_IF_NEEDED: Object.freeze(['RESOLVE']),
   RESOLVE: Object.freeze(['CAPTURE', 'REVIEW']),
-  REVIEW: Object.freeze(['READY']),
+  REVIEW: Object.freeze(['CAPTURE', 'READY']),
   READY: Object.freeze(['CONFIRMED']),
   CONFIRMED: Object.freeze([]),
   RECOVERABLE_ERROR: Object.freeze([]),

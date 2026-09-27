@@ -104,6 +104,37 @@ test('a resolved session can capture additional evidence without browser-side st
   assert.equal(second.session.transcript_ids.length, 2);
 });
 
+test('a report in human review can return to the same capture pipeline for additional evidence', async (t) => {
+  const { service } = await fixture(t, 'capture-more-from-review');
+  const created = await service.createSession({
+    template_id: 'bus-defect-rectification-corrective-maintenance', template_version: '1.0.0', job_context_ref: 'WO-111-1222',
+  });
+  const captured = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'Passenger door fault inspected.',
+    idempotency_key: 'review-capture-first',
+  });
+  const resolved = await resolveAll(service, captured);
+  const review = await service.enterReview({
+    session_id: created.session.session_id,
+    expected_revision: resolved.session.revision,
+  });
+
+  const additional = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: review.session.revision,
+    text: 'No parts were used.',
+    idempotency_key: 'review-capture-second',
+  });
+
+  assert.equal(additional.session.phase, 'RESOLVE');
+  assert.equal(additional.session.transcript_ids.length, 2);
+  assert.equal(additional.session.confirmation_ref, null);
+  assert.equal(additional.session.snapshot_ref, null);
+  assert.ok(additional.session.audit_event_ids.length > review.session.audit_event_ids.length);
+});
+
 test('incomplete sessions cannot enter REVIEW and browser input cannot forge readiness', async (t) => {
   const { service } = await fixture(t, 'blocked');
   const created = await service.createSession({

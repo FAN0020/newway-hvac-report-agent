@@ -38,6 +38,7 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     attachmentStatus: '',
     editingField: null,
     reviewFullReport: false,
+    addingDetail: false,
   };
 }
 
@@ -47,6 +48,7 @@ for (const property of [
   'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
+  'addingDetail',
 ]) {
   Object.defineProperty(state, property, {
     get() { return activeWorkspace()?.[property] ?? null; },
@@ -466,8 +468,18 @@ function renderResolution(panel, task) {
 
 function renderReview(panel) {
   panel.append(element('p', 'eyebrow', 'REVIEW'), element('h3', '', 'Review exceptions and critical details')); panel.lastChild.id = 'active-task-title';
+  if (state.addingDetail) {
+    panel.append(element('p', 'task-note', 'Add a correction or another detail. It will be processed through the same evidence and validation workflow.'));
+    const composer = renderReporterComposer(panel, {
+      inputId: 'workspace-additional-detail', microphoneId: 'workspace-additional-microphone',
+      placeholder: 'Add another field-service detail.',
+      submitLabel: 'Continue review', onSubmit: captureText,
+    });
+    composer.actions.append(button('Cancel', 'text-button', () => { state.addingDetail = false; state.interaction.statement = ''; renderWorkspace(); }));
+    return;
+  }
   panel.append(element('p', 'task-note', 'Normal fields are already supported. Check the highlighted sections, edited values, and completion details below.'));
-  panel.append(button('Finish review', 'primary', completeReview));
+  panel.append(button('Finish review', 'primary', completeReview), button('Add more detail', 'secondary', () => { state.addingDetail = true; renderWorkspace(); }));
 }
 
 function renderActiveTask(view) {
@@ -551,7 +563,7 @@ async function captureText() {
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/text`, { method: 'POST', body: { expected_revision: workspace.session.revision, text, language: 'auto', idempotency_key: crypto.randomUUID() } });
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript || null; workspace.transcriptReview = result.review || null; workspace.interaction.statement = ''; setProcessing('CHECKING_COMPLETENESS', workspace);
-    await refreshSession(workspace); await enterReviewIfComplete(workspace);
+    await refreshSession(workspace); await enterReviewIfComplete(workspace); workspace.addingDetail = false;
   } catch (error) { handleMutationError(error, 'NETWORK', 'Your statement is still in the text box.', workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -653,7 +665,12 @@ async function uploadAudio(blob, workspace = activeWorkspace()) {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/audio`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-expected-revision': String(workspace.session.revision), 'idempotency-key': crypto.randomUUID(), 'x-stt-language': 'auto' }, body: blob });
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     if (result.failure) workspace.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.', retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence.evidence_id };
-    else { setProcessing('CHECKING_COMPLETENESS', workspace); await refreshSession(workspace); await enterReviewIfComplete(workspace); }
+    else {
+      setProcessing('CHECKING_COMPLETENESS', workspace);
+      await refreshSession(workspace);
+      await enterReviewIfComplete(workspace);
+      workspace.addingDetail = false;
+    }
   } catch (error) {
     const kind = !error.status ? 'NETWORK' : error.status < 500 ? 'AUDIO_UPLOAD' : 'STT';
     handleMutationError(error, kind, undefined, workspace);
