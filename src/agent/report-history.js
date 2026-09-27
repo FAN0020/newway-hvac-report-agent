@@ -30,6 +30,7 @@ export function buildReportHistorySummary({
   confirmation = null,
   reportSnapshot = null,
   outputArtifacts = [],
+  reportName = null,
 } = {}) {
   if (!session?.session_id || !template?.templateId) throw new TypeError('Report history requires a ReportSession and template.');
   const bindings = template.historySummary || {};
@@ -41,6 +42,7 @@ export function buildReportHistorySummary({
   return Object.freeze({
     session_id: session.session_id,
     report_id: reportSnapshot?.report?.report_id || null,
+    ...(reportName || session.report_name ? { report_name: reportName || session.report_name } : {}),
     template: Object.freeze({
       template_id: template.templateId,
       display_name: template.presentation?.displayName || template.name,

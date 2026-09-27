@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { formatReportName, reportCreationDate } from '../report-naming.js';
 import {
   createAuditEvent,
   appendReportSessionEvent,
@@ -52,6 +53,7 @@ export class ReportSessionStore {
     this.answerRoot = path.join(this.root, 'answer-index');
     this.exportRoot = path.join(this.root, 'official-exports');
     this.outputIndexRoot = path.join(this.root, 'output-index');
+    this.reportNameRoot = path.join(this.root, 'report-name-reservations');
     this.locks = new Map();
   }
 
@@ -97,24 +99,63 @@ export class ReportSessionStore {
   }
 
   async create(input) {
-    const base = createReportSession(input);
-    const event = createAuditEvent({
-      session_id: base.session_id,
-      revision: 0,
-      event_type: 'SESSION_CREATED',
-      occurred_at: base.created_at,
-      payload: {
-        template_binding: base.template_binding,
-        context_binding: base.context_binding,
-        job_context_ref: base.job_context_ref,
-      },
-    });
-    const session = deepFreeze({ ...base, audit_event_ids: [event.event_id] });
-    await this.withLock(session.session_id, async () => {
-      await this.writeEvent(event);
-      await this.writeSession(session, { exclusive: true });
-    });
-    return deepFreeze({ session, event });
+    const nameBase = String(input.report_name_base || '').trim();
+    const reservation = nameBase ? await this.reserveReportIndex(input) : null;
+    try {
+      const base = createReportSession({
+        ...input,
+        ...(reservation ? {
+          report_name: formatReportName(nameBase, reservation.date, reservation.index),
+          report_date: reservation.date,
+          report_index: reservation.index,
+        } : {}),
+      });
+      const event = createAuditEvent({
+        session_id: base.session_id,
+        revision: 0,
+        event_type: 'SESSION_CREATED',
+        occurred_at: base.created_at,
+        payload: {
+          template_binding: base.template_binding,
+          context_binding: base.context_binding,
+          job_context_ref: base.job_context_ref,
+          ...(reservation ? { report_name: base.report_name } : {}),
+        },
+      });
+      const session = deepFreeze({ ...base, audit_event_ids: [event.event_id] });
+      await this.withLock(session.session_id, async () => {
+        await this.writeEvent(event);
+        await this.writeSession(session, { exclusive: true });
+      });
+      return deepFreeze({ session, event });
+    } catch (error) {
+      if (reservation) await fs.unlink(reservation.file).catch(() => {});
+      throw error;
+    }
+  }
+
+  async reserveReportIndex(input) {
+    const templateId = safeId(input.template_binding?.template_id, 'template_id');
+    const timeZone = input.report_time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const date = reportCreationDate(input.created_at, timeZone);
+    const sessions = await this.listSessions();
+    const sameDay = sessions.filter((session) => session.template_binding.template_id === templateId
+      && (session.report_date || reportCreationDate(session.created_at, timeZone)) === date);
+    let index = Math.max(sameDay.length, ...sameDay.map((session) => session.report_index || 0)) + 1;
+    const templateHash = crypto.createHash('sha256').update(templateId).digest('hex');
+    const directory = path.join(this.reportNameRoot, templateHash, date);
+    await fs.mkdir(directory, { recursive: true });
+    while (true) {
+      const file = path.join(directory, `${index}.json`);
+      try {
+        // Keep successful claims so another server with a stale session listing cannot reuse this name.
+        await fs.writeFile(file, `${JSON.stringify({ session_id: safeId(input.session_id) })}\n`, { flag: 'wx', mode: 0o600 });
+        return { file, date, index };
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        index += 1;
+      }
+    }
   }
 
   async load(sessionId) {

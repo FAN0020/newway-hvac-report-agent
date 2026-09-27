@@ -85,3 +85,36 @@ test('persisted ReportSessions can be listed after restart in most-recently-upda
   assert.deepEqual(sessions.map((session) => session.session_id), ['session_store_new', 'session_store_old']);
   assert.equal(sessions.every((session) => session.authority === 'SERVER'), true);
 });
+
+test('daily report names stay unique when another store created one after a stale listing', async (t) => {
+  await fs.rm(ROOT, { recursive: true, force: true });
+  t.after(() => fs.rm(ROOT, { recursive: true, force: true }));
+
+  const firstStore = new ReportSessionStore({ root: ROOT });
+  const secondStore = new ReportSessionStore({ root: ROOT });
+  const originalList = secondStore.listSessions.bind(secondStore);
+  let snapshotReady;
+  let releaseSnapshot;
+  const ready = new Promise((resolve) => { snapshotReady = resolve; });
+  const held = new Promise((resolve) => { releaseSnapshot = resolve; });
+  secondStore.listSessions = async () => {
+    const snapshot = await originalList();
+    snapshotReady();
+    await held;
+    return snapshot;
+  };
+  const namedInput = (id) => ({
+    ...sessionInput(id),
+    report_name_base: 'Bus Defect Rectification',
+    report_time_zone: 'Asia/Shanghai',
+  });
+
+  const waiting = secondStore.create(namedInput('session_store_parallel_second'));
+  await ready;
+  const first = await firstStore.create(namedInput('session_store_parallel_first'));
+  releaseSnapshot();
+  const second = await waiting;
+
+  assert.equal(first.session.report_name, 'Bus Defect Rectification · 2026-09-27');
+  assert.equal(second.session.report_name, 'Bus Defect Rectification · 2026-09-27 (2)');
+});

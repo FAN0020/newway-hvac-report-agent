@@ -70,6 +70,15 @@ function validatePersistedSession(session) {
   requiredString(session.context_binding?.scope_id, 'context_binding.scope_id', code);
   requiredTimestamp(session.created_at, 'created_at', code);
   requiredTimestamp(session.updated_at, 'updated_at', code);
+  if (session.report_name !== undefined) {
+    requiredString(session.report_name, 'report_name', code);
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(session.report_date || '')) {
+      throw new ContractValidationError('report_date must be a calendar date.', code);
+    }
+    if (!Number.isSafeInteger(session.report_index) || session.report_index < 1) {
+      throw new ContractValidationError('report_index must be a positive integer.', code);
+    }
+  }
   if (session.phase === 'RECOVERABLE_ERROR' && (!session.recovery_phase || !session.last_error)) {
     throw new ContractValidationError('RECOVERABLE_ERROR sessions require recovery state.', code);
   }

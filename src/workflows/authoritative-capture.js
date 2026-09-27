@@ -15,6 +15,7 @@ import {
 } from '../domain/index.js';
 import { buildAuthoritativeReport, buildReportHistorySummary, runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
 import { renderReportPdf } from '../export/template-pdf.js';
+import { formatReportName, reportCreationDate } from '../report-naming.js';
 import { reportToText } from '../tools/report-integrity.js';
 import { extractAtomicFacts } from '../semantic/atomic-facts.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
@@ -236,6 +237,7 @@ export class AuthoritativeCaptureService {
     exportWriter,
     pdfRenderer = renderReportPdf,
     clock = () => new Date().toISOString(),
+    reportTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone,
   } = {}) {
     if (!artifactStore || !sessionStore || !whisperProvider?.transcribe) {
       throw new TypeError('Artifact, ReportSession, and Whisper services are required.');
@@ -253,6 +255,7 @@ export class AuthoritativeCaptureService {
     this.exportWriter = exportWriter || ((snapshotId, payload) => this.sessionStore.writeOfficialExport(snapshotId, payload));
     this.pdfRenderer = pdfRenderer;
     this.clock = clock;
+    this.reportTimeZone = reportTimeZone;
   }
 
   async resolveTemplate(templateId) {
@@ -370,6 +373,8 @@ export class AuthoritativeCaptureService {
       },
       job_context_ref: jobContextRef,
       created_at: this.clock(),
+      report_name_base: template.presentation?.displayName || template.name,
+      report_time_zone: this.reportTimeZone,
     });
     if (this.jobContextProvider?.resolve) {
       const context = await this.jobContextProvider.resolve({
@@ -474,7 +479,21 @@ export class AuthoritativeCaptureService {
 
   async listReportHistory() {
     const sessions = await this.sessionStore.listSessions();
+    const names = new Map();
+    const dailyCounts = new Map();
+    for (const session of [...sessions].sort((left, right) => (
+      String(left.created_at).localeCompare(String(right.created_at))
+      || left.session_id.localeCompare(right.session_id)
+    ))) {
+      const date = session.report_date || reportCreationDate(session.created_at, this.reportTimeZone);
+      const key = `${session.template_binding.template_id}:${date}`;
+      const index = session.report_index || (dailyCounts.get(key) || 0) + 1;
+      dailyCounts.set(key, Math.max(dailyCounts.get(key) || 0, index));
+      if (!session.report_name) names.set(session.session_id, { date, index });
+    }
     return Promise.all(sessions.map(async (session) => {
+      const template = await this.resolveTemplate(session.template_binding.template_id);
+      const legacyName = names.get(session.session_id);
       const agentState = session.current_agent_run_id
         ? (await this.sessionStore.readRecord('agent-runs', session.current_agent_run_id)).agent_state
         : null;
@@ -489,7 +508,8 @@ export class AuthoritativeCaptureService {
         : [];
       return buildReportHistorySummary({
         session,
-        template: await this.resolveTemplate(session.template_binding.template_id),
+        template,
+        reportName: session.report_name || formatReportName(template.presentation?.displayName || template.name, legacyName.date, legacyName.index),
         agentState,
         confirmation,
         reportSnapshot,

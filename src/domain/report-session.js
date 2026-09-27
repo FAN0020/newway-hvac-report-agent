@@ -75,6 +75,11 @@ export function createReportSession(input = {}) {
     phase: 'CONTEXT',
     status: 'ACTIVE',
     job_context_ref: requiredString(input.job_context_ref, 'job_context_ref', 'INVALID_REPORT_SESSION'),
+    ...(input.report_name ? {
+      report_name: requiredString(input.report_name, 'report_name', 'INVALID_REPORT_SESSION'),
+      report_date: requiredString(input.report_date, 'report_date', 'INVALID_REPORT_SESSION'),
+      report_index: input.report_index,
+    } : {}),
     created_at: createdAt,
     updated_at: createdAt,
     audit_event_ids: [],

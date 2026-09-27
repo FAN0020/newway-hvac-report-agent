@@ -8,7 +8,7 @@ import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
 import { pcmWav } from './helpers.js';
 
-async function fixture(t, name, { whisper, templateProvider, modelResolver } = {}) {
+async function fixture(t, name, { whisper, templateProvider, modelResolver, clock = () => '2026-09-27T06:00:00.000Z', reportTimeZone } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-${name}`);
   await fs.rm(root, { recursive: true, force: true });
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -20,7 +20,8 @@ async function fixture(t, name, { whisper, templateProvider, modelResolver } = {
     whisperProvider: whisper || { transcribe: async () => { throw new Error('Unexpected transcription.'); } },
     modelResolver,
     templateProvider,
-    clock: () => '2026-09-27T06:00:00.000Z',
+    clock,
+    reportTimeZone,
   });
   return { root, artifactStore, sessionStore, service };
 }
@@ -84,6 +85,55 @@ async function busSession(service, suffix = '1') {
     job_context_ref: `job-context:WO-CAPTURE-${suffix}`,
   });
 }
+
+test('opening the same template creates distinct dated report names with a daily index', async (t) => {
+  let now = '2026-09-26T16:30:00.000Z';
+  const { service, sessionStore } = await fixture(t, 'dated-report-names', {
+    clock: () => now,
+    reportTimeZone: 'Asia/Shanghai',
+  });
+  const baseName = 'Bus Defect Rectification / Corrective Maintenance';
+  const first = await busSession(service, 'NAME-1');
+  const second = await busSession(service, 'NAME-2');
+
+  assert.notEqual(first.session.session_id, second.session.session_id);
+  assert.equal(first.session.report_name, `${baseName} · 2026-09-27`);
+  assert.equal(second.session.report_name, `${baseName} · 2026-09-27 (2)`);
+  assert.equal(second.session.phase, 'CONTEXT');
+  assert.deepEqual(second.session.transcript_ids, []);
+  assert.equal((await sessionStore.load(second.session.session_id)).report_name, second.session.report_name);
+
+  const history = await service.listReportHistory();
+  assert.equal(history.find((item) => item.session_id === second.session.session_id).report_name, second.session.report_name);
+
+  const simultaneous = await Promise.all([busSession(service, 'NAME-4'), busSession(service, 'NAME-5')]);
+  assert.deepEqual(new Set(simultaneous.map((item) => item.session.report_name)), new Set([
+    `${baseName} · 2026-09-27 (3)`,
+    `${baseName} · 2026-09-27 (4)`,
+  ]));
+
+  now = '2026-09-27T16:30:00.000Z';
+  const nextDay = await busSession(service, 'NAME-3');
+  assert.equal(nextDay.session.report_name, `${baseName} · 2026-09-28`);
+});
+
+test('history gives previously saved unnamed reports distinct dated titles', async (t) => {
+  const { service, sessionStore } = await fixture(t, 'legacy-report-names', { reportTimeZone: 'Asia/Shanghai' });
+  const common = {
+    template_binding: { template_id: 'bus-defect-rectification-corrective-maintenance', template_version: '1.0.0' },
+    context_binding: { context_id: 'SBS/BUS', context_version: 'scope-registry.v1', scope_id: 'SBS_BUS' },
+    job_context_ref: 'new-report:legacy',
+    created_at: '2026-09-26T16:30:00.000Z',
+  };
+  await sessionStore.create({ ...common, session_id: 'session_legacy_one' });
+  await sessionStore.create({ ...common, session_id: 'session_legacy_two' });
+
+  const titles = (await service.listReportHistory()).map((item) => item.report_name);
+  assert.deepEqual(new Set(titles), new Set([
+    'Bus Defect Rectification / Corrective Maintenance · 2026-09-27',
+    'Bus Defect Rectification / Corrective Maintenance · 2026-09-27 (2)',
+  ]));
+});
 
 test('technician text is persisted, report-bound, reviewed harmlessly, and converted to structured candidates', async (t) => {
   const { service, sessionStore } = await fixture(t, 'text');

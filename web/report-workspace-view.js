@@ -171,7 +171,17 @@ export function resolutionControl(item = {}) {
   };
 }
 
-function historyDate(value) {
+function historyDate(value, timeZone) {
+  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/iu.test(String(value || ''))) {
+    const date = new Date(value);
+    if (Number.isFinite(date.getTime())) {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+        ...(timeZone ? { timeZone } : {}),
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).formatToParts(date).map(({ type, value: part }) => [type, part]));
+      return `${parts.day} ${parts.month} ${parts.year}, ${parts.hour}:${parts.minute}`;
+    }
+  }
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/u);
   if (!match) return 'Date unavailable';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -179,12 +189,12 @@ function historyDate(value) {
   return match[4] ? `${date}, ${match[4]}:${match[5]}` : date;
 }
 
-export function deriveReportHistoryRow(summary = {}) {
+export function deriveReportHistoryRow(summary = {}, { timeZone } = {}) {
   const identity = [summary.work_order, summary.asset].filter(Boolean);
   const dateLabel = summary.service_date ? 'Service' : 'Created';
-  identity.push(`${dateLabel} ${historyDate(summary.service_date || summary.created_at)}`);
+  identity.push(`${dateLabel} ${historyDate(summary.service_date || summary.created_at, timeZone)}`);
   return {
-    title: summary.template?.display_name || 'Service report',
+    title: summary.report_name || summary.template?.display_name || 'Service report',
     secondary: identity.join(' · '),
     status: summary.status?.label || 'In progress',
   };
@@ -355,7 +365,7 @@ export function deriveWorkspaceView(input = {}) {
     session_phase: input.session?.phase || null,
     revision: input.session?.revision ?? null,
     job_header: {
-      title: input.template?.name || 'Service report',
+      title: input.session?.report_name || input.history?.report_name || input.template?.name || 'Service report',
       identity_line: identity,
       complete,
       total,

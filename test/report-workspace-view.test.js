@@ -227,15 +227,30 @@ test('report history row uses normalized summary data and created-date fallback'
     status: { code: 'NEEDS_INPUT', label: 'Needs your input' },
   };
 
-  assert.deepEqual(module.deriveReportHistoryRow(base), {
+  assert.deepEqual(module.deriveReportHistoryRow(base, { timeZone: 'Asia/Shanghai' }), {
     title: 'HVAC Service Report',
-    secondary: 'WO-10482 · AHU-03 · Created 27 Sep 2026, 04:30',
+    secondary: 'WO-10482 · AHU-03 · Created 27 Sep 2026, 12:30',
     status: 'Needs your input',
   });
   assert.equal(module.deriveReportHistoryRow({
     ...base,
     service_date: '2026-09-26 10:42',
-  }).secondary, 'WO-10482 · AHU-03 · Service 26 Sep 2026, 10:42');
+  }, { timeZone: 'Asia/Shanghai' }).secondary, 'WO-10482 · AHU-03 · Service 26 Sep 2026, 10:42');
+  assert.equal(module.deriveReportHistoryRow({
+    ...base,
+    created_at: '2026-09-26T17:30:00.000Z',
+  }, { timeZone: 'Asia/Shanghai' }).secondary, 'WO-10482 · AHU-03 · Created 27 Sep 2026, 01:30');
+});
+
+test('the report title identifies its creation day and same-day instance in both views', async () => {
+  const { deriveReportHistoryRow } = await import('../web/report-workspace-view.js');
+  const reportName = 'Bus Defect Rectification · 2026-09-27 (2)';
+  assert.equal(view({ session: { ...session(), report_name: reportName } }).job_header.title, reportName);
+  assert.equal(deriveReportHistoryRow({
+    report_name: reportName,
+    template: { display_name: 'Bus Defect Rectification' },
+    created_at: '2026-09-27T03:00:00.000Z',
+  }).title, reportName);
 });
 
 test('report history keeps the most recently updated report first', async () => {

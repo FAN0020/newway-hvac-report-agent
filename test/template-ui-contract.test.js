@@ -33,8 +33,6 @@ test('workspace uses authoritative ReportSession routes and never submits browse
   const client = await fs.readFile('web/template-app.js', 'utf8');
   for (const route of ['/api/report-sessions', '/capture/text', '/capture/audio', '/select', '/review', '/attachments']) assert.ok(client.includes(route), `missing ${route}`);
   assert.match(client, /deriveWorkspaceView/);
-  assert.match(client, /ACTIVE_SESSION_KEY/);
-  assert.match(client, /savedActiveSession/);
   assert.doesNotMatch(client, /\/api\/template-reports\/build|\/api\/v2\/reports\/(?:confirm|export)/);
   assert.doesNotMatch(client, /facts:\s*factsFromStructuredState|evaluateCompleteness|mapFactsToStructuredState|knowledge_hits/);
 });

@@ -7,7 +7,6 @@ import { modelOptionLabel, modelSelectionView } from './speech-to-text-settings.
 
 const $ = (id) => document.getElementById(id);
 const RECENT_TEMPLATES_KEY = 'field-report.recent-template-ids';
-const ACTIVE_SESSION_KEY = 'field-report.active-authoritative-session';
 const mobileNavigation = window.matchMedia('(max-width: 760px)');
 const workspaceRegistry = createReportWorkspaceRegistry();
 const state = {
@@ -68,7 +67,6 @@ for (const property of [
 
 function activateWorkspace(workspace) {
   workspaceRegistry.activate(workspace.key);
-  rememberActiveSession(workspace);
   $('template-reports-nav').hidden = false;
   setView('workspace');
   renderWorkspace();
@@ -85,6 +83,12 @@ function element(tag, className, text) {
   return node;
 }
 
+function renderReportTitle(node, title) {
+  const match = String(title).match(/^(.*) · (\d{4}-\d{2}-\d{2}(?: \(\d+\))?)$/u);
+  if (!match) { node.textContent = title; return; }
+  node.replaceChildren(document.createTextNode(`${match[1]} `), element('span', 'report-name-date', `· ${match[2]}`));
+}
+
 function loadRecentTemplateIds() {
   try { return JSON.parse(sessionStorage.getItem(RECENT_TEMPLATES_KEY) || '[]').filter((item) => typeof item === 'string').slice(0, 3); }
   catch { return []; }
@@ -95,22 +99,6 @@ function recordRecentTemplate(templateId) {
   try { sessionStorage.setItem(RECENT_TEMPLATES_KEY, JSON.stringify(state.recentTemplateIds)); } catch { /* memory fallback */ }
 }
 
-function rememberActiveSession(workspace = activeWorkspace()) {
-  if (!workspace?.session || !workspace.activeTemplate) return;
-  try {
-    sessionStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({
-      session_id: workspace.session.session_id,
-      template_id: workspace.activeTemplate.templateId,
-    }));
-  } catch { /* memory fallback */ }
-}
-
-function savedActiveSession() {
-  try {
-    const value = JSON.parse(sessionStorage.getItem(ACTIVE_SESSION_KEY) || 'null');
-    return value?.session_id && value?.template_id ? value : null;
-  } catch { return null; }
-}
 state.recentTemplateIds = loadRecentTemplateIds();
 
 async function refreshLocalSessionToken() {
@@ -262,7 +250,7 @@ function renderManager() {
     const row = element('article', 'manager-row'); const identity = element('div');
     identity.append(element('strong', '', template.name), element('p', '', `${template.provenance?.classification || 'user-supplied prototype'} · ${template.provenance?.official ? 'official' : 'not an official operator form'}`));
     row.append(identity, element('span', '', `Template ${template.templateVersion}`), element('span', '', `${template.schema.fields.length} fields · context ${template.contextCorpus.version}`));
-    const use = element('button', 'secondary', 'Open'); use.addEventListener('click', () => openWorkspace(template.templateId)); row.append(use); list.append(row);
+    const use = element('button', 'secondary', 'Create report'); use.addEventListener('click', () => openWorkspace(template.templateId)); row.append(use); list.append(row);
   }
 }
 
@@ -275,11 +263,13 @@ function renderReports() {
   for (const { workspace } of workspaces) {
     const row = element('article', 'manager-row report-history-row'); const identity = element('div');
     const historyRow = deriveReportHistoryRow(workspace.history || {
+      report_name: workspace.session?.report_name,
       template: { display_name: workspace.activeTemplate.name },
       created_at: workspace.session?.created_at,
       status: { label: workspace.processing ? 'Processing' : 'In progress' },
     });
-    identity.append(element('strong', '', historyRow.title), element('p', '', historyRow.secondary));
+    const title = element('strong', '', ''); renderReportTitle(title, historyRow.title);
+    identity.append(title, element('p', '', historyRow.secondary));
     row.append(identity, element('span', 'report-history-status', historyRow.status));
     const open = element('button', 'secondary', 'Open'); open.addEventListener('click', async () => {
       await refreshSession(workspace);
@@ -292,6 +282,7 @@ function workspaceInput() {
   return {
     template: state.activeTemplate, session: state.session, agent_state: state.agentState,
     chain: state.chain,
+    history: state.history,
     transcript: state.transcript, transcript_review: state.transcriptReview, processing: state.processing,
     processing_session_id: state.processingSessionId,
     recoverable_error: state.recoverableError, interaction: state.interaction, confirmation: state.confirmation,
@@ -312,7 +303,6 @@ async function refreshSession(workspace = activeWorkspace()) {
   workspace.confirmation = chain.confirmation || workspace.confirmation;
   const latestAttachment = chain.evidence.filter((item) => item.evidence_type === 'DOCUMENT').at(-1);
   if (latestAttachment?.metadata?.filename) workspace.attachmentStatus = `Evidence attached: ${latestAttachment.metadata.filename}.`;
-  if (activeWorkspace() === workspace) rememberActiveSession(workspace);
 }
 
 async function restoreReportWorkspaces() {
@@ -655,9 +645,9 @@ function renderActiveTask(view) {
 function renderWorkspace() {
   if (!state.activeTemplate) return;
   syncCaptureNavigation();
-  const view = currentView(); $('workspace-title').textContent = view.job_header.title;
+  const view = currentView(); renderReportTitle($('workspace-title'), view.job_header.title);
   $('workspace-company').textContent = state.activeTemplate.domain === 'HVAC' ? 'NEWWAY' : state.activeTemplate.domain.startsWith('SBS_') ? 'SBS TRANSIT' : 'REPORT WORKSPACE';
-  $('workspace-identity').textContent = view.job_header.identity_line || 'Preparing work-order details…';
+  $('workspace-identity').textContent = view.job_header.identity_line || (state.session ? 'No work-order details yet.' : 'Preparing work-order details…');
   $('report-complete-count').textContent = `${view.job_header.complete} / ${view.job_header.total} complete`;
   $('report-need-input').textContent = view.job_header.need_input ? `${view.job_header.need_input} need input` : state.session?.phase === 'READY' ? 'Ready to confirm' : state.session?.phase === 'CONFIRMED' ? 'Confirmed' : 'No blocking questions';
   renderActiveTask(view); renderReportSections(view);
@@ -680,12 +670,12 @@ async function openWorkspace(templateId) {
   workspaceRegistry.register(workspace.key, workspace);
   activateWorkspace(workspace);
   try {
-    const jobRef = template.templateId === 'bus-defect-rectification-corrective-maintenance' ? 'work-order:WO-111-1222' : `new-report:${crypto.randomUUID()}`;
+    const jobRef = `new-report:${crypto.randomUUID()}`;
     const created = await api('/api/report-sessions', { method: 'POST', body: { template_id: template.templateId, template_version: template.templateVersion, job_context_ref: jobRef } });
     const previousKey = workspace.key;
     workspace.session = created.session; workspace.agentState = created.agent_state; workspace.key = created.session.session_id;
     workspaceRegistry.rekey(previousKey, workspace.key);
-    rememberActiveSession(workspace); await refreshSession(workspace); renderWorkspaceIfActive(workspace);
+    await refreshSession(workspace); renderWorkspaceIfActive(workspace);
   } catch (error) { workspace.recoverableError = { kind: 'NETWORK', message: `Could not start this report. ${error.message}`, retry_action: 'RETRY_CONNECTION' }; renderWorkspaceIfActive(workspace); }
 }
 
@@ -864,7 +854,7 @@ async function submitReport() {
     }
     if (workspace.session.phase !== 'READY') throw new Error('The server has not approved this report version for submission.');
     const confirmed = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/confirm`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
-    workspace.confirmation = confirmed.confirmation; workspace.session = confirmed.session; workspace.agentState = confirmed.agent_state; rememberActiveSession(workspace);
+    workspace.confirmation = confirmed.confirmation; workspace.session = confirmed.session; workspace.agentState = confirmed.agent_state;
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -912,13 +902,7 @@ async function init() {
     const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template);
     state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local';
     await restoreReportWorkspaces();
-    const saved = savedActiveSession();
-    const workspace = saved && workspaceRegistry.get(saved.session_id);
-    if (workspace) {
-      workspaceRegistry.activate(workspace.key);
-      try { await refreshSession(workspace); setView('workspace'); renderWorkspace(); }
-      catch { sessionStorage.removeItem(ACTIVE_SESSION_KEY); }
-    }
+    setView('choose');
   }
   catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; renderCatalog(); }
 }
