@@ -397,6 +397,10 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .manager-row { display: grid; grid-template-columns: minmax(0, 1.5fr) .7fr .8fr auto; gap: 16px; align-items: center; padding: 17px 20px; border: 1px solid var(--line); border-radius: 13px; background: white; }
 .manager-row p { margin: 3px 0 0; color: var(--muted); font-size: .75rem; }
 .manager-row > span { color: var(--muted); font-size: .74rem; }
+.report-history-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+.report-history-row > div { min-width: 0; }
+.report-history-row p { overflow-wrap: anywhere; }
+.report-history-status { color: var(--ink) !important; font-weight: 700; white-space: nowrap; }
 .setup-steps { display: grid; grid-template-columns: repeat(6, 1fr); margin: 0 0 18px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: white; list-style: none; }
 .setup-steps li { padding: 10px; border-right: 1px solid var(--line); color: var(--muted); font-size: .7rem; font-weight: 780; text-align: center; }
 .setup-steps li:last-child { border-right: 0; }
@@ -437,6 +441,7 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
   .schema-field { border-right: 0; }
   .manager-row { grid-template-columns: 1fr auto; }
   .manager-row > span { display: none; }
+  .report-history-status { display: block !important; grid-column: 1; }
   .setup-steps { grid-template-columns: repeat(3, 1fr); }
   .setup-steps li { border-bottom: 1px solid var(--line); }
   .setup-field-row { grid-template-columns: 1fr; }

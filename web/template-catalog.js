@@ -7,6 +7,26 @@
 
 const STATUS_VALUES = Object.freeze(['NOT_CHECKED', 'OK', 'NOT_OK', 'N/A']);
 const HANDOVER_VALUES = Object.freeze(['NOT_CHECKED', 'READY', 'NOT_READY', 'DEFERRED']);
+const HISTORY_SUMMARY_BINDINGS = Object.freeze({
+  HVAC: Object.freeze({
+    workOrderFields: Object.freeze(['work_order']),
+    assetFields: Object.freeze(['equipment']),
+    serviceDateFields: Object.freeze([]),
+    technicianFields: Object.freeze([]),
+  }),
+  SBS_BUS: Object.freeze({
+    workOrderFields: Object.freeze(['work.work_order_id']),
+    assetFields: Object.freeze(['asset.internal_fleet_no', 'asset.registration_no', 'asset.bus_model']),
+    serviceDateFields: Object.freeze(['work.date_time']),
+    technicianFields: Object.freeze(['technician.name']),
+  }),
+  SBS_RAIL: Object.freeze({
+    workOrderFields: Object.freeze(['work.order_id']),
+    assetFields: Object.freeze(['asset.line', 'asset.station_section', 'asset.location']),
+    serviceDateFields: Object.freeze(['work.date_time']),
+    technicianFields: Object.freeze(['technician.name']),
+  }),
+});
 
 function field(id, label, section, displayOrder, options = {}) {
   return Object.freeze({
@@ -123,6 +143,7 @@ function makeTemplate({ templateId, name, domain, provenance, fields, contextSou
     }),
     rendererMapping: Object.freeze({ id: 'maintenance-workspace', version: '1.0.0', export: 'maintenance-report-document' }),
     adapter: Object.freeze({ id: domain === 'HVAC' ? 'hvac-v1' : domain === 'SBS_BUS' ? 'sbs-bus-v1' : 'sbs-rail-v1', version: '1.0.0' }),
+    historySummary: HISTORY_SUMMARY_BINDINGS[domain],
   });
 }
 

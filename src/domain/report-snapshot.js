@@ -71,6 +71,7 @@ function snapshotBody(input, code = 'INVALID_REPORT_SNAPSHOT') {
     fields,
     evidence_ids: evidenceIds,
     transcript_ids: uniqueStrings(input.transcript_ids, 'transcript_ids', code),
+    transcript_review_ids: uniqueStrings(session.transcript_review_ids || input.transcript_review_ids, 'transcript_review_ids', code),
     guidance_context_ids: guidanceIds,
     validation_issues: contractArray(input.validation_issues || [], 'validation_issues', 'ValidationIssue', code),
     resolution_items: contractArray(input.resolution_items || [], 'resolution_items', 'ResolutionItem', code),

@@ -153,6 +153,58 @@ test('recording exposes one explicit stop-and-fill action', () => {
   });
 });
 
+test('correction task ignores non-material items and shows the next material interpretation', () => {
+  const result = view({
+    session: session('CORRECTION_IF_NEEDED'),
+    transcript_review: {
+      status: 'PENDING',
+      items: [
+        { review_item_id: 'cosmetic', material: false, impact_class: 'NON_MATERIAL', source_span: { quote: 'coil.' }, proposed_text: 'Coil', reason: 'Capitalization only' },
+        { review_item_id: 'material', material: true, impact_class: 'MATERIAL', source_span: { quote: '25 psi' }, proposed_text: '125 psi', reason: 'Measurement changed' },
+      ],
+    },
+  });
+
+  assert.equal(result.active_task.kind, 'CORRECTION');
+  assert.equal(result.active_task.correction.review_item_id, 'material');
+});
+
+test('report history row uses normalized summary data and created-date fallback', async () => {
+  const module = await import('../web/report-workspace-view.js');
+  assert.equal(typeof module.deriveReportHistoryRow, 'function');
+  const base = {
+    template: { display_name: 'HVAC Service Report' },
+    work_order: 'WO-10482',
+    asset: 'AHU-03',
+    service_date: null,
+    created_at: '2026-09-27T04:30:00.000Z',
+    status: { code: 'NEEDS_INPUT', label: 'Needs your input' },
+  };
+
+  assert.deepEqual(module.deriveReportHistoryRow(base), {
+    title: 'HVAC Service Report',
+    secondary: 'WO-10482 · AHU-03 · Created 27 Sep 2026, 04:30',
+    status: 'Needs your input',
+  });
+  assert.equal(module.deriveReportHistoryRow({
+    ...base,
+    service_date: '2026-09-26 10:42',
+  }).secondary, 'WO-10482 · AHU-03 · Service 26 Sep 2026, 10:42');
+});
+
+test('report history keeps the most recently updated report first', async () => {
+  const module = await import('../web/report-workspace-view.js');
+  assert.equal(typeof module.sortReportHistoryItems, 'function');
+  const items = [
+    { key: 'older', workspace: { history: { updated_at: '2026-09-26T12:00:00.000Z' } } },
+    { key: 'newer', workspace: { history: { updated_at: '2026-09-27T12:00:00.000Z' } } },
+    { key: 'fallback', workspace: { session: { updated_at: '2026-09-25T12:00:00.000Z' } } },
+  ];
+
+  assert.deepEqual(module.sortReportHistoryItems(items).map((item) => item.key), ['newer', 'older', 'fallback']);
+  assert.deepEqual(items.map((item) => item.key), ['older', 'newer', 'fallback']);
+});
+
 test('recording state belongs only to the ReportSession that started it', () => {
   const owner = view({
     processing: 'RECORDING',

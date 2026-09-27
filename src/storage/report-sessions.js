@@ -51,6 +51,7 @@ export class ReportSessionStore {
     this.captureRoot = path.join(this.root, 'capture-index');
     this.answerRoot = path.join(this.root, 'answer-index');
     this.exportRoot = path.join(this.root, 'official-exports');
+    this.outputIndexRoot = path.join(this.root, 'output-index');
     this.locks = new Map();
   }
 
@@ -311,6 +312,60 @@ export class ReportSessionStore {
       if (existing !== text) throw storageError('Official export path collision.', 'EXPORT_PATH_COLLISION', 409);
     }
     return deepFreeze({ file: filename, created });
+  }
+
+  async listOutputArtifacts(snapshotId) {
+    const id = safeId(snapshotId, 'snapshot_id');
+    const filename = path.join(this.outputIndexRoot, `${id}.json`);
+    try {
+      const index = JSON.parse(await fs.readFile(filename, 'utf8'));
+      return deepFreeze(await Promise.all((index.output_artifact_ids || []).map((outputId) => (
+        this.readRecord('output-artifacts', outputId)
+      ))));
+    } catch (error) {
+      if (error.code === 'ENOENT') return Object.freeze([]);
+      throw error;
+    }
+  }
+
+  async recordOutputArtifact(artifact) {
+    if (!artifact?.output_id || !artifact?.snapshot_id) {
+      throw storageError('Output artifact identity is required.', 'INVALID_OUTPUT_ARTIFACT', 400);
+    }
+    const proposed = deepFreeze(structuredClone(artifact));
+    const retryHash = (value) => hashContract(Object.fromEntries(
+      Object.entries(value).filter(([key]) => key !== 'created_at'),
+    ));
+    const assertRetryCompatible = (existing) => {
+      if (retryHash(existing) !== retryHash(proposed)) {
+        throw storageError('Immutable output artifact identity collision.', 'IMMUTABLE_RECORD_COLLISION', 409);
+      }
+      return existing;
+    };
+    let persisted;
+    try {
+      persisted = assertRetryCompatible(await this.readRecord('output-artifacts', proposed.output_id));
+    } catch (error) {
+      if (error.code !== 'IMMUTABLE_RECORD_NOT_FOUND') throw error;
+      try {
+        persisted = await this.putRecord('output-artifacts', proposed.output_id, proposed);
+      } catch (writeError) {
+        if (writeError.code !== 'IMMUTABLE_RECORD_COLLISION') throw writeError;
+        persisted = assertRetryCompatible(await this.readRecord('output-artifacts', proposed.output_id));
+      }
+    }
+    return this.withLock(`output:${persisted.snapshot_id}`, async () => {
+      const filename = path.join(this.outputIndexRoot, `${safeId(persisted.snapshot_id, 'snapshot_id')}.json`);
+      let existing = { snapshot_id: persisted.snapshot_id, output_artifact_ids: [] };
+      try { existing = JSON.parse(await fs.readFile(filename, 'utf8')); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const next = {
+        snapshot_id: persisted.snapshot_id,
+        output_artifact_ids: [...new Set([...(existing.output_artifact_ids || []), persisted.output_id])],
+      };
+      await atomicJson(filename, next);
+      return persisted;
+    });
   }
 
   async attachAgentRun({ session_id: sessionId, expected_revision: expectedRevision, run } = {}) {

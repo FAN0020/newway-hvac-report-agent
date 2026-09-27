@@ -171,6 +171,11 @@ test('confirmed export is snapshot-owned, retry-idempotent, and survives service
     expected_revision: confirmed.session.revision,
   });
   assert.equal(first.reused, false);
+  assert.equal(typeof first.output_artifact, 'object');
+  assert.equal(first.output_artifact.snapshot_id, confirmed.snapshot.snapshot_id);
+  assert.equal(first.output_artifact.report_id, confirmed.snapshot.report.report_id);
+  assert.equal(first.output_artifact.report_version, 1);
+  assert.equal(first.output_artifact.format, 'text/plain');
   assert.match(first.export_text, /Bus Defect Rectification/iu);
   assert.match(first.export_text, /Parts \/ materials: None/iu);
   assert.match(first.export_text, /Odometer: 51020 km/iu);
@@ -194,6 +199,36 @@ test('confirmed export is snapshot-owned, retry-idempotent, and survives service
   });
   assert.equal(afterRestart.reused, true);
   assert.equal(afterRestart.export_hash, first.export_hash);
+  assert.equal(afterRestart.output_artifact.output_id, first.output_artifact.output_id);
+  const history = await restarted.listReportHistory();
+  assert.equal(history[0].report_id, confirmed.snapshot.report.report_id);
+  assert.deepEqual(history[0].output_artifacts, [first.output_artifact]);
+});
+
+test('output artifact retry repairs a missing index after a partial persistence failure', async (t) => {
+  const { sessionStore } = await fixture(t, 'output-index-recovery');
+  const persisted = Object.freeze({
+    contract: 'ReportOutputArtifact',
+    contract_version: '1',
+    output_id: 'output_recovery',
+    session_id: 'session_recovery',
+    snapshot_id: 'snapshot_recovery',
+    report_id: 'report_recovery',
+    report_version: 1,
+    format: 'text/plain',
+    storage_ref: 'authority://official-exports/snapshot_recovery.txt',
+    content_hash: 'sha256:recovery',
+    created_at: '2026-09-27T10:42:00.000Z',
+  });
+  await sessionStore.putRecord('output-artifacts', persisted.output_id, persisted);
+
+  const recovered = await sessionStore.recordOutputArtifact({
+    ...persisted,
+    created_at: '2026-09-27T10:43:00.000Z',
+  });
+
+  assert.deepEqual(recovered, persisted);
+  assert.deepEqual(await sessionStore.listOutputArtifacts(persisted.snapshot_id), [persisted]);
 });
 
 test('an export failure leaves the confirmation and immutable snapshot valid', async (t) => {

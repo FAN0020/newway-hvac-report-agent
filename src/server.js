@@ -200,7 +200,13 @@ async function handleApi(request, response, url, traceId, config, services) {
         ? (await captureService.sessionStore.readRecord('agent-runs', session.current_agent_run_id)).agent_state
         : null,
     })));
-    writeJson(response, 200, toolEnvelope('list_report_sessions', traceId, 'PASS', { sessions, reports }));
+    const history = await captureService.listReportHistory();
+    const historyBySession = new Map(history.map((item) => [item.session_id, item]));
+    writeJson(response, 200, toolEnvelope('list_report_sessions', traceId, 'PASS', {
+      sessions,
+      reports: reports.map((item) => ({ ...item, history: historyBySession.get(item.session.session_id) || null })),
+      history,
+    }));
     return;
   }
   if (request.method === 'POST' && url.pathname === '/api/report-sessions') {

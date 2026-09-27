@@ -4,3 +4,4 @@ export { planResolutions } from './resolution-planner.js';
 export { AGENT_PROCESSING_VERSION, officialFactsFromAgentState, runAuthoritativeAgent } from './report-agent.js';
 export { evaluateActiveCompleteness, validateReportFields } from './validation-engine.js';
 export { buildAuthoritativeReport, structuredStateFor, structuredStateHash } from './report-output.js';
+export { buildReportHistorySummary } from './report-history.js';

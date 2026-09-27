@@ -13,7 +13,7 @@ import {
   createTranscriptReview,
   hashContract,
 } from '../domain/index.js';
-import { buildAuthoritativeReport, runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
+import { buildAuthoritativeReport, buildReportHistorySummary, runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
 import { reportToText } from '../tools/report-integrity.js';
 import { extractServiceFacts } from '../tools/extract-service-facts.js';
 import { extractV2Facts } from '../tools/extract-v2-facts.js';
@@ -47,6 +47,45 @@ function workflowError(message, code, status = 400) {
 
 function digest(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function normalizedClaimValue(value) {
+  if (typeof value === 'string') {
+    return value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  }
+  if (Array.isArray(value)) return value.map(normalizedClaimValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalizedClaimValue(value[key])]));
+  }
+  return value;
+}
+
+function claimsByField(facts) {
+  const grouped = new Map();
+  for (const fact of facts || []) {
+    const field = String(fact?.field || '');
+    if (!field) continue;
+    const claim = JSON.stringify({
+      claim_kind: fact.claim_kind || 'VALUE',
+      value: normalizedClaimValue(fact.value),
+      unit: normalizedClaimValue(fact.unit ?? null),
+    });
+    if (!grouped.has(field)) grouped.set(field, []);
+    grouped.get(field).push(claim);
+  }
+  for (const values of grouped.values()) values.sort();
+  return grouped;
+}
+
+export function compareReportClaimImpact({ rawFacts = [], proposedFacts = [] } = {}) {
+  const raw = claimsByField(rawFacts);
+  const proposed = claimsByField(proposedFacts);
+  const affectedFields = [...new Set([...raw.keys(), ...proposed.keys()])]
+    .filter((field) => JSON.stringify(raw.get(field) || []) !== JSON.stringify(proposed.get(field) || []))
+    .sort();
+  return affectedFields.length
+    ? { impact_class: 'MATERIAL', material: true, affected_fields: affectedFields }
+    : { impact_class: 'NON_MATERIAL', material: false, affected_fields: [] };
 }
 
 function reportBinding(session) {
@@ -357,6 +396,32 @@ export class AuthoritativeCaptureService {
     return this.persistAgentState(chain.session);
   }
 
+  async listReportHistory() {
+    const sessions = await this.sessionStore.listSessions();
+    return Promise.all(sessions.map(async (session) => {
+      const agentState = session.current_agent_run_id
+        ? (await this.sessionStore.readRecord('agent-runs', session.current_agent_run_id)).agent_state
+        : null;
+      const confirmation = session.confirmation_ref
+        ? await this.sessionStore.readRecord('confirmations', session.confirmation_ref)
+        : null;
+      const reportSnapshot = session.snapshot_ref
+        ? await this.sessionStore.readRecord('report-snapshots', session.snapshot_ref)
+        : null;
+      const outputArtifacts = reportSnapshot
+        ? await this.sessionStore.listOutputArtifacts(reportSnapshot.snapshot_id)
+        : [];
+      return buildReportHistorySummary({
+        session,
+        template: await this.resolveTemplate(session.template_binding.template_id),
+        agentState,
+        confirmation,
+        reportSnapshot,
+        outputArtifacts,
+      });
+    }));
+  }
+
   async enterReview({ session_id: sessionId, expected_revision: expectedRevision } = {}) {
     const session = await this.sessionStore.load(sessionId);
     assertExpectedRevision(session, expectedRevision);
@@ -550,12 +615,31 @@ export class AuthoritativeCaptureService {
     };
     const text = reportToText(snapshot.report, exportConfirmation);
     const exported = await this.exportWriter(snapshot.snapshot_id, text);
+    const existingOutputs = await this.sessionStore.listOutputArtifacts(snapshot.snapshot_id);
+    let outputArtifact = existingOutputs.find((item) => item.format === 'text/plain') || null;
+    if (!outputArtifact) {
+      const identity = { snapshot_id: snapshot.snapshot_id, format: 'text/plain' };
+      outputArtifact = await this.sessionStore.recordOutputArtifact(Object.freeze({
+        contract: 'ReportOutputArtifact',
+        contract_version: '1',
+        output_id: `output_${hashContract(identity).slice(7, 31)}`,
+        session_id: session.session_id,
+        snapshot_id: snapshot.snapshot_id,
+        report_id: snapshot.report.report_id,
+        report_version: snapshot.report.report_version,
+        format: 'text/plain',
+        storage_ref: `authority://official-exports/${snapshot.snapshot_id}.txt`,
+        content_hash: hashContract(text),
+        created_at: this.clock(),
+      }));
+    }
     return {
       session,
       snapshot_id: snapshot.snapshot_id,
       export_hash: hashContract(text),
       format: 'text/plain',
       file: exported.file,
+      output_artifact: outputArtifact,
       export_text: text,
       reused: !exported.created,
     };
@@ -596,9 +680,9 @@ export class AuthoritativeCaptureService {
     return { session: computed.session, evidence, agent_state: computed.agent_state };
   }
 
-  async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [] }) {
+  async extractFacts({ session, transcript, extractionText = transcript.raw_text, confirmedCorrections = [] }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
-    if (template.adapter?.id === 'manual-schema-v1') return { spans: [], candidates: [], facts: [] };
+    if (template.adapter?.id === 'manual-schema-v1') return [];
     let facts;
     if (session.context_binding.scope_id === 'HVAC') {
       const extracted = await extractServiceFacts({
@@ -631,11 +715,36 @@ export class AuthoritativeCaptureService {
         source_span: { start: noParts.index, end: noParts.index + noParts[0].length, text: noParts[0] },
       });
     }
+    return accepted;
+  }
+
+  async extractCandidates({
+    session,
+    transcript,
+    supportType,
+    extractionText = transcript.raw_text,
+    mapSourceSpan = (span) => span,
+    confirmedCorrections = [],
+    correctionContext = null,
+    confirmationRequirements = [],
+  }) {
+    const facts = await this.extractFacts({ session, transcript, extractionText, confirmedCorrections });
     const spans = [];
     const candidates = [];
-    for (const fact of accepted) {
+    for (const fact of facts) {
       const extractedSource = exactFactSpan(fact, extractionText);
       const source = mapSourceSpan(extractedSource);
+      const requiredConfirmations = confirmationRequirements.filter((item) => item.field_id === fact.field);
+      const correctionItems = (correctionContext?.items || []).filter((item) => (
+        item.affected_fields?.includes(fact.field)
+        || (source.start < item.source_span.end && source.end > item.source_span.start)
+      ));
+      const correctionProvenance = correctionItems.length ? {
+        transcript_review_id: correctionContext.transcript_review_id,
+        raw_text_hash: transcript.text_hash,
+        effective_projection_hash: correctionContext.effective_projection_hash,
+        decisions: correctionItems.map((item) => ({ review_item_id: item.review_item_id, decision: 'ACCEPT' })),
+      } : null;
       const span = createEvidenceSpan({
         evidence_id: transcript.transcript_id,
         start_offset: source.start,
@@ -655,7 +764,7 @@ export class AuthoritativeCaptureService {
         evidence_refs: [{ evidence_id: transcript.transcript_id, span_id: span.span_id }],
         source_ref: transcript.transcript_id,
         extraction: { method: 'deterministic-rule', version: EXTRACTION_VERSION },
-        risk_class: fact.critical ? 'CRITICAL' : 'STANDARD',
+        risk_class: fact.critical || requiredConfirmations.length ? 'CRITICAL' : 'STANDARD',
         confidence_class: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
         source_context: {
           domain: session.context_binding.scope_id,
@@ -663,13 +772,15 @@ export class AuthoritativeCaptureService {
           context_version: session.context_binding.context_version,
           scope_id: session.context_binding.scope_id,
         },
+        correction_provenance: correctionProvenance,
+        confirmation_requirement_ids: requiredConfirmations.map((item) => item.requirement_id),
       });
       await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
       await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
       spans.push(span);
       candidates.push(candidate);
     }
-    return { spans, candidates, facts: accepted };
+    return { spans, candidates, facts };
   }
 
   async retrieveGuidance({ session, transcript, facts, query = transcript.raw_text }) {
@@ -996,12 +1107,13 @@ export class AuthoritativeCaptureService {
   }
 
   async reviewItems(session, transcript) {
+    let proposedItems;
+    let confirmationRequirements = [];
     if (session.context_binding.scope_id === 'HVAC') {
       const review = await buildTranscriptCorrectionCandidates({ rawText: transcript.raw_text });
-      return review.candidates.map((candidate) => ({
+      proposedItems = review.candidates.map((candidate) => ({
         review_item_id: candidate.candidate_id,
         kind: 'CORRECTION',
-        material: true,
         source_span: {
           start: candidate.source_span.start,
           end: candidate.source_span.end,
@@ -1011,37 +1123,54 @@ export class AuthoritativeCaptureService {
         category: candidate.risk || 'CRITICAL_TERMINOLOGY',
         reason: candidate.reason,
       }));
-    }
-    const review = reviewV2Transcript({ scopeId: session.context_binding.scope_id, rawText: transcript.raw_text });
-    const corrections = review.correction_suggestions.map((item) => ({
-      review_item_id: item.correction_id,
-      kind: 'CORRECTION',
-      material: true,
-      source_span: { start: item.start, end: item.end, quote: item.source_text },
-      proposed_text: item.suggested_text,
-      category: item.category,
-      reason: item.reason,
-    }));
-    const confirmations = review.confirmation_questions.flatMap((item) => {
-      const quote = String(item.source_text || '');
-      const start = transcript.raw_text.indexOf(quote);
-      if (!quote || start < 0) return [];
-      return [{
-        review_item_id: item.question_id,
-        kind: 'CONFIRMATION',
-        material: true,
-        source_span: { start, end: start + quote.length, quote },
-        proposed_text: null,
-        category: item.field || 'CRITICAL_TERMINOLOGY',
+    } else {
+      const review = reviewV2Transcript({ scopeId: session.context_binding.scope_id, rawText: transcript.raw_text });
+      proposedItems = review.correction_suggestions.map((item) => ({
+        review_item_id: item.correction_id,
+        kind: 'CORRECTION',
+        source_span: { start: item.start, end: item.end, quote: item.source_text },
+        proposed_text: item.suggested_text,
+        category: item.category,
         reason: item.reason,
+      }));
+      confirmationRequirements = review.confirmation_questions.flatMap((item) => {
+        const quote = String(item.source_text || '');
+        const start = transcript.raw_text.indexOf(quote);
+        if (!quote || start < 0) return [];
+        return [{
+          requirement_id: item.question_id,
+          field_id: item.field,
+          source_span: { start, end: start + quote.length, quote },
+          reason: item.reason,
+        }];
+      });
+    }
+    if (!proposedItems.length) return { items: [], confirmationRequirements };
+    const rawFacts = await this.extractFacts({ session, transcript });
+    const items = [];
+    for (const item of proposedItems) {
+      const projection = correctedTextProjection(transcript.raw_text, [item], [{ review_item_id: item.review_item_id, decision: 'ACCEPT' }]);
+      const confirmedCorrections = [{
+        correction_id: item.review_item_id,
+        source_span: { start: item.source_span.start, end: item.source_span.end, text: item.source_span.quote },
+        candidate: item.proposed_text,
+        status: 'CONFIRMED_BY_TECHNICIAN',
       }];
-    });
-    return [...corrections, ...confirmations];
+      const proposedFacts = await this.extractFacts({
+        session,
+        transcript,
+        extractionText: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
+        confirmedCorrections,
+      });
+      const impact = compareReportClaimImpact({ rawFacts, proposedFacts });
+      if (impact.material) items.push({ ...item, ...impact });
+    }
+    return { items, confirmationRequirements };
   }
 
   async finishTranscript({ session, evidence, transcript, supportType }) {
     await this.sessionStore.putRecord('transcripts', transcript.transcript_id, transcript);
-    const items = await this.reviewItems(session, transcript);
+    const { items, confirmationRequirements } = await this.reviewItems(session, transcript);
     if (items.length) {
       const review = createTranscriptReview({
         session_id: session.session_id,
@@ -1050,6 +1179,7 @@ export class AuthoritativeCaptureService {
         status: 'PENDING',
         items,
         decisions: [],
+        confirmation_requirements: confirmationRequirements,
       });
       await this.sessionStore.putRecord('transcript-reviews', review.review_id, review);
       const pending = await this.sessionStore.transition({
@@ -1075,7 +1205,9 @@ export class AuthoritativeCaptureService {
         next_action: 'REVIEW_TRANSCRIPT',
       };
     }
-    const { spans, candidates, facts } = await this.extractCandidates({ session, transcript, supportType });
+    const { spans, candidates, facts } = await this.extractCandidates({
+      session, transcript, supportType, confirmationRequirements,
+    });
     const guided = await this.retrieveGuidance({ session, transcript, facts });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
@@ -1148,8 +1280,10 @@ export class AuthoritativeCaptureService {
       status: 'REVIEWED',
       items: pending.items,
       decisions: normalized,
+      confirmation_requirements: pending.confirmation_requirements,
       reviewer_principal_ref: 'principal:demo-technician',
       reviewed_at: this.clock(),
+      effective_projection_hash: hashContract(correctedTextProjection(transcript.raw_text, pending.items, normalized).effectiveText),
     });
     await this.sessionStore.putRecord('transcript-reviews', review.review_id, review);
     const projection = correctedTextProjection(transcript.raw_text, pending.items, normalized);
@@ -1164,6 +1298,9 @@ export class AuthoritativeCaptureService {
       }];
     });
     const supportType = transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE';
+    const acceptedItems = pending.items.filter((item) => normalized.some((decision) => (
+      decision.review_item_id === item.review_item_id && decision.decision === 'ACCEPT'
+    )));
     const extraction = await this.extractCandidates({
       session,
       transcript,
@@ -1171,6 +1308,12 @@ export class AuthoritativeCaptureService {
       extractionText: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
       mapSourceSpan: session.context_binding.scope_id === 'HVAC' ? (span) => span : projection.mapSpan,
       confirmedCorrections,
+      confirmationRequirements: pending.confirmation_requirements,
+      correctionContext: acceptedItems.length ? {
+        transcript_review_id: review.review_id,
+        effective_projection_hash: review.effective_projection_hash,
+        items: acceptedItems,
+      } : null,
     });
     const { spans, candidates, facts } = extraction;
     const guided = await this.retrieveGuidance({

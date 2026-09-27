@@ -1,5 +1,5 @@
 import { PcmWavRecorder } from './audio-recorder.js';
-import { deriveWorkspaceView } from './report-workspace-view.js';
+import { deriveReportHistoryRow, deriveWorkspaceView, sortReportHistoryItems } from './report-workspace-view.js';
 import { createReportWorkspaceRegistry, registerRuntimeTemplate } from './report-runtime.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
 
@@ -37,6 +37,7 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     attachmentStatus: '',
     editingField: null,
     reviewFullReport: false,
+    history: null,
   };
 }
 
@@ -46,6 +47,7 @@ for (const property of [
   'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
+  'history',
 ]) {
   Object.defineProperty(state, property, {
     get() { return activeWorkspace()?.[property] ?? null; },
@@ -200,16 +202,19 @@ function renderManager() {
 
 function renderReports() {
   const list = $('template-report-list'); list.replaceChildren();
-  const workspaces = workspaceRegistry.list().filter(({ workspace }) => workspace.session || workspace.activeTemplate);
+  const workspaces = sortReportHistoryItems(workspaceRegistry.list().filter(({ workspace }) => workspace.session || workspace.activeTemplate));
   if (!workspaces.length) {
-    const empty = element('div', 'report-list-empty'); empty.append(element('strong', '', 'No report in this browser session'), element('p', '', 'Start a new report to begin.')); list.append(empty); return;
+    const empty = element('div', 'report-list-empty'); empty.append(element('strong', '', 'No reports yet'), element('p', '', 'Start a new report to begin.')); list.append(empty); return;
   }
   for (const { workspace } of workspaces) {
-    const row = element('article', 'manager-row'); const identity = element('div');
-    const complete = workspace.agentState?.completeness?.complete_fields?.length || 0;
-    const runtimeStatus = workspace === recorderWorkspace ? 'RECORDING' : workspace.processing || workspace.session?.phase || 'LOADING';
-    identity.append(element('strong', '', workspace.activeTemplate.name), element('p', '', `${complete} fields complete`));
-    row.append(identity, element('span', '', runtimeStatus.replaceAll('_', ' ')));
+    const row = element('article', 'manager-row report-history-row'); const identity = element('div');
+    const historyRow = deriveReportHistoryRow(workspace.history || {
+      template: { display_name: workspace.activeTemplate.name },
+      created_at: workspace.session?.created_at,
+      status: { label: workspace.processing ? 'Processing' : 'In progress' },
+    });
+    identity.append(element('strong', '', historyRow.title), element('p', '', historyRow.secondary));
+    row.append(identity, element('span', 'report-history-status', historyRow.status));
     const open = element('button', 'secondary', 'Open'); open.addEventListener('click', async () => {
       await refreshSession(workspace);
       activateWorkspace(workspace);
@@ -251,10 +256,18 @@ async function restoreReportWorkspaces() {
       item.templateId === session.template_binding.template_id
       && item.templateVersion === session.template_binding.template_version
     ));
-    if (!template || workspaceRegistry.get(session.session_id)) continue;
+    if (!template) continue;
+    const existing = workspaceRegistry.get(session.session_id);
+    if (existing) {
+      existing.session = session;
+      existing.agentState = report.agent_state;
+      existing.history = report.history || result.history?.find((item) => item.session_id === session.session_id) || null;
+      continue;
+    }
     const workspace = createWorkspace(template, session.session_id);
     workspace.session = session;
     workspace.agentState = report.agent_state;
+    workspace.history = report.history || result.history?.find((item) => item.session_id === session.session_id) || null;
     workspaceRegistry.register(workspace.key, workspace);
   }
   $('template-reports-nav').hidden = workspaceRegistry.list().length === 0;
@@ -370,10 +383,10 @@ function processingTitle(kind) {
 }
 
 function renderCorrection(panel, task) {
-  const correction = task.correction; panel.append(element('p', 'eyebrow', 'CHECK WHAT WE HEARD'), element('h3', '', 'Is this correction right?'));
+  const correction = task.correction; panel.append(element('p', 'eyebrow', 'CHECK WHAT WE HEARD'), element('h3', '', 'Is this interpretation right?'));
   panel.lastChild.id = 'active-task-title';
   const comparison = element('div', 'correction-comparison');
-  comparison.append(element('div', '', `I heard: “${correction.source_span.quote}”`), element('div', '', `Suggested: “${correction.proposed_text || correction.source_span.quote}”`)); panel.append(comparison);
+  comparison.append(element('div', '', `I heard: “${correction.source_span.quote}”`), element('div', '', `Suggested interpretation: “${correction.proposed_text || correction.source_span.quote}”`)); panel.append(comparison);
   const choices = element('div', 'task-choices');
   choices.append(button('Keep original', 'choice-button', () => decideCorrection(correction.review_item_id, 'REJECT')), button('Use correction', 'choice-button', () => decideCorrection(correction.review_item_id, 'ACCEPT'))); panel.append(choices);
 }
@@ -711,7 +724,12 @@ async function init() {
   catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; renderCatalog(); }
 }
 
-document.querySelectorAll('[data-template-nav]').forEach((node) => node.addEventListener('click', () => setView(node.dataset.templateNav)));
+document.querySelectorAll('[data-template-nav]').forEach((node) => node.addEventListener('click', async () => {
+  if (node.dataset.templateNav === 'reports') {
+    try { await restoreReportWorkspaces(); } catch { /* existing history remains available */ }
+  }
+  setView(node.dataset.templateNav);
+}));
 $('template-mobile-menu').addEventListener('click', () => syncMobileNavigation(!document.querySelector('.template-sidebar').classList.contains('open')));
 mobileNavigation.addEventListener('change', () => syncMobileNavigation(false));
 $('template-search').addEventListener('input', (event) => renderCatalog(event.target.value));

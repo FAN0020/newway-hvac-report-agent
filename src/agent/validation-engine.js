@@ -79,10 +79,12 @@ export function validateReportFields({ session, template, definitions, report_fi
         }));
       }
     }
-    if (field.state !== 'UNKNOWN' && isSafetyField(field.field_id, definition)) {
+    if (!['UNKNOWN', 'CONFLICT'].includes(field.state)) {
       const selected = candidates.filter((candidate) => field.selected_candidate_ids.includes(candidate.candidate_id));
       const relevant = selected.length ? selected : candidates.filter((candidate) => field.active_candidate_ids.includes(candidate.candidate_id));
-      if (!relevant.some((candidate) => candidate.support_type === 'TECHNICIAN_CONFIRMATION')) {
+      const requiresConfirmation = isSafetyField(field.field_id, definition)
+        || relevant.some((candidate) => candidate.risk_class === 'CRITICAL');
+      if (requiresConfirmation && !relevant.some((candidate) => candidate.support_type === 'TECHNICIAN_CONFIRMATION')) {
         issues.push(issue({
           code: 'CRITICAL_CONFIRMATION_REQUIRED', issue_type: 'SAFETY_CONFIRMATION', severity: 'CRITICAL', blocking: true,
           field_id: field.field_id, candidate_ids: relevant.map((candidate) => candidate.candidate_id), evidence_refs: refs(relevant), reason: `${label} requires explicit human confirmation.`, possible_resolution_type: 'SAFETY_CONFIRMATION',

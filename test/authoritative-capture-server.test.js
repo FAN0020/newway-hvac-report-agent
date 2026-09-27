@@ -131,6 +131,10 @@ test('HTTP lists persisted ReportSessions so the Reports workspace can recover a
     second.body.data.session.session_id,
   ]));
   assert.equal(listed.body.data.sessions.every((session) => session.authority === 'SERVER'), true);
+  assert.equal(Array.isArray(listed.body.data.history), true);
+  assert.equal(listed.body.data.history.length, 2);
+  assert.equal(listed.body.data.history.every((report) => report.template.display_name === 'Bus Defect Rectification / Corrective Maintenance'), true);
+  assert.equal(listed.body.data.history.every((report) => report.status.label === 'Not started'), true);
 });
 
 test('HTTP workspace lifecycle keeps attachments non-authoritative and rejects premature review', async (t) => {

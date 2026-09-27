@@ -125,10 +125,13 @@ export function createTranscriptReview(input = {}) {
       || quote.length !== end - start || transcriptText.slice(start, end) !== quote) {
       throw new ContractValidationError(`items[${index}] requires an exact transcript source span.`, code);
     }
+    const material = item.material === true;
     return {
       review_item_id: requiredString(item.review_item_id, `items[${index}].review_item_id`, code),
       kind: enumValue(item.kind, ['CORRECTION', 'CONFIRMATION'], `items[${index}].kind`, code),
-      material: item.material === true,
+      material,
+      impact_class: enumValue(item.impact_class || (material ? 'MATERIAL' : 'NON_MATERIAL'), ['MATERIAL', 'NON_MATERIAL'], `items[${index}].impact_class`, code),
+      affected_fields: stringArray(item.affected_fields || [], `items[${index}].affected_fields`, { code }),
       source_span: { start, end, quote },
       proposed_text: item.proposed_text === null || item.proposed_text === undefined ? null : requiredString(item.proposed_text, `items[${index}].proposed_text`, code),
       category: requiredString(item.category || 'CRITICAL_TERMINOLOGY', `items[${index}].category`, code),
@@ -140,6 +143,21 @@ export function createTranscriptReview(input = {}) {
     decision: enumValue(decision?.decision, REVIEW_DECISIONS, `decisions[${index}].decision`, code),
     ...(decision?.corrected_text !== undefined ? { corrected_text: String(decision.corrected_text) } : {}),
   }));
+  const confirmationRequirements = (input.confirmation_requirements || []).map((item, index) => {
+    const start = Number(item?.source_span?.start);
+    const end = Number(item?.source_span?.end);
+    const quote = String(item?.source_span?.quote ?? '');
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end <= start
+      || quote.length !== end - start || transcriptText.slice(start, end) !== quote) {
+      throw new ContractValidationError(`confirmation_requirements[${index}] requires an exact transcript source span.`, code);
+    }
+    return {
+      requirement_id: requiredString(item.requirement_id, `confirmation_requirements[${index}].requirement_id`, code),
+      field_id: requiredString(item.field_id, `confirmation_requirements[${index}].field_id`, code),
+      source_span: { start, end, quote },
+      reason: requiredString(item.reason, `confirmation_requirements[${index}].reason`, code),
+    };
+  });
   if (items.length) {
     const itemIds = new Set(items.map((item) => item.review_item_id));
     const decisionIds = new Set(decisions.map((decision) => decision.review_item_id));
@@ -153,9 +171,14 @@ export function createTranscriptReview(input = {}) {
     contract_version: '1',
     session_id: requiredString(input.session_id, 'session_id', code),
     transcript_id: requiredString(input.transcript_id, 'transcript_id', code),
+    raw_text_hash: hashContract(transcriptText),
     status,
     items,
     decisions,
+    confirmation_requirements: confirmationRequirements,
+    effective_projection_hash: status === 'REVIEWED'
+      ? requiredString(input.effective_projection_hash || hashContract(transcriptText), 'effective_projection_hash', code)
+      : null,
     reviewer_principal_ref: status === 'REVIEWED'
       ? requiredString(input.reviewer_principal_ref, 'reviewer_principal_ref', code)
       : null,

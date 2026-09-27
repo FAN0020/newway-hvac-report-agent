@@ -329,7 +329,57 @@ test('material domain terminology enters CORRECTION_IF_NEEDED without creating s
   assert.equal(result.review.status, 'PENDING');
   assert.ok(result.review.items.some((item) => item.proposed_text === 'MAN A95'));
   const item = result.review.items.find((candidate) => candidate.proposed_text === 'MAN A95');
+  assert.equal(item.impact_class, 'MATERIAL');
+  assert.deepEqual(item.affected_fields, ['asset.bus_model', 'inspection_findings']);
   assert.equal(result.transcript.raw_text.slice(item.source_span.start, item.source_span.end), item.source_span.quote);
+});
+
+test('a correction outside mapped report claims does not interrupt the technician', async (t) => {
+  const { service } = await fixture(t, 'non-material-review');
+  const created = await service.createSession({
+    template_id: 'hvac-service-report',
+    template_version: '1.0.0',
+    job_context_ref: 'job-context:HVAC-NON-MATERIAL',
+  });
+  const captured = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: 0,
+    text: '备注：制冷记。',
+    language: 'zh',
+  });
+
+  assert.equal(captured.session.phase, 'RESOLVE');
+  assert.equal(captured.review, null);
+  assert.equal(captured.next_action, 'RESOLVE_REPORT_FIELDS');
+  assert.deepEqual(captured.candidates, []);
+});
+
+test('fact confirmations use ResolveQueue instead of masquerading as transcript corrections', async (t) => {
+  const { service } = await fixture(t, 'fact-confirmation');
+  const created = await busSession(service, 'FACT-CONFIRMATION');
+  const captured = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: 0,
+    text: 'Bus SG3050Z had a door fault.',
+    language: 'en',
+  });
+
+  assert.equal(captured.session.phase, 'RESOLVE');
+  assert.equal(captured.review, null);
+  const resolution = captured.agent_state.resolution_queue.find((item) => item.field_id === 'asset.registration_no');
+  assert.equal(resolution.type, 'SAFETY_CONFIRMATION');
+  assert.equal(resolution.answer_type, 'CONFIRM_OR_REPLACE');
+  const source = captured.candidates.find((candidate) => candidate.field_id === 'asset.registration_no');
+  const confirmed = await service.answerResolutionItem({
+    session_id: captured.session.session_id,
+    expected_revision: captured.session.revision,
+    resolution_id: resolution.resolution_id,
+    answer: { kind: 'SELECT_CANDIDATE', candidate_id: source.candidate_id },
+    idempotency_key: 'confirm-registration-identity',
+  });
+
+  assert.equal(confirmed.candidate.support_type, 'TECHNICIAN_CONFIRMATION');
+  assert.equal(confirmed.candidate.confirmed_candidate_id, confirmed.source_candidate.candidate_id);
 });
 
 test('rejecting a material correction preserves raw text and records immutable server-owned decision history', async (t) => {
@@ -392,6 +442,13 @@ test('accepting a material correction preserves raw evidence while candidates re
   assert.equal(decided.transcript.raw_text, rawText);
   assert.equal(decided.review.decisions[0].corrected_text, 'MAN A95');
   assert.equal(model.claim.value, 'MAN A95');
+  assert.equal(model.correction_provenance.transcript_review_id, decided.review.review_id);
+  assert.equal(model.correction_provenance.raw_text_hash, decided.transcript.text_hash);
+  assert.match(model.correction_provenance.effective_projection_hash, /^sha256:[a-f0-9]{64}$/u);
+  assert.deepEqual(model.correction_provenance.decisions, [{
+    review_item_id: item.review_item_id,
+    decision: 'ACCEPT',
+  }]);
   assert.equal(rawText.slice(span.start_offset, span.end_offset), 'Bus MAN 9-5 had a door fault');
   assert.equal(span.quote_hash.startsWith('sha256:'), true);
   assert.equal((await sessionStore.loadChain(created.session.session_id)).transcripts[0].raw_text, rawText);

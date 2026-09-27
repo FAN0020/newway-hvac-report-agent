@@ -68,6 +68,25 @@ function candidateBody(input, supportType, confirmation = {}) {
     resolved_candidate_ids: stringArray(input.resolution.resolved_candidate_ids || [], 'resolution.resolved_candidate_ids', { code }),
     answer_kind: requiredString(input.resolution.answer_kind, 'resolution.answer_kind', code),
   };
+  const correctionProvenance = input.correction_provenance === undefined || input.correction_provenance === null ? null : {
+    transcript_review_id: requiredString(input.correction_provenance.transcript_review_id, 'correction_provenance.transcript_review_id', code),
+    raw_text_hash: requiredString(input.correction_provenance.raw_text_hash, 'correction_provenance.raw_text_hash', code),
+    effective_projection_hash: requiredString(input.correction_provenance.effective_projection_hash, 'correction_provenance.effective_projection_hash', code),
+    decisions: (input.correction_provenance.decisions || []).map((decision, index) => ({
+      review_item_id: requiredString(decision?.review_item_id, `correction_provenance.decisions[${index}].review_item_id`, code),
+      decision: enumValue(decision?.decision, ['ACCEPT'], `correction_provenance.decisions[${index}].decision`, code),
+    })),
+  };
+  if (correctionProvenance) {
+    for (const key of ['raw_text_hash', 'effective_projection_hash']) {
+      if (!/^sha256:[a-f0-9]{64}$/u.test(correctionProvenance[key])) {
+        throw new ContractValidationError(`correction_provenance.${key} must be a SHA-256 digest.`, code);
+      }
+    }
+    if (!correctionProvenance.decisions.length) {
+      throw new ContractValidationError('correction_provenance requires at least one accepted decision.', code);
+    }
+  }
   return {
     contract: 'FieldCandidate',
     contract_version: '1',
@@ -92,6 +111,8 @@ function candidateBody(input, supportType, confirmation = {}) {
       ['domain', 'context_id', 'context_version', 'scope_id'],
       code,
     ),
+    correction_provenance: correctionProvenance,
+    confirmation_requirement_ids: stringArray(input.confirmation_requirement_ids || [], 'confirmation_requirement_ids', { code }),
     resolution,
     ...confirmation,
   };

@@ -83,6 +83,33 @@ export function resolutionControl(item = {}) {
   };
 }
 
+function historyDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/u);
+  if (!match) return 'Date unavailable';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const date = `${Number(match[3])} ${months[Number(match[2]) - 1]} ${match[1]}`;
+  return match[4] ? `${date}, ${match[4]}:${match[5]}` : date;
+}
+
+export function deriveReportHistoryRow(summary = {}) {
+  const identity = [summary.work_order, summary.asset].filter(Boolean);
+  const dateLabel = summary.service_date ? 'Service' : 'Created';
+  identity.push(`${dateLabel} ${historyDate(summary.service_date || summary.created_at)}`);
+  return {
+    title: summary.template?.display_name || 'Service report',
+    secondary: identity.join(' · '),
+    status: summary.status?.label || 'In progress',
+  };
+}
+
+export function sortReportHistoryItems(items = []) {
+  return [...items].sort((left, right) => {
+    const leftUpdated = left?.workspace?.history?.updated_at || left?.workspace?.session?.updated_at || '';
+    const rightUpdated = right?.workspace?.history?.updated_at || right?.workspace?.session?.updated_at || '';
+    return String(rightUpdated).localeCompare(String(leftUpdated)) || String(left?.key || '').localeCompare(String(right?.key || ''));
+  });
+}
+
 function deriveActiveTask(input) {
   const { session, agent_state: agentState, transcript, transcript_review: review, processing, recoverable_error: error } = input;
   if (!session) return { kind: 'LOADING_CONTEXT', title: 'Loading job…', primary_action: null };
@@ -113,8 +140,9 @@ function deriveActiveTask(input) {
   }
   const pendingCorrection = session.phase === 'CORRECTION_IF_NEEDED' && review?.status === 'PENDING';
   if (pendingCorrection) {
+    const correction = review.items?.find((item) => item.material !== false && item.impact_class !== 'NON_MATERIAL') || null;
     return {
-      kind: 'CORRECTION', title: 'Check what we heard', correction: review.items?.[0] || null,
+      kind: 'CORRECTION', title: 'Check what we heard', correction,
       primary_action: action('DECIDE_CORRECTION', 'Apply decision'),
     };
   }

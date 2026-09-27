@@ -622,8 +622,9 @@ test('ReportSnapshot captures an immutable exact session revision without mixing
     evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_work' }],
   });
   const field = contracts.createReportField({ session_id: session.session_id, field_id: 'work_performed', candidates: [candidate] });
+  const correctedSession = { ...session, transcript_review_ids: ['transcript_review_material_1'] };
   const snapshot = contracts.createReportSnapshot({
-    session,
+    session: correctedSession,
     fields: [field],
     evidence_ids: ['audio_1', 'transcript_1'],
     transcript_ids: ['transcript_1'],
@@ -639,6 +640,7 @@ test('ReportSnapshot captures an immutable exact session revision without mixing
   assert.equal(snapshot.session_revision, 5);
   assert.deepEqual(snapshot.evidence_ids, ['audio_1', 'transcript_1']);
   assert.deepEqual(snapshot.guidance_context_ids, ['guidance_1']);
+  assert.deepEqual(snapshot.transcript_review_ids, ['transcript_review_material_1']);
   assert.equal(snapshot.fields[0].state, 'KNOWN_VALUE');
   assert.equal(Object.isFrozen(snapshot), true);
   assert.equal(Object.isFrozen(snapshot.fields[0].candidates[0].evidence_refs[0]), true);

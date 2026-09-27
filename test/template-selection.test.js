@@ -36,6 +36,23 @@ test('technician catalog contains published allowed templates only', () => {
   assert.equal(selected.some((item) => item.templateId === 'manager-only'), false);
 });
 
+test('predefined templates explicitly bind report-history identity fields', () => {
+  for (const template of listPredefinedTemplates()) {
+    assert.equal(typeof template.historySummary, 'object', template.templateId);
+    assert.equal(Array.isArray(template.historySummary.workOrderFields), true, template.templateId);
+    assert.equal(Array.isArray(template.historySummary.assetFields), true, template.templateId);
+    assert.equal(Array.isArray(template.historySummary.serviceDateFields), true, template.templateId);
+    assert.equal(Array.isArray(template.historySummary.technicianFields), true, template.templateId);
+  }
+  const bus = listPredefinedTemplates().find((item) => item.domain === 'SBS_BUS');
+  assert.deepEqual(bus.historySummary, {
+    workOrderFields: ['work.work_order_id'],
+    assetFields: ['asset.internal_fleet_no', 'asset.registration_no', 'asset.bus_model'],
+    serviceDateFields: ['work.date_time'],
+    technicianFields: ['technician.name'],
+  });
+});
+
 test('search matches display name, organization, domain, family, description, and aliases', () => {
   const templates = listPredefinedTemplates();
   assert.equal(selectTechnicianTemplates(templates, { query: 'Newway' }).length, 1);

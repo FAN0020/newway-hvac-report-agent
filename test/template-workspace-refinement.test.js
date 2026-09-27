@@ -73,6 +73,7 @@ test('responsive and accessibility rules provide focus and practical mobile targ
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.why-required summary[^}]*min-height:\s*44px/s);
   assert.match(css, /\.report-section-fields\s*\{[^}]*repeat\(2,/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-section-fields[^}]*grid-template-columns:\s*1fr/s);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-history-status[^}]*display:\s*block/s);
 });
 
 test('recoverable capture failures preserve work and expose a non-voice alternative', async () => {
