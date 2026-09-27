@@ -82,3 +82,40 @@ test('recoverable capture failures preserve work and expose a non-voice alternat
   assert.match(client, /STALE_REVISION/);
   assert.match(client, /refreshSession\(workspace\)/);
 });
+
+test('confirmed export gives the technician visible completion feedback', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /exportStatus/);
+  assert.match(client, /Export downloaded\./);
+  assert.match(client, /role = 'status'/);
+});
+
+test('successful evidence attachment is visibly acknowledged without becoming a report fact', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /attachmentStatus/);
+  assert.match(client, /Evidence attached:/);
+  assert.match(client, /workspace\.attachmentStatus = `Evidence attached:/);
+});
+
+test('malformed audio asks for a replacement recording instead of claiming transcription can retry', async () => {
+  const [client, view] = await Promise.all([
+    fs.readFile('web/template-app.js', 'utf8'),
+    fs.readFile('web/report-workspace-view.js', 'utf8'),
+  ]);
+  assert.match(client, /AUDIO_UPLOAD/);
+  assert.match(client, /RETRY_AUDIO_UPLOAD/);
+  assert.match(view, /Choose another recording/);
+});
+
+test('local API client reacquires its ephemeral token once after a server restart', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /response\.status === 401/);
+  assert.match(client, /refreshLocalSessionToken/);
+  assert.match(client, /allowReauthentication/);
+});
+
+test('inline field edit mode does not retain duplicate Source or Edit actions', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /const isEditing = state\.editingField === field\.field_id/);
+  assert.match(client, /if \(!isEditing\) \{[\s\S]*field\.has_provenance[\s\S]*phase === 'RESOLVE'/);
+});

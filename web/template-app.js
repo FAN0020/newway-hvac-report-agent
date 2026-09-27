@@ -33,6 +33,8 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     interaction: { statement: '', microphone_available: Boolean(navigator.mediaDevices?.getUserMedia) },
     correctionDecisions: new Map(),
     confirmation: null,
+    exportStatus: '',
+    attachmentStatus: '',
     editingField: null,
     reviewFullReport: false,
   };
@@ -43,7 +45,7 @@ function activeWorkspace() { return workspaceRegistry.active(); }
 for (const property of [
   'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
-  'editingField', 'reviewFullReport',
+  'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
 ]) {
   Object.defineProperty(state, property, {
     get() { return activeWorkspace()?.[property] ?? null; },
@@ -57,6 +59,7 @@ for (const property of [
 
 function activateWorkspace(workspace) {
   workspaceRegistry.activate(workspace.key);
+  rememberActiveSession(workspace);
   $('template-reports-nav').hidden = false;
   setView('workspace');
   renderWorkspace();
@@ -101,13 +104,25 @@ function savedActiveSession() {
 }
 state.recentTemplateIds = loadRecentTemplateIds();
 
-async function api(pathname, options = {}) {
+async function refreshLocalSessionToken() {
+  const response = await fetch('/session-bootstrap', { method: 'POST' });
+  const payload = await response.json();
+  if (!response.ok || !payload.token) throw new Error(payload.data?.message || 'Local session could not be refreshed.');
+  state.token = payload.token;
+  return state.token;
+}
+
+async function api(pathname, options = {}, allowReauthentication = true) {
   const headers = { ...(options.headers || {}), authorization: `Bearer ${state.token}` };
   let body = options.body;
   if (body !== undefined && !(body instanceof Blob) && !(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body)) {
     headers['content-type'] = 'application/json'; body = JSON.stringify(body);
   }
   const response = await fetch(pathname, { ...options, headers, body });
+  if (response.status === 401 && allowReauthentication) {
+    await refreshLocalSessionToken();
+    return api(pathname, options, false);
+  }
   const payload = await response.json();
   if (!response.ok || payload.status === 'FAIL') {
     const error = new Error(payload.data?.message || payload.error_code || `Request failed (${response.status})`);
@@ -195,7 +210,10 @@ function renderReports() {
     const runtimeStatus = workspace === recorderWorkspace ? 'RECORDING' : workspace.processing || workspace.session?.phase || 'LOADING';
     identity.append(element('strong', '', workspace.activeTemplate.name), element('p', '', `${complete} fields complete`));
     row.append(identity, element('span', '', runtimeStatus.replaceAll('_', ' ')));
-    const open = element('button', 'secondary', 'Open'); open.addEventListener('click', () => activateWorkspace(workspace)); row.append(open); list.append(row);
+    const open = element('button', 'secondary', 'Open'); open.addEventListener('click', async () => {
+      await refreshSession(workspace);
+      activateWorkspace(workspace);
+    }); row.append(open); list.append(row);
   }
 }
 
@@ -220,7 +238,26 @@ async function refreshSession(workspace = activeWorkspace()) {
   workspace.transcript = chain.transcripts.at(-1) || workspace.transcript;
   workspace.transcriptReview = chain.transcript_reviews.at(-1) || null;
   workspace.confirmation = chain.confirmation || workspace.confirmation;
-  rememberActiveSession(workspace);
+  const latestAttachment = chain.evidence.filter((item) => item.evidence_type === 'DOCUMENT').at(-1);
+  if (latestAttachment?.metadata?.filename) workspace.attachmentStatus = `Evidence attached: ${latestAttachment.metadata.filename}.`;
+  if (activeWorkspace() === workspace) rememberActiveSession(workspace);
+}
+
+async function restoreReportWorkspaces() {
+  const result = await api('/api/report-sessions');
+  for (const report of result.reports || []) {
+    const session = report.session;
+    const template = state.templates.find((item) => (
+      item.templateId === session.template_binding.template_id
+      && item.templateVersion === session.template_binding.template_version
+    ));
+    if (!template || workspaceRegistry.get(session.session_id)) continue;
+    const workspace = createWorkspace(template, session.session_id);
+    workspace.session = session;
+    workspace.agentState = report.agent_state;
+    workspaceRegistry.register(workspace.key, workspace);
+  }
+  $('template-reports-nav').hidden = workspaceRegistry.list().length === 0;
 }
 
 function button(label, className, handler) {
@@ -258,7 +295,8 @@ function showProvenance(fieldId) {
 function renderField(section, field) {
   const row = element('div', `report-field state-${field.state.toLowerCase()}`);
   const copy = element('div', 'report-field-copy'); copy.append(element('span', 'field-name', field.name));
-  if (state.editingField === field.field_id) {
+  const isEditing = state.editingField === field.field_id;
+  if (isEditing) {
     const input = element('input'); input.value = field.value === '—' ? '' : field.value; input.setAttribute('aria-label', `Edit ${field.name}`);
     const actions = element('div', 'field-edit-actions');
     actions.append(button('Cancel', 'text-button', () => { state.editingField = null; renderWorkspace(); }), button('Save', 'secondary', () => saveField(field.field_id, input.value)));
@@ -274,8 +312,10 @@ function renderField(section, field) {
     copy.append(meta);
   }
   const actions = element('div', 'report-field-actions');
-  if (field.has_provenance) actions.append(button('Source', 'text-button', () => showProvenance(field.field_id)));
-  if (state.session?.phase === 'RESOLVE') actions.append(button('Edit', 'text-button', () => { state.editingField = field.field_id; renderWorkspace(); }));
+  if (!isEditing) {
+    if (field.has_provenance) actions.append(button('Source', 'text-button', () => showProvenance(field.field_id)));
+    if (state.session?.phase === 'RESOLVE') actions.append(button('Edit', 'text-button', () => { state.editingField = field.field_id; renderWorkspace(); }));
+  }
   row.append(copy, actions); return row;
 }
 
@@ -310,6 +350,7 @@ function renderCapture(panel, task) {
   const upload = button('Upload recording', 'secondary', () => $('workspace-audio-upload').click());
   const attach = button('Attach evidence', 'text-button', () => $('workspace-attachment-dialog').showModal());
   actions.append(submit, upload, attach); panel.append(actions);
+  if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
   if (!state.interaction.microphone_available) panel.append(element('p', 'task-note', 'Microphone unavailable. Type a statement or upload a recording.'));
   else if (microphoneInUseElsewhere) panel.append(element('p', 'task-note', 'The microphone is recording another report. You can continue with text here or return to that report to stop it.'));
 }
@@ -389,6 +430,7 @@ function renderResolution(panel, task) {
     panel.append(transcript);
   }
   if (item.reason) { const why = element('details', 'why-required'); why.append(element('summary', '', 'Why is this required?'), element('p', '', item.reason)); panel.append(why); }
+  if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
 }
 
 function renderReview(panel) {
@@ -410,7 +452,9 @@ function renderActiveTask(view) {
     panel.children[1].id = 'active-task-title'; panel.append(button('Confirm report', 'primary', confirmReport)); return;
   }
   if (task.kind === 'CONFIRMED') {
-    panel.append(element('p', 'success-kicker', '✓ Confirmed'), element('h3', '', task.title)); panel.lastChild.id = 'active-task-title'; panel.append(button('Export report', 'primary', exportReport)); return;
+    panel.append(element('p', 'success-kicker', '✓ Confirmed'), element('h3', '', task.title)); panel.lastChild.id = 'active-task-title'; panel.append(button('Export report', 'primary', exportReport));
+    if (state.exportStatus) { const status = element('p', 'task-note', state.exportStatus); status.role = 'status'; panel.append(status); }
+    return;
   }
   if (task.kind === 'RECOVERABLE_ERROR') {
     panel.append(element('p', 'error-kicker', 'Action needed'), element('h3', '', task.title), element('p', 'task-note', task.message)); panel.children[1].id = 'active-task-title';
@@ -490,7 +534,13 @@ function handleMutationError(error, kind = 'NETWORK', fallback = 'Your saved wor
   if (!workspace) return;
   if (error.code === 'STALE_REVISION') { workspace.recoverableError = { kind: 'STALE_REVISION', message: 'This report changed elsewhere. Refresh to continue.', retry_action: 'REFRESH_SESSION' }; return; }
   const message = kind === 'NETWORK' ? 'Connection interrupted. Try again when your connection returns.' : error.message || fallback;
-  workspace.recoverableError = { kind, message, retry_action: kind === 'UPLOAD' ? 'RETRY_ATTACHMENT' : kind === 'STT' ? 'RETRY_TRANSCRIPTION' : 'RETRY_CONNECTION' };
+  workspace.recoverableError = {
+    kind,
+    message,
+    retry_action: kind === 'UPLOAD' ? 'RETRY_ATTACHMENT'
+      : kind === 'AUDIO_UPLOAD' ? 'RETRY_AUDIO_UPLOAD'
+        : kind === 'STT' ? 'RETRY_TRANSCRIPTION' : 'RETRY_CONNECTION',
+  };
 }
 
 async function decideCorrection(reviewItemId, decision) {
@@ -569,7 +619,10 @@ async function uploadAudio(blob, workspace = activeWorkspace()) {
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     if (result.failure) workspace.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.', retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence.evidence_id };
     else { setProcessing('CHECKING_COMPLETENESS', workspace); await refreshSession(workspace); await enterReviewIfComplete(workspace); }
-  } catch (error) { handleMutationError(error, 'STT', undefined, workspace); }
+  } catch (error) {
+    const kind = !error.status ? 'NETWORK' : error.status < 500 ? 'AUDIO_UPLOAD' : 'STT';
+    handleMutationError(error, kind, undefined, workspace);
+  }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
@@ -585,6 +638,7 @@ async function retryActiveTask() {
   } catch (retryError) { handleMutationError(retryError, error.kind, undefined, workspace); }
   renderWorkspaceIfActive(workspace);
   if (activeWorkspace() === workspace && error.kind === 'UPLOAD' && !workspace.recoverableError) $('workspace-attachment-dialog').showModal();
+  if (activeWorkspace() === workspace && error.kind === 'AUDIO_UPLOAD' && !workspace.recoverableError) $('workspace-audio-upload').click();
   if (activeWorkspace() === workspace && error.kind === 'STT' && !error.evidence_id && !workspace.recoverableError) $('workspace-audio-upload').click();
 }
 
@@ -611,6 +665,7 @@ async function exportReport() {
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/export`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
     const text = result.export_text || result.text || JSON.stringify(result, null, 2); const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = element('a'); link.href = url; link.download = `${workspace.activeTemplate.templateId}.txt`; link.click(); URL.revokeObjectURL(url);
+    workspace.exportStatus = 'Export downloaded.'; renderWorkspaceIfActive(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
@@ -618,7 +673,7 @@ async function attachEvidence(file, purpose) {
   const workspace = activeWorkspace();
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/attachments`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name, 'x-attachment-purpose': purpose, 'x-expected-revision': String(workspace.session.revision) }, body: file });
-    workspace.session = result.session; workspace.agentState = result.agent_state; await refreshSession(workspace); renderWorkspaceIfActive(workspace);
+    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.attachmentStatus = `Evidence attached: ${file.name}.`; await refreshSession(workspace); renderWorkspaceIfActive(workspace);
   } catch (error) { handleMutationError(error, 'UPLOAD', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
@@ -641,15 +696,14 @@ async function publishSetup() { try { const data = await api(`/api/templates/dra
 async function init() {
   state.templatesLoading = true; renderCatalog();
   try {
-    const bootstrap = await fetch('/session-bootstrap', { method: 'POST' }).then((response) => response.json()); state.token = bootstrap.token;
+    await refreshLocalSessionToken();
     const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template);
     state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local';
+    await restoreReportWorkspaces();
     const saved = savedActiveSession();
-    const template = saved && state.templates.find((item) => item.templateId === saved.template_id);
-    if (saved && template) {
-      const workspace = createWorkspace(template, saved.session_id);
-      workspace.session = { session_id: saved.session_id };
-      workspaceRegistry.register(workspace.key, workspace); workspaceRegistry.activate(workspace.key); $('template-reports-nav').hidden = false;
+    const workspace = saved && workspaceRegistry.get(saved.session_id);
+    if (workspace) {
+      workspaceRegistry.activate(workspace.key);
       try { await refreshSession(workspace); setView('workspace'); renderWorkspace(); }
       catch { sessionStorage.removeItem(ACTIVE_SESSION_KEY); }
     }

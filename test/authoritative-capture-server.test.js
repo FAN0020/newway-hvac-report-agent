@@ -118,6 +118,21 @@ test('HTTP text capture persists an authoritative template-bound evidence chain'
   assert.ok(loaded.body.data.audit_events.length >= 4);
 });
 
+test('HTTP lists persisted ReportSessions so the Reports workspace can recover after refresh', async (t) => {
+  const { request, restart } = await fixture(t, 'list-sessions');
+  const first = await createBusSession(request, 'LIST-1');
+  const second = await createBusSession(request, 'LIST-2');
+  await restart();
+
+  const listed = await request('/api/report-sessions');
+  assert.equal(listed.status, 200);
+  assert.deepEqual(new Set(listed.body.data.sessions.map((session) => session.session_id)), new Set([
+    first.body.data.session.session_id,
+    second.body.data.session.session_id,
+  ]));
+  assert.equal(listed.body.data.sessions.every((session) => session.authority === 'SERVER'), true);
+});
+
 test('HTTP workspace lifecycle keeps attachments non-authoritative and rejects premature review', async (t) => {
   const { request } = await fixture(t, 'workspace-lifecycle');
   const created = await createBusSession(request, 'WORKSPACE');

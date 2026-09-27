@@ -7,7 +7,7 @@ import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
 import { pcmWav } from './helpers.js';
 
-async function fixture(t, name, { whisper } = {}) {
+async function fixture(t, name, { whisper, templateProvider } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-${name}`);
   await fs.rm(root, { recursive: true, force: true });
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -17,10 +17,63 @@ async function fixture(t, name, { whisper } = {}) {
     artifactStore,
     sessionStore,
     whisperProvider: whisper || { transcribe: async () => { throw new Error('Unexpected transcription.'); } },
+    templateProvider,
     clock: () => '2026-09-27T06:00:00.000Z',
   });
   return { root, artifactStore, sessionStore, service };
 }
+
+test('published manual-schema templates open in the authoritative workflow and remain technician-resolvable', async (t) => {
+  const customTemplate = {
+    templateId: 'qa-pump-checklist', name: 'QA Pump Checklist', status: 'PUBLISHED', templateVersion: '1.0.0',
+    domain: 'CUSTOM',
+    schema: {
+      id: 'qa-pump-checklist-schema', version: '1.0.0',
+      fields: [
+        { id: 'asset.id', label: 'Asset ID', section: 'Report fields', type: 'string', required: true },
+        { id: 'inspection.result', label: 'Inspection result', section: 'Report fields', type: 'text', required: true },
+      ],
+    },
+    contextCorpus: { id: 'qa-pump-checklist-context', version: '1.0.0', sources: [] },
+    adapter: { id: 'manual-schema-v1', version: '1.0.0' },
+  };
+  const { service } = await fixture(t, 'custom-template', {
+    templateProvider: async (templateId) => (templateId === customTemplate.templateId ? structuredClone(customTemplate) : null),
+  });
+
+  const created = await service.createSession({
+    template_id: customTemplate.templateId,
+    template_version: customTemplate.templateVersion,
+    job_context_ref: 'new-report:custom-template-test',
+  });
+  assert.equal(created.session.context_binding.scope_id, 'CUSTOM');
+  assert.equal(created.agent_state.resolution_queue.length, 2);
+
+  const captured = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'Pump P-101 was inspected.',
+    language: 'en',
+    idempotency_key: 'custom-template-capture',
+  });
+  assert.equal(captured.transcript.raw_text, 'Pump P-101 was inspected.');
+  assert.equal(captured.candidates.length, 0);
+  assert.equal(captured.agent_state.resolution_queue.length, 2);
+
+  let current = captured;
+  for (const value of ['P-101', 'Inspection completed; no leak observed.']) {
+    const item = current.agent_state.resolution_queue[0];
+    current = await service.answerResolutionItem({
+      session_id: created.session.session_id,
+      expected_revision: current.session.revision,
+      resolution_id: item.resolution_id,
+      answer: { kind: 'VALUE', value },
+      idempotency_key: `custom-template-answer-${item.field_id}`,
+    });
+  }
+  assert.equal(current.agent_state.completeness.complete, true);
+  assert.equal(current.agent_state.resolution_queue.length, 0);
+});
 
 async function busSession(service, suffix = '1') {
   return service.createSession({

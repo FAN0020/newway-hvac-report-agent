@@ -89,6 +89,7 @@ function deriveActiveTask(input) {
   if (error) {
     const labels = {
       RETRY_TRANSCRIPTION: 'Retry transcription', RETRY_ATTACHMENT: 'Try attachment again',
+      RETRY_AUDIO_UPLOAD: 'Choose another recording',
       RETRY_CONNECTION: 'Try again', REFRESH_SESSION: 'Refresh report',
     };
     return {

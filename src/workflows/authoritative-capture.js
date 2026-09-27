@@ -147,6 +147,7 @@ export class AuthoritativeCaptureService {
     uploadStore,
     retriever,
     jobContextProvider,
+    templateProvider,
     exportWriter,
     clock = () => new Date().toISOString(),
   } = {}) {
@@ -161,8 +162,19 @@ export class AuthoritativeCaptureService {
     this.uploadStore = uploadStore || null;
     this.retriever = retriever || null;
     this.jobContextProvider = jobContextProvider || null;
+    this.templateProvider = templateProvider || null;
     this.exportWriter = exportWriter || ((snapshotId, text) => this.sessionStore.writeOfficialExport(snapshotId, text));
     this.clock = clock;
+  }
+
+  async resolveTemplate(templateId) {
+    try {
+      return templateFor(templateId);
+    } catch {
+      const provided = this.templateProvider ? await this.templateProvider(templateId) : null;
+      if (!provided) throw workflowError('Published template was not found.', 'TEMPLATE_NOT_FOUND', 404);
+      return structuredClone(provided);
+    }
   }
 
   async guidanceDependencies() {
@@ -228,12 +240,7 @@ export class AuthoritativeCaptureService {
   }
 
   async createSession({ template_id: templateId, template_version: templateVersion, job_context_ref: jobContextRef } = {}) {
-    let template;
-    try {
-      template = templateFor(templateId);
-    } catch {
-      throw workflowError('Published template was not found.', 'TEMPLATE_NOT_FOUND', 404);
-    }
+    const template = await this.resolveTemplate(templateId);
     if (template.templateVersion !== String(templateVersion || '')) {
       throw workflowError('Requested template version does not match the published template.', 'TEMPLATE_VERSION_MISMATCH', 409);
     }
@@ -242,7 +249,7 @@ export class AuthoritativeCaptureService {
       session_id: `session_${crypto.randomUUID()}`,
       template_binding: { template_id: template.templateId, template_version: template.templateVersion },
       context_binding: {
-        context_id: CONTEXT_BY_SCOPE[scopeId],
+        context_id: CONTEXT_BY_SCOPE[scopeId] || template.contextCorpus.id,
         context_version: template.contextCorpus.version,
         scope_id: scopeId,
       },
@@ -324,7 +331,7 @@ export class AuthoritativeCaptureService {
     const chain = await this.sessionStore.loadChain(session.session_id);
     const agentState = runAuthoritativeAgent({
       session,
-      template: templateFor(session.template_binding.template_id),
+      template: await this.resolveTemplate(session.template_binding.template_id),
       candidates: chain.field_candidates,
       guidance_contexts: chain.guidance_contexts,
       created_at: this.clock(),
@@ -387,7 +394,7 @@ export class AuthoritativeCaptureService {
     const output = buildAuthoritativeReport({
       session: computed.session,
       agentState: computed.agent_state,
-      template: templateFor(computed.session.template_binding.template_id),
+      template: await this.resolveTemplate(computed.session.template_binding.template_id),
     });
     const validationBody = {
       contract: 'ValidationReceipt', contract_version: '1', authority: 'SERVER',
@@ -441,7 +448,7 @@ export class AuthoritativeCaptureService {
     const output = buildAuthoritativeReport({
       session: current.session,
       agentState: current.agent_state,
-      template: templateFor(session.template_binding.template_id),
+      template: await this.resolveTemplate(session.template_binding.template_id),
     });
     const validation = await this.sessionStore.readRecord('validation-receipts', session.validation_ref);
     if (validation.session_id !== session.session_id
@@ -590,7 +597,8 @@ export class AuthoritativeCaptureService {
   }
 
   async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [] }) {
-    const template = templateFor(session.template_binding.template_id);
+    const template = await this.resolveTemplate(session.template_binding.template_id);
+    if (template.adapter?.id === 'manual-schema-v1') return { spans: [], candidates: [], facts: [] };
     let facts;
     if (session.context_binding.scope_id === 'HVAC') {
       const extracted = await extractServiceFacts({
@@ -665,6 +673,7 @@ export class AuthoritativeCaptureService {
   }
 
   async retrieveGuidance({ session, transcript, facts, query = transcript.raw_text }) {
+    if (!CONTEXT_BY_SCOPE[session.context_binding.scope_id]) return { session, guidanceContext: null };
     const dependencies = await this.guidanceDependencies();
     if (!dependencies) return { session, guidanceContext: null };
     const retrieval = await dependencies.retriever({
@@ -744,7 +753,7 @@ export class AuthoritativeCaptureService {
     if (session.phase !== 'RESOLVE') {
       throw workflowError('Technician field answers are accepted only during Resolve.', 'FIELD_ANSWER_PHASE_MISMATCH', 409);
     }
-    const template = templateFor(session.template_binding.template_id);
+    const template = await this.resolveTemplate(session.template_binding.template_id);
     const normalizedFieldId = String(fieldId || '').trim();
     const definition = template.schema.fields.find((item) => (
       item.id.endsWith('.*') ? normalizedFieldId.startsWith(item.id.slice(0, -1)) : normalizedFieldId === item.id
@@ -928,7 +937,7 @@ export class AuthoritativeCaptureService {
     const span = createEvidenceSpan({
       evidence_id: evidence.evidence_id, start_offset: 0, end_offset: sourceText.length, quote: sourceText, source_text: sourceText,
     });
-    const template = templateFor(session.template_binding.template_id);
+    const template = await this.resolveTemplate(session.template_binding.template_id);
     const definition = template.schema.fields.find((entry) => entry.id === item.field_id || (entry.id.endsWith('.*') && item.field_id.startsWith(entry.id.slice(0, -1))));
     const sourceCandidate = createFieldCandidate({
       session_id: session.session_id, field_id: item.field_id, claim, unit,

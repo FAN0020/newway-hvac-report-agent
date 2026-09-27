@@ -127,8 +127,8 @@ function makeTemplate({ templateId, name, domain, provenance, fields, contextSou
 }
 
 const HVAC_FIELDS = [
-  field('work_order', 'Work order', 'Job identity', 1, { type: 'structured', required: true }),
-  field('equipment', 'Equipment', 'Job identity', 2, { type: 'structured', required: true }),
+  field('work_order', 'Work order', 'Job identity', 1, { required: true }),
+  field('equipment', 'Equipment', 'Job identity', 2, { required: true }),
   field('customer_complaint', 'Customer complaint', 'Service work', 10, { required: true }),
   field('inspection_findings', 'Inspection findings', 'Service work', 11, { required: true }),
   field('work_performed', 'Work performed', 'Service work', 12, { required: true }),

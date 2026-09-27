@@ -83,6 +83,9 @@ const authoritativeCapture = new AuthoritativeCaptureService({
   whisperProvider: whisper,
   scopeRegistryProvider: ensureV2Registry,
   uploadStore: v2UploadStore,
+  templateProvider: async (templateId) => (
+    (await templates.listPublished()).find((item) => item.templateId === templateId) || null
+  ),
   jobContextProvider: {
     resolve: async ({ job_context_ref: reference, template_id: templateId }) => {
       if (reference !== 'work-order:WO-111-1222' || templateId !== 'bus-defect-rectification-corrective-maintenance') return null;
@@ -189,6 +192,17 @@ function rejectUntrustedAuthority(input, { allow = [] } = {}) {
 
 async function handleApi(request, response, url, traceId, config, services) {
   const captureService = services.authoritativeCapture;
+  if (request.method === 'GET' && url.pathname === '/api/report-sessions') {
+    const sessions = await captureService.sessionStore.listSessions();
+    const reports = await Promise.all(sessions.map(async (session) => ({
+      session,
+      agent_state: session.current_agent_run_id
+        ? (await captureService.sessionStore.readRecord('agent-runs', session.current_agent_run_id)).agent_state
+        : null,
+    })));
+    writeJson(response, 200, toolEnvelope('list_report_sessions', traceId, 'PASS', { sessions, reports }));
+    return;
+  }
   if (request.method === 'POST' && url.pathname === '/api/report-sessions') {
     const input = await readJson(request);
     rejectUntrustedAuthority(input);

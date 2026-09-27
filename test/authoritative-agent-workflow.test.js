@@ -43,6 +43,14 @@ async function createBusSession(service, suffix) {
   });
 }
 
+async function createHvacSession(service) {
+  return service.createSession({
+    template_id: 'hvac-service-report',
+    template_version: '1.0.0',
+    job_context_ref: 'job-context:QA-HVAC',
+  });
+}
+
 async function captureAndReview(service, input) {
   const captured = await service.captureText(input);
   if (captured.next_action !== 'REVIEW_TRANSCRIPT') return captured;
@@ -88,6 +96,40 @@ test('authoritative system and transcript identities conflict until a server-own
   assert.ok(resolved.candidates.some((entry) => entry.support_type === 'TECHNICIAN_CONFIRMATION'));
   assert.ok(resolved.superseded_candidate_ids.includes(systemCandidate.candidate_id));
   assert.equal(answered.agent_state.resolution_queue.some((entry) => entry.field_id === 'asset.registration_no'), false);
+});
+
+test('HVAC work order and equipment text answers satisfy the visible resolution questions', async (t) => {
+  const { makeService } = await fixture(t, 'hvac-visible-identity-inputs');
+  const service = makeService();
+  const created = await createHvacSession(service);
+  const captured = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'I found a blocked drain and cleared it.',
+    language: 'en',
+    idempotency_key: 'hvac-visible-identity-capture',
+  });
+
+  const equipment = await service.submitFieldAnswer({
+    session_id: created.session.session_id,
+    expected_revision: captured.session.revision,
+    field_id: 'equipment',
+    value: 'Fictional split unit AC-104',
+  });
+  const workOrder = await service.submitFieldAnswer({
+    session_id: created.session.session_id,
+    expected_revision: equipment.session.revision,
+    field_id: 'work_order',
+    value: 'QA-WO-104',
+  });
+
+  for (const [fieldId, expected] of [['equipment', 'Fictional split unit AC-104'], ['work_order', 'QA-WO-104']]) {
+    const field = workOrder.agent_state.report_fields.find((entry) => entry.field_id === fieldId);
+    assert.equal(field.state, 'KNOWN_VALUE');
+    assert.equal(field.value, expected);
+    assert.equal(workOrder.agent_state.validation_issues.some((issue) => issue.field_id === fieldId), false);
+    assert.equal(workOrder.agent_state.resolution_queue.some((item) => item.field_id === fieldId), false);
+  }
 });
 
 test('one structured answer resolves every current issue for its field and a resolved question does not reappear', async (t) => {

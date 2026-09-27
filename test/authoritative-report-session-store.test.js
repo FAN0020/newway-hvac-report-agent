@@ -68,3 +68,20 @@ test('session transitions persist exact revisions and reject stale writes after 
   }), { code: 'STALE_REVISION' });
   assert.equal((await restarted.load(created.session.session_id)).revision, 1);
 });
+
+test('persisted ReportSessions can be listed after restart in most-recently-updated order', async (t) => {
+  await fs.rm(ROOT, { recursive: true, force: true });
+  t.after(() => fs.rm(ROOT, { recursive: true, force: true }));
+
+  const firstProcess = new ReportSessionStore({ root: ROOT });
+  await firstProcess.create(sessionInput('session_store_old'));
+  await firstProcess.create({
+    ...sessionInput('session_store_new'),
+    created_at: '2026-09-27T05:10:00.000Z',
+  });
+
+  const restarted = new ReportSessionStore({ root: ROOT });
+  const sessions = await restarted.listSessions();
+  assert.deepEqual(sessions.map((session) => session.session_id), ['session_store_new', 'session_store_old']);
+  assert.equal(sessions.every((session) => session.authority === 'SERVER'), true);
+});

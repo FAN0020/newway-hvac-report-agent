@@ -126,6 +126,24 @@ export class ReportSessionStore {
     }
   }
 
+  async listSessions() {
+    let names;
+    try {
+      names = await fs.readdir(this.sessionsRoot);
+    } catch (error) {
+      if (error.code === 'ENOENT') return Object.freeze([]);
+      throw error;
+    }
+    const sessions = await Promise.all(names
+      .filter((name) => name.endsWith('.json'))
+      .map((name) => this.load(name.slice(0, -5))));
+    sessions.sort((left, right) => (
+      String(right.updated_at).localeCompare(String(left.updated_at))
+      || left.session_id.localeCompare(right.session_id)
+    ));
+    return deepFreeze(sessions);
+  }
+
   async transition(command) {
     return this.withLock(command.session_id, async () => {
       const current = await this.load(command.session_id);
