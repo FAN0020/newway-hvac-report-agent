@@ -271,6 +271,20 @@ test('latest explicit completion state wins over an earlier completed repair ste
   assert.ok(facts.some((fact) => fact.field === 'test.result'));
 });
 
+test('synthetic C751A door-roller audio transcript preserves identity, replacement and cycle test', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/RAIL',
+    rawText: 'On fictional C751A train set 7001/7002, I inspected car 3 door roller, replaced the worn roller, and completed two door cycles successfully. The train returned to service.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'asset.train_set'), 'C751A 7001/7002');
+  assert.equal(valueOf(facts, 'asset.car'), 'Car 3');
+  assert.equal(valueOf(facts, 'parts.part_number'), 'door roller');
+  assert.equal(valueOf(facts, 'parts.replaced'), 'true');
+  assert.ok(hasField(facts, 'test.result'));
+  assert.equal(valueOf(facts, 'completion.state'), 'completed');
+});
+
 /* ------------------------------------------------------------------ *
  * Errors and empty input
  * ------------------------------------------------------------------ */
