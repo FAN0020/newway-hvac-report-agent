@@ -1,6 +1,6 @@
 {
   "contract": "P0ReportSessionAcceptanceDataset",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "frozen_at": "2026-09-27T00:00:00.000Z",
   "human_gold": false,
   "cases": [
@@ -158,11 +158,20 @@
       "automated_evidence": ["test/authoritative-agent-workflow.test.js", "test/authoritative-capture-server.test.js"]
     },
     {
+      "id": "inline_field_dictation",
+      "category": "review_workflow",
+      "input": "Technician records a replacement value from the affected report field and stops the field-owned recording.",
+      "preconditions": ["generated report contains an editable field", "microphone is available"],
+      "expected_properties": ["one stop action remains visible beside the field", "audio enters the same authoritative capture pipeline", "the resulting candidates update only the owning ReportSession", "the report remains the correction surface"],
+      "forbidden_behavior": ["detached correction wizard", "duplicate stop controls", "cross-report recording state", "browser-created field fact"],
+      "automated_evidence": ["test/template-workspace-refinement.test.js", "test/authoritative-capture-workflow.test.js", "test/report-workspace-lifecycle.test.js"]
+    },
+    {
       "id": "reversible_field_source_selection",
       "category": "traceable_review",
       "input": "Technician selects report draft, then original transcript words, then a manual edit, then restores the original draft source.",
       "preconditions": ["field has immutable transcript evidence and at least one extracted candidate"],
-      "expected_properties": ["each selection is server-owned", "all prior source representations remain traceable", "latest selection is authoritative", "selection survives reload"],
+      "expected_properties": ["each selection is server-owned", "all prior source representations remain traceable", "latest selection is visibly identified and authoritative", "selection survives reload"],
       "forbidden_behavior": ["destroy prior evidence", "irreversible source switch", "cross-session candidate reuse"],
       "automated_evidence": ["test/authoritative-agent-workflow.test.js", "test/authoritative-capture-server.test.js"]
     },

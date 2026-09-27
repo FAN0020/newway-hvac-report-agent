@@ -74,6 +74,28 @@ test('generated report is the correction workspace and keeps structured field co
   assert.doesNotMatch(client, /retrieval score|chunk id|AI confidence|trace id/iu);
 });
 
+test('inline field editing offers report-owned dictation and exposes one stop action', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /recordingFieldId: null/);
+  assert.match(client, /function renderFieldDictationAction/);
+  assert.match(client, /Dictate edit/);
+  assert.match(client, /startRecording\(field\.field_id\)/);
+  assert.match(client, /Stop & fill report/);
+  assert.match(client, /workspace\.recordingFieldId = fieldId/);
+  assert.match(client, /workspace\.recordingFieldId === field\.field_id/);
+  assert.match(client, /renderRecording\([\s\S]*state\.recordingFieldId[\s\S]*return/s);
+});
+
+test('reversible representation controls expose the currently selected source accessibly', async () => {
+  const [client, css] = await Promise.all([
+    fs.readFile('web/template-app.js', 'utf8'),
+    fs.readFile('web/styles.css', 'utf8'),
+  ]);
+  assert.match(client, /aria-pressed/);
+  assert.match(client, /option\.selected/);
+  assert.match(css, /\.representation-choice\.selected/);
+});
+
 test('resolution submission parses measurement text and distinguishes input failures from network failures', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /parseTechnicianFieldAnswer/);

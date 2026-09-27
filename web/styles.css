@@ -656,10 +656,13 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .representation-choices { display: grid; gap: 6px; }
 .representation-choice { display: grid; gap: 2px; min-height: 42px; padding: 8px 10px; border: 1px solid #b9c8c1; border-radius: 8px; color: var(--ink); background: white; font-size: .76rem; font-weight: 720; text-align: left; overflow-wrap: anywhere; }
 .representation-choice:hover, .representation-choice:focus-visible { border-color: var(--green-2); background: var(--mint); }
+.representation-choice.selected { border-color: var(--green-2); background: var(--mint); box-shadow: inset 3px 0 0 var(--green-2); }
 .representation-choice small { color: var(--muted); font-size: .62rem; font-weight: 600; }
 .manual-field-entry { display: flex; gap: 8px; align-items: stretch; }
 .manual-field-entry input { min-width: 0; min-height: 42px; flex: 1 1 auto; }
 .manual-field-entry button { flex: 0 0 auto; }
+.field-dictation-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inline-field-recording-time { min-width: 90px; }
 .semantic-cause-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .inline-choices { margin-top: 0; }
 .state-conflict, .state-invalid, .state-uncertain, .state-inferred { background: #fffaf1; }
@@ -694,6 +697,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .inline-field-editor button { min-height: 44px; }
   .manual-field-entry { align-items: stretch; flex-direction: column; }
   .manual-field-entry button { width: 100%; }
+  .field-dictation-actions { align-items: stretch; flex-direction: column; }
+  .field-dictation-actions button { width: 100%; }
   .transcript-disclosure summary { min-height: 44px; padding-block: 12px; }
   .report-summary-heading { padding-inline: 14px; }
   .report-section-accordion > summary { padding-inline: 14px; }

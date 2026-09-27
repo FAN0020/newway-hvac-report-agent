@@ -40,6 +40,7 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     reviewFullReport: false,
     addingDetail: false,
     focusActiveTask: false,
+    recordingFieldId: null,
   };
 }
 
@@ -49,7 +50,7 @@ for (const property of [
   'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
-  'addingDetail', 'focusActiveTask',
+  'addingDetail', 'focusActiveTask', 'recordingFieldId',
 ]) {
   Object.defineProperty(state, property, {
     get() { return activeWorkspace()?.[property] ?? null; },
@@ -300,8 +301,36 @@ function showProvenance(fieldId) {
 
 function representationChoice(option, onSelect) {
   const choice = button(option.value, 'representation-choice', onSelect);
-  if (option.source_label) choice.append(element('small', '', option.source_label));
+  choice.setAttribute('aria-pressed', String(Boolean(option.selected)));
+  choice.classList.toggle('selected', Boolean(option.selected));
+  const detail = [option.selected ? 'Selected' : null, option.source_label].filter(Boolean).join(' · ');
+  if (detail) choice.append(element('small', '', detail));
   return choice;
+}
+
+function renderFieldDictationAction(container, field) {
+  const workspace = activeWorkspace();
+  const actions = element('div', 'field-dictation-actions');
+  const recordingThisField = recorderWorkspace === workspace
+    && workspace.recordingFieldId === field.field_id
+    && workspace.processing === 'RECORDING';
+  if (recordingThisField) {
+    const status = element('span', 'recording-time inline-field-recording-time', `Recording ${formatElapsed()}`);
+    status.role = 'status'; status.setAttribute('aria-live', 'polite');
+    const stop = button('Stop & fill report', 'primary', stopRecording);
+    stop.id = 'workspace-stop-recording';
+    stop.setAttribute('aria-label', `Stop recording for ${field.name} and fill report`);
+    actions.append(status, stop);
+  } else {
+    const microphoneInUse = Boolean(recorder);
+    const dictate = button('● Dictate edit', 'secondary', () => startRecording(field.field_id));
+    dictate.disabled = !workspace.interaction.microphone_available || microphoneInUse;
+    dictate.setAttribute('aria-label', microphoneInUse
+      ? 'Microphone is in use by another report field'
+      : `Dictate a replacement for ${field.name}`);
+    actions.append(dictate);
+  }
+  container.append(actions);
 }
 
 function renderManualFieldEditor(container, field, { label = 'My edit', placeholder = '' } = {}) {
@@ -313,7 +342,7 @@ function renderManualFieldEditor(container, field, { label = 'My edit', placehol
   input.setAttribute('aria-label', `${label} for ${field.name}`);
   const save = button('Save', 'secondary', () => saveField(field.field_id, input.value));
   input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && input.value.trim()) save.click(); });
-  row.append(input, save); group.append(row); container.append(group);
+  row.append(input, save); group.append(row); renderFieldDictationAction(group, field); container.append(group);
 }
 
 function renderSemanticCauseEditor(container, field) {
@@ -327,7 +356,7 @@ function renderSemanticCauseEditor(container, field) {
   const confirmed = button('Save as confirmed', 'secondary', () => {
     if (input.value.trim()) selectFieldRepresentation(field.field_id, { kind: 'SEMANTIC_STATE', state: 'CONFIRMED', value: input.value.trim() });
   });
-  actions.append(suspected, confirmed); group.append(input, actions); container.append(group);
+  actions.append(suspected, confirmed); group.append(input, actions); renderFieldDictationAction(group, field); container.append(group);
 }
 
 function renderRepresentationGroup(container, title, options, field) {
@@ -444,7 +473,7 @@ function renderReporterComposer(container, {
   textarea.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && textarea.value.trim()) onSubmit(textarea.value.trim());
   });
-  const mic = button('● Record', 'composer-microphone', startRecording); mic.id = microphoneId;
+  const mic = button('● Record', 'composer-microphone', () => startRecording()); mic.id = microphoneId;
   mic.setAttribute('aria-label', microphoneInUseElsewhere ? 'Microphone in use by another report' : 'Record an answer');
   mic.setAttribute('aria-pressed', 'false'); mic.disabled = !workspace.interaction.microphone_available || microphoneInUseElsewhere;
   wrapper.append(textarea, mic); actions.append(submit); container.append(wrapper, actions);
@@ -472,6 +501,11 @@ function renderCapture(panel, task) {
 function renderRecording(panel, task) {
   panel.append(element('p', 'task-counter', 'LIVE RECORDING'), element('h3', '', `Recording ${formatElapsed()}`));
   panel.children[1].id = 'active-task-title';
+  if (state.recordingFieldId) {
+    const definition = state.activeTemplate.schema.fields.find((field) => field.id === state.recordingFieldId);
+    panel.append(element('p', 'task-note', `Recording an edit for ${definition?.label || 'this report field'}. Use the Stop & fill report action beside that field when you finish.`));
+    return;
+  }
   panel.append(element('p', 'task-note', 'When you finish, stop the recording to transcribe it and fill this report automatically.'));
   const stop = button(task.primary_action.label, 'primary', stopRecording);
   stop.id = 'workspace-stop-recording';
@@ -670,19 +704,21 @@ async function saveField(fieldId, value) {
 
 function formatElapsed() { const seconds = Math.floor((Date.now() - recordingStartedAt) / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }
 
-async function startRecording() {
+async function startRecording(fieldId = null) {
   const workspace = activeWorkspace();
   if (!workspace?.interaction.microphone_available || recorder) return;
-  recorder = new PcmWavRecorder(); recorderWorkspace = workspace;
+  recorder = new PcmWavRecorder(); recorderWorkspace = workspace; workspace.recordingFieldId = fieldId;
   try {
     await recorder.start(); recordingStartedAt = Date.now(); setProcessing('RECORDING', workspace);
     recordingTimer = setInterval(() => {
       if (activeWorkspace() !== workspace) return;
       const title = $('active-task-title'); if (title) title.textContent = `Recording ${formatElapsed()}`;
+      const inlineTimer = document.querySelector('.inline-field-recording-time');
+      if (inlineTimer) inlineTimer.textContent = `Recording ${formatElapsed()}`;
     }, 1000);
   }
   catch (error) {
-    recorder = null; recorderWorkspace = null; workspace.interaction.microphone_available = false; clearProcessing(workspace);
+    recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; workspace.interaction.microphone_available = false; clearProcessing(workspace);
     workspace.recoverableError = { kind: 'MICROPHONE', message: 'Microphone permission is unavailable. Type a statement or upload a recording.', retry_action: 'RETRY_CONNECTION' };
     renderWorkspaceIfActive(workspace);
   }
@@ -692,11 +728,11 @@ async function stopRecording() {
   if (!recorder || !recorderWorkspace) return;
   clearInterval(recordingTimer); const owned = recorder; const workspace = recorderWorkspace; setProcessing('PREPARING_AUDIO', workspace);
   try {
-    const wav = await owned.stop(); recorder = null; recorderWorkspace = null; await uploadAudio(wav, workspace);
+    const wav = await owned.stop(); recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; await uploadAudio(wav, workspace);
   } catch (error) {
-    await owned.release(); recorder = null; recorderWorkspace = null; handleMutationError(error, 'STT', undefined, workspace);
+    await owned.release(); recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; handleMutationError(error, 'STT', undefined, workspace);
   }
-  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
+  finally { workspace.recordingFieldId = null; clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function uploadAudio(blob, workspace = activeWorkspace()) {

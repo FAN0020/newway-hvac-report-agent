@@ -38,7 +38,7 @@ AppShell
     │   └── RecoverableError
     └── ReportSummary
         ├── ReportSectionAccordion[]
-        │   └── read-first ReportField[] + inline correction controls
+        │   └── read-first ReportField[] + inline type/dictate/source controls
         ├── ProvenanceDialog
         └── classified AttachmentDialog
 ```
@@ -87,7 +87,7 @@ Header progress is derived from `agent_state.completeness` and `resolution_queue
 | `CONFIRM_OR_REPLACE` | confirm candidate / Enter correction |
 | `VALUE` | compact input, with number/unit normalization where declared |
 
-These controls appear at the affected field rather than in a detached question wizard. Normal populated fields remain read-first. Edit mode exposes the server-derived report draft, exact original transcript words when available, previous technician edits, and a new manual edit. Every selection creates server-owned evidence/audit history and can be reversed without deleting earlier provenance. After every answer, the UI accepts the returned revision and Agent state, refreshes the authoritative chain, and renders the rebuilt report. A stale revision is never applied optimistically; the UI shows a reconcile action.
+These controls appear at the affected field rather than in a detached question wizard. Normal populated fields remain read-first. Edit mode exposes the server-derived report draft, exact original transcript words when available, previous technician edits, a new manual edit, and a field-owned **Dictate edit** action. The currently selected representation is visible and exposed with `aria-pressed`; every selection creates server-owned evidence/audit history and can be reversed without deleting earlier provenance. Field dictation reuses the authoritative audio → transcript → extraction/routing path. It keeps one Stop action beside the owning field, and its transient recorder state is scoped to the owning report. After every answer, the UI accepts the returned revision and Agent state, refreshes the authoritative chain, and renders the rebuilt report. A stale revision is never applied optimistically; the UI shows a reconcile action.
 
 ## Backend support added for the workspace
 
@@ -135,9 +135,8 @@ Actual results:
 
 | Verification | Result |
 |---|---|
-| Full deterministic repository suite | **482 passed, 0 failed, 0 skipped** |
-| Focused changed workflow/server/UI suite | **88 passed, 0 failed** |
-| Workspace view/UI contract subset after rendered fixes | **62 passed, 0 failed** |
+| Full deterministic repository suite | **489 passed, 0 failed, 0 skipped, 0 todo** |
+| Final frozen-workflow/view/UI focus | **62 passed, 0 failed** |
 | Normal browser console | **0 errors, 0 warnings** |
 | Network recovery | expected browser network failure only; retry continued the same session and statement |
 | Confirm/export browser smoke | confirmed successfully; downloaded `bus-defect-rectification-corrective-maintenance.pdf` |
@@ -154,6 +153,21 @@ Actual results:
 | F — Safety | PASS — return-to-service was the first question, no option was preselected, and confirmation remained unavailable until the server accepted it. |
 | G — RAG-triggered requirement | PASS — Agent integration proves GuidanceContext can create a follow-up but cannot satisfy work performed; UI exposes only optional “Why is this required?” and no RAG panel. |
 | H — STT failure | PASS — HTTP integration preserves audio evidence and retries transcription on the same ReportSession; UI state renders Retry transcription and never fabricates a transcript. |
+
+## Generated-report correction acceptance
+
+| Required journey | Result and exact verification |
+|---|---|
+| A — ideal case | PASS — the live SBS journey captured one statement, opened the complete schema-ordered report instead of a correction wizard, resolved only true exceptions, submitted one server-gated version, and exported the confirmed snapshot. |
+| B — edit AI value | PASS — live browser Edit exposed Report draft plus the exact field transcript span; choosing another representation updated the field without navigation. |
+| C — manual correction | PASS — live browser saved `Reseated and secured the loose door connector.` inline; reopening showed it as `Selected · My edit` while draft and transcript alternatives remained. |
+| D — missing field | PASS — missing fields rendered at their template locations with structured/manual controls; resolving them removed their server issues in place. |
+| E — multiple missing fields | PASS — one live follow-up statement resolved odometer, root-cause state, and outstanding issues together; only test and safety decisions remained. |
+| F — reversible sources | PASS — live browser traversed Report draft → Original words → My edit → Report draft; each selection was visibly pressed and the alternatives remained. |
+| G — persistence | PASS — after the final source selection, a full reload restored `Selected · Technician answer`; the prior manual and transcript representations were still present. |
+| H — mobile | PASS — at 390×844 the field editor, source choices, manual Save/Close, Dictate edit, and the single Stop action were full width, at least 44 px high, reachable, and produced no horizontal overflow. |
+
+Field-owned dictation was also exercised in the real browser: recording started from **Work performed**, exactly one inline Stop action remained visible, navigation across three reports did not leak timer, controls, or processing state, and stopping submitted audio only to the owning ReportSession. The local `whisper.cpp` provider processed the ambient recording and truthfully returned no applicable field candidate; no fake success or unrelated field update was shown. A meaningful sanitized WAV → transcript → candidate path remains covered by the authoritative capture integration tests; physical noisy-field microphone accuracy remains a device-lab limitation.
 
 ## Product-UI-QA findings and fixes
 

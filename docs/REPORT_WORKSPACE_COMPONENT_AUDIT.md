@@ -42,6 +42,7 @@ The minimum sufficient persistent component set is therefore: App shell/navigati
 | Checklist table with permanent controls | REVISE | Compact read-only field rows inside section accordions; editing is on demand. |
 | Per-field status on every field | REVISE | Show actionable labels only when meaningful; normal values use a lightweight source indicator. |
 | Per-field confirm buttons | REVISE | Critical/uncertain/conflict choices stay beside the affected field in the generated report; source labels and no-positive-default safety controls remain explicit. |
+| Inline field editor | REVISE | Keep Report draft, exact Original words, and prior My edit alternatives together; visibly mark the server-selected representation and provide type or field-owned dictation without leaving the report. |
 | Confirmation checkbox | REMOVE | It duplicates review state and local browser logic. Server readiness controls confirmation. |
 | Confirm Report button | REVISE | One visible `Submit report` CTA requests server-owned review completion and confirmation for the exact current revision. |
 | Confirmation status paragraph | MERGE | Fold into ActiveTaskPanel/live status so confirmation status is not duplicated. |
@@ -56,7 +57,7 @@ Starting from an empty workspace, four persistent areas earn their place:
 
 1. App shell/navigation: location and escape path.
 2. JobHeader: compact report/job identity and actionable completion summary.
-3. ActiveTaskPanel: capture, material correction, multi-field follow-up, recovery, review, or confirmed action without duplicating field controls.
-4. Report Summary: the primary correction workspace—complete, schema ordered, read-first, and editable only at the affected field or on demand.
+3. ActiveTaskPanel: capture, material correction, multi-field follow-up, recovery, review, or confirmed action without duplicating field controls. During a field-owned recording it gives context but leaves the only Stop action beside that field.
+4. Report Summary: the primary correction workspace—complete, schema ordered, read-first, and editable by typing, dictation, or reversible source selection at the affected field.
 
 Attachment purpose, transcript, guidance explanation, provenance, editing, and unresolved-category details are contextual disclosures rather than permanent panels.

@@ -87,25 +87,49 @@ function claimValue(candidate) {
 function fieldRepresentations(field, chain) {
   const transcripts = new Map((chain?.transcripts || []).map((item) => [item.transcript_id, item]));
   const spans = new Map((chain?.evidence_spans || []).map((item) => [item.span_id, item]));
+  const candidates = field?.candidates || [];
+  const candidateById = new Map(candidates.map((candidate) => [candidate.candidate_id, candidate]));
+  const selectedCandidateIds = new Set(field?.selected_candidate_ids || []);
+  const selectedSourceIds = new Set();
+  const selectedTranscriptSpanIds = new Set();
+  for (const selected of candidates.filter((candidate) => selectedCandidateIds.has(candidate.candidate_id))) {
+    const source = selected.support_type === 'TECHNICIAN_CONFIRMATION' && selected.confirmed_candidate_id
+      ? candidateById.get(selected.confirmed_candidate_id)
+      : selected;
+    if (!source) continue;
+    selectedSourceIds.add(source.candidate_id);
+    if (source.extraction?.method === 'technician-transcript-selection') {
+      for (const reference of source.evidence_refs || []) {
+        if (reference.span_id) selectedTranscriptSpanIds.add(reference.span_id);
+      }
+    }
+  }
   const drafts = [];
   const originalWords = [];
   const manual = [];
   const seenDrafts = new Set();
   const seenWords = new Set();
   const seenManual = new Set();
-  for (const candidate of field?.candidates || []) {
+  for (const candidate of candidates) {
     const method = candidate.extraction?.method || '';
     const value = claimValue(candidate);
     if (candidate.support_type !== 'TECHNICIAN_CONFIRMATION'
       && !['technician-field-selection', 'technician-resolution-answer', 'technician-transcript-selection'].includes(method)
       && value && !seenDrafts.has(`${candidate.candidate_id}:${value}`)) {
       seenDrafts.add(`${candidate.candidate_id}:${value}`);
-      drafts.push({ kind: 'CANDIDATE', candidate_id: candidate.candidate_id, value, source_label: sourceLabel({ ...field, candidates: [candidate], selected_candidate_ids: [candidate.candidate_id] }) || 'Report evidence' });
+      drafts.push({
+        kind: 'CANDIDATE', candidate_id: candidate.candidate_id, value,
+        source_label: sourceLabel({ ...field, candidates: [candidate], selected_candidate_ids: [candidate.candidate_id] }) || 'Report evidence',
+        selected: selectedSourceIds.has(candidate.candidate_id),
+      });
     }
     if (candidate.support_type !== 'TECHNICIAN_CONFIRMATION' && ['technician-field-selection', 'technician-resolution-answer'].includes(method)
       && value && !seenManual.has(value)) {
       seenManual.add(value);
-      manual.push({ kind: 'CANDIDATE', candidate_id: candidate.candidate_id, value, source_label: 'My edit' });
+      manual.push({
+        kind: 'CANDIDATE', candidate_id: candidate.candidate_id, value, source_label: 'My edit',
+        selected: selectedSourceIds.has(candidate.candidate_id),
+      });
     }
     for (const reference of candidate.evidence_refs || []) {
       const span = spans.get(reference.span_id);
@@ -115,7 +139,10 @@ function fieldRepresentations(field, chain) {
       const key = `${reference.span_id}:${words}`;
       if (!words || seenWords.has(key)) continue;
       seenWords.add(key);
-      originalWords.push({ kind: 'TRANSCRIPT_SPAN', candidate_id: candidate.candidate_id, span_id: reference.span_id, value: words, source_label: 'Original words' });
+      originalWords.push({
+        kind: 'TRANSCRIPT_SPAN', candidate_id: candidate.candidate_id, span_id: reference.span_id,
+        value: words, source_label: 'Original words', selected: selectedTranscriptSpanIds.has(reference.span_id),
+      });
     }
   }
   return { drafts, original_words: originalWords, manual };

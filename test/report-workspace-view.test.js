@@ -216,6 +216,84 @@ test('inline conflict choices identify their authoritative and technician source
   ]);
 });
 
+test('field representations identify the currently selected source without discarding alternatives', () => {
+  const draft = {
+    candidate_id: 'candidate_draft', support_type: 'TRANSCRIPT_EVIDENCE',
+    claim: { kind: 'VALUE', value: 'Secured the connector' },
+    extraction: { method: 'deterministic-rule', version: 'test' },
+    evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_work' }],
+  };
+  const manual = {
+    candidate_id: 'candidate_manual', support_type: 'MANUAL_TECHNICIAN_INPUT',
+    claim: { kind: 'VALUE', value: 'Reseated and secured the loose connector' },
+    extraction: { method: 'technician-field-selection', version: 'test' },
+    evidence_refs: [{ evidence_id: 'evidence_manual', span_id: 'span_manual' }],
+  };
+  const confirmation = {
+    candidate_id: 'candidate_confirmation', support_type: 'TECHNICIAN_CONFIRMATION',
+    confirmed_candidate_id: manual.candidate_id,
+    claim: manual.claim,
+    extraction: { method: 'technician-field-selection-confirmation', version: 'test' },
+    evidence_refs: manual.evidence_refs,
+  };
+  const field = {
+    field_id: 'work_performed', state: 'KNOWN_VALUE', value: manual.claim.value,
+    selected_candidate_ids: [confirmation.candidate_id],
+    active_candidate_ids: [confirmation.candidate_id],
+    candidates: [draft, manual, confirmation],
+  };
+  const chain = {
+    transcripts: [{ transcript_id: 'transcript_1', raw_text: 'I secured the loose connector.' }],
+    evidence_spans: [{ span_id: 'span_work', evidence_id: 'transcript_1', start_offset: 2, end_offset: 29 }],
+  };
+
+  const projected = fieldDisplay(field, chain).representations;
+
+  assert.equal(projected.drafts[0].selected, false);
+  assert.equal(projected.original_words[0].selected, false);
+  assert.equal(projected.manual[0].selected, true);
+  assert.equal(projected.drafts[0].value, 'Secured the connector');
+  assert.equal(projected.original_words[0].value, 'secured the loose connector');
+  assert.equal(projected.manual[0].value, 'Reseated and secured the loose connector');
+});
+
+test('selecting original transcript words is projected as the active reversible representation', () => {
+  const draft = {
+    candidate_id: 'candidate_draft', support_type: 'TRANSCRIPT_EVIDENCE',
+    claim: { kind: 'VALUE', value: 'Secured the connector' },
+    extraction: { method: 'deterministic-rule', version: 'test' },
+    evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_work' }],
+  };
+  const transcriptSelection = {
+    candidate_id: 'candidate_words', support_type: 'MANUAL_TECHNICIAN_INPUT',
+    claim: { kind: 'VALUE', value: 'secured the loose connector' },
+    extraction: { method: 'technician-transcript-selection', version: 'test' },
+    evidence_refs: draft.evidence_refs,
+  };
+  const confirmation = {
+    candidate_id: 'candidate_words_confirmation', support_type: 'TECHNICIAN_CONFIRMATION',
+    confirmed_candidate_id: transcriptSelection.candidate_id,
+    claim: transcriptSelection.claim,
+    extraction: { method: 'technician-field-selection-confirmation', version: 'test' },
+    evidence_refs: transcriptSelection.evidence_refs,
+  };
+  const field = {
+    field_id: 'work_performed', state: 'KNOWN_VALUE', value: transcriptSelection.claim.value,
+    selected_candidate_ids: [confirmation.candidate_id],
+    active_candidate_ids: [confirmation.candidate_id],
+    candidates: [draft, transcriptSelection, confirmation],
+  };
+  const chain = {
+    transcripts: [{ transcript_id: 'transcript_1', raw_text: 'I secured the loose connector.' }],
+    evidence_spans: [{ span_id: 'span_work', evidence_id: 'transcript_1', start_offset: 2, end_offset: 29 }],
+  };
+
+  const projected = fieldDisplay(field, chain).representations;
+
+  assert.equal(projected.drafts[0].selected, false);
+  assert.equal(projected.original_words[0].selected, true);
+});
+
 test('capture stays compact while generated report review exposes the complete schema in order', () => {
   const fields = [
     known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
