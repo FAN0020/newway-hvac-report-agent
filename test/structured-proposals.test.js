@@ -4,11 +4,82 @@ import { OllamaProvider } from '../src/providers/ollama.js';
 
 let verifyStructuredFactProposals;
 let proposeStructuredAtomicFacts;
+let verifySchemaFieldProposals;
+let extractCuedFieldAssignments;
 try {
-  ({ verifyStructuredFactProposals, proposeStructuredAtomicFacts } = await import('../src/semantic/structured-proposals.js'));
+  ({ verifyStructuredFactProposals, proposeStructuredAtomicFacts, verifySchemaFieldProposals, extractCuedFieldAssignments } = await import('../src/semantic/structured-proposals.js'));
 } catch {
   // Keep the first test red as a behavioral assertion while the new boundary is absent.
 }
+
+test('schema field proposals require an exact cue, verbatim value, and known field', () => {
+  const template = { schema: { fields: [
+    { id: 'work.trigger', label: 'Complaint / trigger', type: 'text' },
+    { id: 'asset.depot', label: 'Depot / Location', type: 'string' },
+    { id: 'completion.state', label: 'Return to service', type: 'status', allowedValues: ['READY', 'NOT_READY'] },
+  ] } };
+  const raw_text = 'This is triggered by a faulty door sensor. Depot is Ang Mo Kio.';
+  const result = verifySchemaFieldProposals?.({ template, raw_text, proposals: [
+    { field_id: 'work.trigger', value: 'a faulty door sensor', evidence_quote: 'This is triggered by a faulty door sensor' },
+    { field_id: 'asset.depot', value: 'Ang Mo Kio', evidence_quote: 'Depot is Ang Mo Kio' },
+    { field_id: 'completion.state', value: 'READY', evidence_quote: 'This is triggered by a faulty door sensor' },
+    { field_id: 'work.trigger', value: 'a faulty compressor', evidence_quote: 'This is triggered by a faulty door sensor' },
+    { field_id: 'asset.depot', value: 'a faulty door sensor', evidence_quote: 'This is triggered by a faulty door sensor' },
+    { field_id: 'unknown', value: 'Ang Mo Kio', evidence_quote: 'Depot is Ang Mo Kio' },
+  ] });
+  assert.deepEqual(result?.assignments.map((item) => [item.field_id, item.value]), [
+    ['work.trigger', 'a faulty door sensor'], ['asset.depot', 'Ang Mo Kio'],
+  ]);
+  assert.equal(result.rejections.length, 4);
+});
+
+test('a negated trigger cannot become a current fault value', () => {
+  const quote = 'This was not triggered by a faulty door sensor';
+  const result = verifySchemaFieldProposals({
+    template: { schema: { fields: [{ id: 'work.trigger', label: 'Complaint / trigger', type: 'text' }] } },
+    raw_text: `${quote}.`,
+    proposals: [{ field_id: 'work.trigger', value: 'a faulty door sensor', evidence_quote: quote }],
+  });
+  assert.deepEqual(result.assignments, []);
+});
+
+test('schema proposals cannot bypass protected work-order certainty or technician findings', () => {
+  const raw_text = 'Maybe work order is WO-9. Customer said inspection findings are clear.';
+  const result = verifySchemaFieldProposals({
+    template: { schema: { fields: [
+      { id: 'work.order_id', label: 'Work Order No.', type: 'string' },
+      { id: 'inspection_findings', label: 'Inspection findings', type: 'text' },
+    ] } }, raw_text,
+    proposals: [
+      { field_id: 'work.order_id', value: 'WO-9', evidence_quote: 'Maybe work order is WO-9' },
+      { field_id: 'inspection_findings', value: 'clear', evidence_quote: 'Customer said inspection findings are clear' },
+    ],
+  });
+  assert.deepEqual(result.assignments, []);
+});
+
+test('schema cues work for a newly published custom blank', () => {
+  const quote = 'Inspection result is normal';
+  const result = verifySchemaFieldProposals({
+    template: { schema: { fields: [{ id: 'inspection.result', label: 'Inspection result', type: 'text' }] } },
+    raw_text: `${quote}.`,
+    proposals: [{ field_id: 'inspection.result', value: 'normal', evidence_quote: quote }],
+  });
+  assert.deepEqual(result.assignments.map((item) => [item.field_id, item.value]), [['inspection.result', 'normal']]);
+});
+
+test('schema cue fallback keeps two fields in one sentence atomic', () => {
+  const result = extractCuedFieldAssignments({
+    template: { schema: { fields: [
+      { id: 'asset.depot', label: 'Depot / Location', type: 'string' },
+      { id: 'technician.name', label: 'Technician', type: 'string' },
+    ] } },
+    raw_text: 'Depot is Ang Mo Kio and technician is Alex.',
+  });
+  assert.deepEqual(result.assignments.map((item) => [item.field_id, item.value]), [
+    ['asset.depot', 'Ang Mo Kio'], ['technician.name', 'Alex'],
+  ]);
+});
 
 test('an exact, extractive proposal becomes an evidence-backed atomic fact', () => {
   const result = verifyStructuredFactProposals?.({

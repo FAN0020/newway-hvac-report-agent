@@ -323,6 +323,78 @@ test('capture saves an evidence-backed report-field JSON artifact, omitting unsu
   }
 });
 
+test('completion today uses capture time and schema-matched trigger and depot phrases fill their blanks', async (t) => {
+  const input = 'It is finished today. This is triggered by a faulty door sensor. Depot is Ang Mo Kio.';
+  const semanticProvider = { generateJson: async () => ({ data: {
+    facts: [{ semantic_type: 'COMPLETION_STATE', value: 'finished today', claim_kind: 'VALUE', evidence_quote: 'It is finished today' }],
+    field_values: [
+      { field_id: 'work.trigger', value: 'a faulty door sensor', evidence_quote: 'This is triggered by a faulty door sensor' },
+      { field_id: 'asset.depot', value: 'Ang Mo Kio', evidence_quote: 'Depot is Ang Mo Kio' },
+    ],
+  } }) };
+  const { service, root } = await fixture(t, 'schema-aware-natural-blanks', {
+    semanticProvider, semanticModel: 'local-test-model',
+    clock: () => '2026-09-27T06:23:00.000Z', reportTimeZone: 'Asia/Shanghai',
+  });
+  const created = await busSession(service, 'SCHEMA-AWARE');
+  const captured = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: input, language: 'en', idempotency_key: 'schema-aware-natural-blanks-1',
+  });
+  const byField = Object.fromEntries(captured.candidates.map((candidate) => [candidate.field_id, candidate]));
+  assert.equal(byField['work.date_time']?.claim.value, '2026-09-27 14:23');
+  assert.equal(byField['work.date_time']?.support_type, 'AI_INFERENCE');
+  assert.equal(captured.agent_state.report_fields.find((field) => field.field_id === 'work.date_time')?.state, 'INFERRED');
+  assert.equal(captured.agent_state.report_fields.find((field) => field.field_id === 'work.date_time')?.value, '2026-09-27 14:23');
+  assert.equal(byField['work.trigger']?.claim.value, 'a faulty door sensor');
+  assert.equal(byField['asset.depot']?.claim.value, 'Ang Mo Kio');
+  assert.equal(byField['completion.state'], undefined, 'finished maintenance does not prove safe return to service');
+  const expectedQuotes = {
+    'work.date_time': 'It is finished today',
+    'work.trigger': 'This is triggered by a faulty door sensor',
+    'asset.depot': 'Depot is Ang Mo Kio',
+  };
+  for (const fieldId of ['work.date_time', 'work.trigger', 'asset.depot']) {
+    const span = await service.sessionStore.readRecord('evidence-spans', byField[fieldId].evidence_refs[0].span_id);
+    assert.equal(input.slice(span.start_offset, span.end_offset), expectedQuotes[fieldId]);
+  }
+  const files = await fs.readdir(path.join(root, 'authority', 'records', 'semantic-extractions'));
+  assert.equal(files.length, 1);
+  const artifact = JSON.parse(await fs.readFile(path.join(root, 'authority', 'records', 'semantic-extractions', files[0]), 'utf8'));
+  assert.equal(artifact.fields.find((field) => field.field_id === 'work.date_time')?.value, '2026-09-27 14:23');
+});
+
+test('future or negated completion never derives a current date/time', async (t) => {
+  const { service } = await fixture(t, 'no-speculative-completion-time', {
+    clock: () => '2026-09-27T06:23:00.000Z', reportTimeZone: 'Asia/Shanghai',
+  });
+  for (const [index, statement] of ['It will be finished today.', 'It was not finished today.'].entries()) {
+    const created = await busSession(service, `NO-TIME-${index}`);
+    const captured = await service.captureText({
+      session_id: created.session.session_id, expected_revision: created.session.revision,
+      text: statement, language: 'en', idempotency_key: `no-speculative-time-${index}`,
+    });
+    assert.equal(captured.candidates.some((candidate) => candidate.field_id === 'work.date_time'), false, statement);
+  }
+});
+
+test('natural completion paraphrases derive the capture timestamp for review', async (t) => {
+  const { service } = await fixture(t, 'completion-time-paraphrases', {
+    clock: () => '2026-09-27T06:23:00.000Z', reportTimeZone: 'Asia/Shanghai',
+  });
+  for (const [index, statement] of ["It's finished today.", 'I just finished this maintenance.', 'It’s finished today.'].entries()) {
+    const created = await busSession(service, `DATE-PARAPHRASE-${index}`);
+    const captured = await service.captureText({
+      session_id: created.session.session_id, expected_revision: created.session.revision,
+      text: statement, language: 'en', idempotency_key: `date-paraphrase-${index}`,
+    });
+    const field = captured.agent_state.report_fields.find((item) => item.field_id === 'work.date_time');
+    assert.equal(field?.state, 'INFERRED', statement);
+    assert.equal(field?.value, '2026-09-27 14:23', statement);
+    assert.equal(captured.agent_state.report_fields.find((item) => item.field_id === 'completion.state')?.state, 'UNKNOWN', statement);
+  }
+});
+
 test('the original mixed-sentence narration keeps the inspection object separate from completed work', async (t) => {
   const { service } = await fixture(t, 'semantic-original-mixed-sentence');
   const created = await service.createSession({

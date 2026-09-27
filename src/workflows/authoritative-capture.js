@@ -19,7 +19,8 @@ import { formatReportName, reportCreationDate } from '../report-naming.js';
 import { reportToText } from '../tools/report-integrity.js';
 import { extractAtomicFacts } from '../semantic/atomic-facts.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
-import { proposeStructuredAtomicFacts } from '../semantic/structured-proposals.js';
+import { extractCuedFieldAssignments, proposeStructuredAtomicFacts } from '../semantic/structured-proposals.js';
+import { deriveCaptureTimeAssignments } from '../semantic/temporal-fields.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
 import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
 import { buildFollowUpQuestions } from '../v2/guided-reporting.js';
@@ -30,7 +31,7 @@ import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
 
 const PROCESSING_VERSION = 'authoritative-capture.v3';
-const EXTRACTION_VERSION = 'atomic-semantic-extraction.v4';
+const EXTRACTION_VERSION = 'atomic-semantic-extraction.v5';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
 const ATTACHMENT_PURPOSES = new Set([
   'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
@@ -796,7 +797,6 @@ export class AuthoritativeCaptureService {
 
   async extractFacts({ session, transcript, extractionText = transcript.raw_text }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
-    if (template.adapter?.id === 'manual-schema-v1') return [];
     const deterministic = await extractAtomicFacts({
       scope_id: session.context_binding.scope_id,
       raw_text: extractionText,
@@ -810,6 +810,7 @@ export class AuthoritativeCaptureService {
       transcript_id: transcript.transcript_id,
       raw_text: extractionText,
       capture_context: transcript.capture_context,
+      template,
     });
     const protectedTypes = new Set(['WORK_ORDER', 'EQUIPMENT_OR_ASSET', 'MEASUREMENT', 'TEST_OUTCOME', 'COMPLETION_STATE']);
     const overlaps = (a, b) => a.char_start < b.char_end && b.char_start < a.char_end;
@@ -821,11 +822,30 @@ export class AuthoritativeCaptureService {
       ...modelFacts,
       ...deterministic.filter((fact) => !modelFacts.some((proposal) => proposal.semantic_type === fact.semantic_type && overlaps(proposal, fact))),
     ].sort((a, b) => a.char_start - b.char_start || a.semantic_type.localeCompare(b.semantic_type));
-    return routeAtomicFacts({
+    const routed = routeAtomicFacts({
       facts: atomicFacts,
       template,
       capture_context: transcript.capture_context,
-    }).assignments.map((assignment) => ({ ...assignment, field: assignment.field_id }));
+    }).assignments;
+    const usedFields = new Set(routed.map((assignment) => assignment.field_id));
+    const modelFields = (proposed.field_assignments || []).filter((assignment) => {
+      if (usedFields.has(assignment.field_id)) return false;
+      usedFields.add(assignment.field_id);
+      return true;
+    });
+    const cuedFields = extractCuedFieldAssignments({ template, raw_text: extractionText }).assignments
+      .filter((assignment) => {
+        if (usedFields.has(assignment.field_id)) return false;
+        usedFields.add(assignment.field_id);
+        return true;
+      }).map((assignment) => ({ ...assignment, extraction_method: 'deterministic-schema-cue' }));
+    const evidence = await this.sessionStore.readRecord('evidence', transcript.source_evidence_id);
+    const dateFields = deriveCaptureTimeAssignments({
+      raw_text: extractionText, template, captured_at: evidence?.created_at || transcript.created_at,
+      time_zone: this.reportTimeZone,
+    }).filter((assignment) => !usedFields.has(assignment.field_id));
+    return [...routed, ...modelFields, ...cuedFields, ...dateFields]
+      .map((assignment) => ({ ...assignment, field: assignment.field_id }));
   }
 
   async extractCandidates({
@@ -882,13 +902,14 @@ export class AuthoritativeCaptureService {
           ? { kind: 'EXPLICIT_NONE' }
           : { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: measuredValue, unit: fact.unit } },
         unit: fact.unit,
-        support_type: supportType,
+        support_type: fact.semantic_type === 'CAPTURE_TIME_DERIVATION' ? 'AI_INFERENCE' : supportType,
         assessment: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'VALID',
         evidence_refs: factSpans.map((span) => ({ evidence_id: transcript.transcript_id, span_id: span.span_id })),
         source_ref: transcript.transcript_id,
-        extraction: { method: fact.fact?.extraction_method || 'deterministic-rule', version: EXTRACTION_VERSION },
+        extraction: { method: fact.extraction_method || fact.fact?.extraction_method || 'deterministic-rule', version: EXTRACTION_VERSION },
         risk_class: fact.critical || requiredConfirmations.length ? 'CRITICAL' : 'STANDARD',
-        confidence_class: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
+        confidence_class: fact.support_status === 'INFERRED' ? 'INFERRED'
+          : fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
         source_context: {
           domain: session.context_binding.scope_id,
           context_id: session.context_binding.context_id,
@@ -929,7 +950,7 @@ export class AuthoritativeCaptureService {
       transcript_id: transcript.transcript_id,
       template_id: session.template_binding.template_id,
       model: this.semanticModel || null,
-      model_contributed: fields.some((field) => field.extraction_method === 'structured-semantic-proposal'),
+      model_contributed: fields.some((field) => ['structured-semantic-proposal', 'structured-schema-field-proposal'].includes(field.extraction_method)),
       input_text_sha256: `sha256:${digest(extractionText)}`,
       fields,
     };

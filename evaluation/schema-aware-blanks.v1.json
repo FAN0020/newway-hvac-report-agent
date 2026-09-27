@@ -1,0 +1,53 @@
+{
+  "schema_version": "schema-aware-blanks.v1",
+  "clock": "2026-09-27T06:23:00.000Z",
+  "time_zone": "Asia/Shanghai",
+  "cases": [
+    {
+      "id": "bus-finished-trigger-depot",
+      "split": "dev",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "scope_id": "SBS_BUS",
+      "input": "It is finished today. This is triggered by a faulty door sensor. Depot is Ang Mo Kio.",
+      "required": [
+        { "field_id": "work.date_time", "contains": "2026-09-27 14:23" },
+        { "field_id": "work.trigger", "contains": "faulty door sensor" },
+        { "field_id": "asset.depot", "contains": "Ang Mo Kio" }
+      ],
+      "forbidden": [{ "field_id": "completion.state" }]
+    },
+    {
+      "id": "rail-just-finished-trigger",
+      "split": "dev",
+      "template_id": "rail-maintenance-completion-handover",
+      "scope_id": "SBS_RAIL",
+      "input": "I just finished this maintenance. Trigger was a signal breaker trip.",
+      "required": [
+        { "field_id": "work.date_time", "contains": "2026-09-27 14:23" },
+        { "field_id": "work.trigger", "contains": "a signal breaker trip" }
+      ],
+      "forbidden": [{ "field_id": "completion.state" }]
+    },
+    {
+      "id": "bus-future-and-uncued",
+      "split": "test",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "scope_id": "SBS_BUS",
+      "input": "It will be finished today. A faulty door sensor was mentioned, but no cause has been established.",
+      "required": [],
+      "forbidden": [{ "field_id": "work.date_time" }, { "field_id": "work.trigger" }, { "field_id": "completion.state" }]
+    },
+    {
+      "id": "bus-completed-now-fault",
+      "split": "test",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "scope_id": "SBS_BUS",
+      "input": "The maintenance is complete now. Fault was an intermittent interlock switch.",
+      "required": [
+        { "field_id": "work.date_time", "contains": "2026-09-27 14:23" },
+        { "field_id": "work.trigger", "contains": "an intermittent interlock switch" }
+      ],
+      "forbidden": [{ "field_id": "completion.state" }]
+    }
+  ]
+}

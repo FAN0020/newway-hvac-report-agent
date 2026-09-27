@@ -167,6 +167,11 @@ export function verifyStructuredFactProposals({
       rejections.push({ index, reason: 'TEMPORALITY_MISMATCH' });
       continue;
     }
+    if (semanticType === 'COMPLETION_STATE'
+      && !/\b(?:completion\s+status|final\s+condition|return\s+to\s+service|handover\s+status|ready\s+(?:for|to)\s+service)\b/iu.test(quote)) {
+      rejections.push({ index, reason: 'COMPLETION_STATUS_NOT_STATED' });
+      continue;
+    }
     if (semanticType === 'TEST_OUTCOME'
       && (!/\b(?:pass(?:ed)?|fail(?:ed)?|normal|abnormal|successful|unsuccessful|within\s+(?:specification|spec|limits|range))\b/iu.test(quote)
         || !hasTestContext(text, start, end, captureContext))) {
@@ -218,9 +223,94 @@ export function verifyStructuredFactProposals({
   return { facts, rejections };
 }
 
+const FIELD_CUE_STOP_WORDS = new Set(['asset', 'work', 'report', 'field', 'the', 'and', 'for', 'of', 'to', 'a', 'id', 'number']);
+const PROTECTED_FIELD = /^(?:work_order$|work\.(?:work_order_id|order_id)$|equipment$|asset\.(?:internal_fleet_no|registration_no|bus_model)$|customer_complaint$|inspection_findings$|diagnosis\.root_cause$|completion\.|completion_status$|test\.|test_results$|parts\.|parts_used$|work_performed$|check\.|handover\.)/u;
+
+function cueToken(token) {
+  const lower = token.toLocaleLowerCase();
+  return lower.replace(/(?:ing|ed|es|s)$/u, '');
+}
+
+function fieldCues(field) {
+  const aliases = field.id === 'work.trigger' ? 'fault' : '';
+  return new Set(words(`${field.id.replaceAll(/[._]/gu, ' ')} ${field.label || ''} ${aliases}`)
+    .map(cueToken).filter((token) => token.length > 3 && !FIELD_CUE_STOP_WORDS.has(token)));
+}
+
+export function extractCuedFieldAssignments({ template, raw_text: rawText } = {}) {
+  const text = String(rawText || '');
+  const proposals = [];
+  const fields = (template?.schema?.fields || []).filter((field) => !field.id.includes('*')
+    && !PROTECTED_FIELD.test(field.id) && ['string', 'text'].includes(field.type));
+  const allCues = [...new Set(fields.flatMap((field) => [...fieldCues(field)]))];
+  const nextField = allCues.length
+    ? new RegExp(`\\s*,?\\s*(?:and|but|then|so)\\s+(?=(?:the\\s+)?(?:${allCues.join('|')})(?:s|ed|ing)?\\s+(?:is|was|are|were|by|:|=)\\b)`, 'iu')
+    : null;
+  for (const segment of text.matchAll(/[^.!?;\n]+/gu)) {
+    const clause = segment[0].trim();
+    if (!clause || evidenceTemporality(clause) !== 'CURRENT' || /\b(?:not|never|no|unknown|unclear|unconfirmed|suspected|mentioned)\b/iu.test(clause)) continue;
+    for (const field of fields) {
+      const cues = [...fieldCues(field)];
+      for (const cue of cues) {
+        const pattern = new RegExp(`\\b${cue}(?:s|ed|ing)?\\b\\s*(?:(?:is|was|are|were|:|=)\\s*|(?:by|due\\s+to)\\s+)`, 'iu');
+        const match = pattern.exec(clause);
+        if (!match) continue;
+        const valueStart = match.index + match[0].length;
+        const remaining = clause.slice(valueStart);
+        const boundary = nextField?.exec(remaining)?.index ?? remaining.length;
+        const value = remaining.slice(0, boundary).trim();
+        if (!value || words(value).length > 12) continue;
+        proposals.push({ field_id: field.id, value, evidence_quote: clause.slice(match.index, valueStart + boundary).trim() });
+        break;
+      }
+    }
+  }
+  return verifySchemaFieldProposals({ template, raw_text: text, proposals });
+}
+
+export function verifySchemaFieldProposals({ template, raw_text: rawText, proposals = [] } = {}) {
+  const text = String(rawText || '');
+  const fields = (template?.schema?.fields || []).filter((field) => !field.id.includes('*'));
+  const assignments = [];
+  const rejections = [];
+  for (const [index, proposal] of (Array.isArray(proposals) ? proposals : []).entries()) {
+    const field = fields.find((item) => item.id === proposal?.field_id);
+    const quote = proposal?.evidence_quote;
+    const value = proposal?.value;
+    const start = typeof quote === 'string' ? text.indexOf(quote) : -1;
+    if (!field || PROTECTED_FIELD.test(field.id) || !['string', 'text'].includes(field.type)
+      || Array.isArray(field.allowedValues) || Array.isArray(field.allowedStatuses)
+      || typeof quote !== 'string' || !quote.trim() || start < 0 || text.indexOf(quote, start + 1) >= 0
+      || typeof value !== 'string' || !value.trim()) {
+      rejections.push({ index, reason: 'INVALID_OR_PROTECTED_FIELD_PROPOSAL' });
+      continue;
+    }
+    if (!lexicallyGrounded(value, quote) || nonAtomicEvidence(quote)
+      || evidenceTemporality(quote) !== 'CURRENT'
+      || /\b(?:not|never|no|didn['’]?t|wasn['’]?t|isn['’]?t|unknown|unclear|unconfirmed|suspected|mentioned)\b/iu.test(quote)) {
+      rejections.push({ index, reason: 'UNSUPPORTED_FIELD_VALUE' });
+      continue;
+    }
+    const quoteWords = new Set(words(quote).map(cueToken));
+    const cues = fieldCues(field);
+    const matched = [...cues].filter((cue) => quoteWords.has(cue));
+    if (!matched.length || matched.some((cue) => fields.some((other) => other.id !== field.id && fieldCues(other).has(cue)))) {
+      rejections.push({ index, reason: 'AMBIGUOUS_OR_MISSING_FIELD_CUE' });
+      continue;
+    }
+    assignments.push({
+      field_id: field.id, value: value.trim(), claim_kind: 'VALUE', support_status: 'CONFIRMED_BY_EVIDENCE',
+      semantic_type: 'SCHEMA_FIELD_VALUE', source_span: { start, end: start + quote.length, text: quote },
+      extraction_method: 'structured-schema-field-proposal',
+      critical: Boolean(field.critical || field.requiresTechnicianConfirmation),
+    });
+  }
+  return { assignments, rejections };
+}
+
 const EXTRACTION_SYSTEM = [
-  'Extract atomic facts from messy, out-of-order technician speech. Return JSON with a facts array, empty when nothing is reliable.',
-  'Do not write a report or choose field IDs. For each fact return only semantic_type, an extractive value, claim_kind, and evidence_quote.',
+  'Extract atomic facts and schema-specific values from messy, out-of-order technician speech. Return JSON with facts and field_values arrays, empty when nothing is reliable.',
+  'For each fact return semantic_type, an extractive value, claim_kind, and evidence_quote. For explicit template-specific blanks not covered by a semantic fact, return field_id, extractive value, and evidence_quote in field_values.',
   'The evidence_quote must be an exact short contiguous substring of raw_text. Copy its spelling and punctuation exactly. The value must use only words present in that quote.',
   'Use separate short quotes for separate claims even when they occur in one sentence. Do not copy a whole multi-fact narration into one fact.',
   'Classify work orders, assets, customer observations, technician findings, completed actions, used parts, measurements, test actions, test outcomes, completion states, recommendations and follow-up separately.',
@@ -228,6 +318,9 @@ const EXTRACTION_SYSTEM = [
   'Use VALUE with a non-null value for stated facts. Use EXPLICIT_NONE with null only for explicit no parts used or no follow-up required.',
   'A customer report is not a technician finding. A test action is not a passed result. Mentioned, negated or future parts are not used parts.',
   'Never guess an unclear identifier, invent an action or result, or turn an earlier failure into a later pass. Abstain when unsupported.',
+  'Only raw_text is evidence; scope and schema metadata are not spoken facts. Do not output one fact per semantic type. EXPLICIT_NONE requires null and is only for explicitly no parts used or no follow-up.',
+  'Use only field IDs supplied in template_fields. Match the meaning of the spoken phrase to the field label. For example "triggered by a faulty sensor" can fill a Trigger / fault field with "a faulty sensor". Never infer return-to-service or test success from work merely being finished.',
+  'Do not invent clock times in field_values. The server separately handles phrases such as "finished today" using the recording time and marks the derived time for technician review.',
 ].join(' ');
 
 const FACT_OUTPUT_SCHEMA = Object.freeze({
@@ -246,8 +339,18 @@ const FACT_OUTPUT_SCHEMA = Object.freeze({
         required: ['semantic_type', 'value', 'claim_kind', 'evidence_quote'],
       },
     },
+    field_values: {
+      type: 'array', maxItems: 80,
+      items: {
+        type: 'object',
+        properties: {
+          field_id: { type: 'string' }, value: { type: 'string' }, evidence_quote: { type: 'string', minLength: 1 },
+        },
+        required: ['field_id', 'value', 'evidence_quote'],
+      },
+    },
   },
-  required: ['facts'],
+  required: ['facts', 'field_values'],
 });
 
 export async function proposeStructuredAtomicFacts({
@@ -257,6 +360,7 @@ export async function proposeStructuredAtomicFacts({
   transcript_id: transcriptId,
   raw_text: rawText,
   capture_context: captureContext = null,
+  template = null,
   signal,
 } = {}) {
   if (!provider?.generateJson || !model || !String(rawText || '').trim()) {
@@ -270,10 +374,10 @@ export async function proposeStructuredAtomicFacts({
       formatSchema: FACT_OUTPUT_SCHEMA,
       prompt: JSON.stringify({
         raw_text: rawText,
-        scope_id: scopeId,
         capture_context: captureContext,
-        semantic_types: SEMANTIC_TYPES,
-        output_keys: ['facts'],
+        template_fields: (template?.schema?.fields || []).filter((field) => !field.id.includes('*'))
+          .map((field) => ({ id: field.id, label: field.label, type: field.type, allowedValues: field.allowedValues || field.allowedStatuses || null })),
+        output_keys: ['facts', 'field_values'],
         required_fact_keys: ['semantic_type', 'value', 'claim_kind', 'evidence_quote'],
       }),
       signal,
@@ -282,17 +386,22 @@ export async function proposeStructuredAtomicFacts({
     return { facts: [], rejections: [{ index: -1, reason: 'PROVIDER_ERROR' }], provider: null, provider_error: error?.code || 'PROVIDER_ERROR' };
   }
   const proposals = response?.data?.facts;
-  if (!Array.isArray(proposals) || proposals.length > 80) {
+  const fieldProposals = response?.data?.field_values ?? [];
+  if (!Array.isArray(proposals) || proposals.length > 80 || !Array.isArray(fieldProposals) || fieldProposals.length > 80) {
     return {
       facts: [], rejections: [{ index: -1, reason: 'MALFORMED_PROVIDER_OUTPUT' }],
       provider: response?.provider || null,
     };
   }
-  return {
-    ...verifyStructuredFactProposals({
+  const verifiedFacts = verifyStructuredFactProposals({
       scope_id: scopeId, transcript_id: transcriptId, raw_text: rawText,
       proposals, capture_context: captureContext,
-    }),
+    });
+  const verifiedFields = verifySchemaFieldProposals({ template, raw_text: rawText, proposals: fieldProposals });
+  return {
+    facts: verifiedFacts.facts,
+    field_assignments: verifiedFields.assignments,
+    rejections: [...verifiedFacts.rejections, ...verifiedFields.rejections.map((item) => ({ ...item, kind: 'FIELD_VALUE' }))],
     provider: response?.provider || null,
     model: response?.model || model,
   };
