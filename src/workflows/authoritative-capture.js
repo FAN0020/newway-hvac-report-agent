@@ -24,7 +24,7 @@ import { evaluateAssertionCoverage, unresolvedSemanticWindows, ASSERTION_COVERAG
 import { SemanticExtractor, SEMANTIC_EXTRACTOR_VERSION } from '../semantic/semantic-extractor.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
 import { extractCuedFieldAssignments, STRUCTURED_VERIFIER_VERSION } from '../semantic/structured-proposals.js';
-import { normalizeContextualTranscript } from '../semantic/transcript-normalization.js';
+import { normalizeContextualTranscript, NORMALIZER_VERSION } from '../semantic/transcript-normalization.js';
 import { deriveCaptureTimeAssignments } from '../semantic/temporal-fields.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
 import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
@@ -35,9 +35,22 @@ import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
 
-const PROCESSING_VERSION = 'authoritative-capture.v5';
-const EXTRACTION_VERSION = 'atomic-semantic-extraction.v7';
+const PROCESSING_VERSION = 'authoritative-capture.v6';
+const EXTRACTION_VERSION = 'atomic-semantic-extraction.v8';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
+function pipelineVersions(session) {
+  return {
+    normalizer: NORMALIZER_VERSION,
+    ontology: 'canonical-report-facts.v1',
+    segmenter: ASSERTION_SEGMENTER_VERSION,
+    coverage: ASSERTION_COVERAGE_VERSION,
+    deterministic: `${ATOMIC_FACTS_VERSION}+${CONVERSATIONAL_FACTS_VERSION}`,
+    extractor: SEMANTIC_EXTRACTOR_VERSION,
+    verifier: STRUCTURED_VERIFIER_VERSION,
+    field_mapping: EXTRACTION_VERSION,
+    schema: session.template_binding.template_version,
+  };
+}
 const ATTACHMENT_PURPOSES = new Set([
   'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
   'CUSTOMER_DOCUMENT', 'EXISTING_SERVICE_RECORD', 'OTHER',
@@ -527,7 +540,29 @@ export class AuthoritativeCaptureService {
     if (semanticTrace.session_id !== chain.session.session_id) {
       throw workflowError('Semantic trace belongs to another ReportSession.', 'SEMANTIC_TRACE_BINDING_MISMATCH', 409);
     }
-    return { session_id: chain.session.session_id, semantic_trace: semanticTrace };
+    const transcript = chain.transcripts.find((item) => item.transcript_id === semanticTrace.transcript_id);
+    const agentState = chain.agent_state;
+    return {
+      session_id: chain.session.session_id,
+      semantic_trace: semanticTrace,
+      normalization: transcript ? {
+        raw_text: transcript.raw_text,
+        normalized_text: transcript.normalized_text,
+        corrections: transcript.corrections || [],
+        review_decisions: chain.transcript_reviews
+          .filter((review) => review.transcript_id === transcript.transcript_id)
+          .flatMap((review) => review.decisions || []),
+      } : null,
+      report_state: agentState ? {
+        session_revision: agentState.session_revision,
+        report_fields: agentState.report_fields,
+        conflicts: agentState.conflicts,
+        validation_issues: agentState.validation_issues,
+        completeness: agentState.completeness,
+        unresolved_information: agentState.unresolved_information,
+      } : null,
+      clarification_queue: agentState?.resolution_queue || [],
+    };
   }
 
   async replaySemanticTrace({ session_id: sessionId, transcript_id: transcriptId } = {}) {
@@ -578,8 +613,8 @@ export class AuthoritativeCaptureService {
       event.payload?.transcript_id === transcriptId && event.payload?.semantic_trace_id);
     const previous = priorEvent
       ? await this.sessionStore.readRecord('semantic-traces', priorEvent.payload.semantic_trace_id) : null;
-    if (previous?.pipeline_versions?.field_mapping === EXTRACTION_VERSION
-      && previous?.pipeline_versions?.verifier === STRUCTURED_VERIFIER_VERSION
+    if (previous && Object.entries(pipelineVersions(session)).every(([stage, version]) =>
+      previous.pipeline_versions?.[stage] === version)
       && previous.input_text_sha256 === `sha256:${digest(projection.effectiveText)}`
       && (!this.semanticModel || previous.model.model === this.semanticModel)
       && !previous.model.error) {
@@ -954,6 +989,7 @@ export class AuthoritativeCaptureService {
       raw_text: extractionText,
       transcript_id: transcript.transcript_id,
       capture_context: transcript.capture_context,
+      assertions,
     });
     const conversational = extractConversationalFacts({
       scope_id: session.context_binding.scope_id,
@@ -1093,12 +1129,7 @@ export class AuthoritativeCaptureService {
         session_id: session.session_id,
         transcript_id: transcript.transcript_id,
         input_text_sha256: `sha256:${digest(extractionText)}`,
-        pipeline_versions: {
-          ontology: 'canonical-report-facts.v1', segmenter: ASSERTION_SEGMENTER_VERSION,
-          coverage: ASSERTION_COVERAGE_VERSION, deterministic: `${ATOMIC_FACTS_VERSION}+${CONVERSATIONAL_FACTS_VERSION}`,
-          extractor: SEMANTIC_EXTRACTOR_VERSION, verifier: STRUCTURED_VERIFIER_VERSION,
-          field_mapping: EXTRACTION_VERSION,
-        },
+        pipeline_versions: pipelineVersions(session),
         assertions: finalCoverage,
         unresolved_semantic_windows: semanticWindows,
         first_pass_coverage: firstPassCoverage.map(({ assertion_id, status, uncovered_spans: uncoveredSpans }) => ({

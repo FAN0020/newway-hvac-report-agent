@@ -60,6 +60,8 @@ test('real technician narration fills independently supported report facts witho
     /exact date and time/iu);
   assert.equal(result.candidates.find((candidate) => candidate.field_id === 'test.result')?.semantic?.semantic_type,
     'TEST_OBSERVATION');
+  assert.equal(result.semantic_trace.canonical_facts.find((fact) => fact.semantic_type === 'COMPLETED_ACTION'
+    && fact.value === 'tightened the bracket')?.temporality, 'COMPLETED');
 });
 
 test('capture persists assertion-level trace and distinguishes unresolved evidence from absent fields', async (t) => {
@@ -69,6 +71,7 @@ test('capture persists assertion-level trace and distinguishes unresolved eviden
   assert.ok(trace, 'capture must return its persisted semantic trace');
   assert.equal(trace.transcript_id, result.transcript.transcript_id);
   assert.equal(trace.pipeline_versions.ontology, 'canonical-report-facts.v1');
+  assert.equal(trace.pipeline_versions.normalizer, 'contextual-transcript-normalization.v1');
   for (const assertion of trace.assertions) {
     assert.equal(entry.text.slice(assertion.start, assertion.end), assertion.text);
     assert.ok(['RESOLVED', 'PARTIALLY_RESOLVED', 'UNRESOLVED', 'NON_REPORT_CONTENT', 'AMBIGUOUS'].includes(assertion.status));
@@ -81,7 +84,14 @@ test('capture persists assertion-level trace and distinguishes unresolved eviden
   assert.equal(trace.missing_information.find((item) => item.field_id === 'diagnosis.root_cause')?.reason, 'AMBIGUOUS');
   assert.equal(trace.missing_information.find((item) => item.field_id === 'work.date_time')?.reason, 'MENTIONED_BUT_INVALID');
   assert.deepEqual(await sessionStore.readRecord('semantic-traces', trace.trace_id), trace);
-  assert.deepEqual((await service.getSemanticTrace(result.session.session_id)).semantic_trace, trace);
+  const inspection = await service.getSemanticTrace(result.session.session_id);
+  assert.deepEqual(inspection.semantic_trace, trace);
+  assert.equal(inspection.normalization.raw_text, entry.text);
+  assert.equal(inspection.normalization.normalized_text, result.transcript.normalized_text);
+  assert.deepEqual(inspection.normalization.corrections, result.transcript.corrections);
+  assert.deepEqual(inspection.report_state.report_fields, result.agent_state.report_fields);
+  assert.deepEqual(inspection.clarification_queue, result.agent_state.resolution_queue);
+  assert.equal(inspection.report_state.session_revision, result.session.revision);
   const replay = await service.replaySemanticTrace({
     session_id: result.session.session_id, transcript_id: result.transcript.transcript_id,
   });
@@ -189,7 +199,7 @@ test('applying a versioned replay supersedes legacy transcript candidates and is
     extraction: { method: 'deterministic-rule', version: 'atomic-semantic-extraction.v6' } };
   await sessionStore.putRecord('field-candidates', legacyCandidate.candidate_id, legacyCandidate);
   const priorTrace = { ...result.semantic_trace, trace_id: 'trace_legacy_fixture',
-    pipeline_versions: { ...result.semantic_trace.pipeline_versions, field_mapping: 'atomic-semantic-extraction.v6' } };
+    pipeline_versions: { ...result.semantic_trace.pipeline_versions, segmenter: 'semantic-assertions.v0' } };
   await sessionStore.putRecord('semantic-traces', priorTrace.trace_id, priorTrace);
   const prior = await sessionStore.recordEvent({
     session_id: result.session.session_id, expected_revision: result.session.revision,

@@ -1,5 +1,6 @@
 // Only terminology in the active report context may supply replacement words.
 // This deliberately does not infer facts or change values following field cues.
+export const NORMALIZER_VERSION = 'contextual-transcript-normalization.v1';
 const WORD = /[\p{L}][\p{L}\p{M}]*/gu;
 const ASSIGNMENT = /^\s*(?:(?:is|was|are|were)\b|[:=])/iu;
 const FACT_WORDS = new Set([

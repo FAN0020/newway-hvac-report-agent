@@ -69,6 +69,9 @@ test('HTTP capture and replayable trace expose the evidence-to-field decisions a
   const loaded = await request(`/api/report-sessions/${sessionId}/semantic-trace`);
   assert.equal(loaded.status, 200);
   assert.deepEqual(loaded.body.data.semantic_trace, captured.body.data.semantic_trace);
+  assert.equal(loaded.body.data.normalization.raw_text, captured.body.data.transcript.raw_text);
+  assert.deepEqual(loaded.body.data.clarification_queue, captured.body.data.agent_state.resolution_queue);
+  assert.equal(loaded.body.data.report_state.session_revision, captured.body.data.session.revision);
   assert.equal(loaded.body.data.semantic_trace.canonical_facts.some((fact) =>
     fact.semantic_type === 'ASSET_IDENTITY' && fact.value === '204'), true);
   const replay = await request(`/api/report-sessions/${sessionId}/transcripts/${captured.body.data.transcript.transcript_id}/semantic-replay`,

@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
 
-export const ASSERTION_SEGMENTER_VERSION = 'semantic-assertions.v1';
+export const ASSERTION_SEGMENTER_VERSION = 'semantic-assertions.v2';
 
 const SENTENCE = /[^.!?\n]+(?:[.!?]+|$)/gu;
 const BOUNDARIES = [
   /[,;]\s*(?=(?:(?:the|my)\s+)?[\p{L}][\p{L}-]*(?:\s+[\p{L}][\p{L}-]*){0,2}\s+(?:is|was|are|were|reads?|measured)\b)/giu,
-  /(?:[,;]\s*|\s+)(?:and|but|so|then)\s+(?=(?:(?:I|we)\s+)?(?:found|observed|identified|detected|re[- ]?tested|tested|verified|ran|returned|replaced|installed|repaired|reseated|secured|sealed|tightened|cleared|cleaned|adjusted|lubricated|reset|removed|refitted|restored|did|passed|failed)\b)/giu,
+  /[,;]\s*(?=(?:(?:I|we)\s+)?(?:found|observed|identified|detected|re[- ]?tested|tested|verified|ran|returned|replaced|installed|repaired|reseated|secured|sealed|tightened|cleared|cleaned|adjusted|lubricated|reset|removed|refitted|restored)\b)/giu,
+  /(?:[,;]\s*|\s+)(?:and|but|so|then)\s+(?=(?:(?:I|we)\s+)?(?:found|observed|identified|detected|re[- ]?tested|tested|verified|ran|returned|replaced|installed|repaired|reseated|secured|sealed|tightened|cleared|cleaned|adjusted|lubricated|reset|removed|refitted|restored|did|passed|failed|recommend(?:ed)?|suggest(?:ed)?|should)\b)/giu,
   /(?:[,;]\s*|\s+)(?:and|but|so|then)\s+(?=(?:I|we|the\s+customer|the\s+driver|the\s+operator|no\s+outstanding|no\s+follow[- ]?up)\b)/giu,
   /\s+(?=\b(?:this\s+(?:morning|afternoon|evening)|today|yesterday|tonight)\b)/giu,
   /\s+(?=\bat\s+(?:the\s+)?[A-Z][\p{L}])/gu,

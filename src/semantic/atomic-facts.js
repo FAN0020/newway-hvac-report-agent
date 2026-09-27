@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { identifierIsCertain } from './identifier-certainty.js';
 
-export const ATOMIC_FACTS_VERSION = 'atomic-facts.v7';
+export const ATOMIC_FACTS_VERSION = 'atomic-facts.v8';
 
 export const SEMANTIC_TYPES = Object.freeze([
   'WORK_ORDER',
@@ -115,7 +115,8 @@ function resolvePronouns(value, facts) {
   return value.replace(/\b(?:it|that)\b/iu, prior);
 }
 
-export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText, transcript_id: transcriptId, capture_context: captureContext = null } = {}) {
+export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText, transcript_id: transcriptId,
+  capture_context: captureContext = null, assertions = null } = {}) {
   const text = String(rawText || '');
   if (!text.trim()) return [];
   const facts = [];
@@ -123,7 +124,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
 
   const add = ({ semanticType, value, unit, match, sentence, claimKind = 'VALUE', temporality = 'CURRENT', sourceRole = 'TECHNICIAN', attributes = {} }) => {
     if (!match) return;
-    if (sentence.sourceRole === 'CUSTOMER' && TECHNICIAN_OWNED_FACTS.has(semanticType)) return;
+    if (sentence.sourceRole !== 'TECHNICIAN' && TECHNICIAN_OWNED_FACTS.has(semanticType)) return;
     const start = sentence.start + match.index;
     const quote = match[0];
     const end = start + quote.length;
@@ -143,7 +144,7 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
       ...(unit ? { unit } : {}),
       claim_kind: claimKind,
       source_role: sourceRole,
-      temporality: temporality,
+      temporality: semanticType === 'COMPLETED_ACTION' && temporality === 'CURRENT' ? 'COMPLETED' : temporality,
       transcript_id: String(transcriptId || ''),
       segment_ids: [`clause_${stableId({ transcript_id: transcriptId, start: sentence.start, end: sentence.end })}`],
       char_start: start,
@@ -156,9 +157,12 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     }));
   };
 
-  for (const sentence of clauses(text)) {
+  for (const sentence of Array.isArray(assertions)
+    ? assertions.map((assertion) => ({ ...assertion, start: assertion.start, end: assertion.end,
+      sourceRole: assertion.actor === 'TECHNICIAN' ? 'TECHNICIAN' : assertion.actor }))
+    : clauses(text)) {
     const body = sentence.text;
-    const customerSpeech = sentence.sourceRole === 'CUSTOMER';
+    const customerSpeech = sentence.sourceRole !== 'TECHNICIAN';
     let match;
 
     match = /\bwork\s+order(?:\s+(?:number|no\.?))?\s*(?:is|was|:|#)?\s*([A-Z0-9-]+)/iu.exec(body);
@@ -338,5 +342,12 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     if (match) add({ semanticType: 'FOLLOW_UP', value: null, match, sentence, claimKind: 'EXPLICIT_NONE', attributes: { follow_up_kind: 'OUTSTANDING_ISSUES' } });
   }
 
-  return facts.sort((a, b) => a.char_start - b.char_start || a.semantic_type.localeCompare(b.semantic_type));
+  return facts.filter((fact) => {
+    if (fact.semantic_type !== 'INSPECTION_FINDING'
+      || !/^\s*(?:I|we)\s+(?:checked|inspected)\b/iu.test(fact.evidence_quote)) return true;
+    if (/^(?:it|this|that)$/iu.test(fact.value)) return false;
+    return !facts.some((later) => later.semantic_type === 'INSPECTION_FINDING'
+      && later.char_start >= fact.char_end && later.char_start - fact.char_end < 80
+      && /^\s*(?:(?:I|we)\s+)?(?:found|observed|identified|detected)\b/iu.test(later.evidence_quote));
+  }).sort((a, b) => a.char_start - b.char_start || a.semantic_type.localeCompare(b.semantic_type));
 }
