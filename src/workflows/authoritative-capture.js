@@ -20,6 +20,7 @@ import { reportToText } from '../tools/report-integrity.js';
 import { extractAtomicFacts } from '../semantic/atomic-facts.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
 import { extractCuedFieldAssignments, proposeStructuredAtomicFacts } from '../semantic/structured-proposals.js';
+import { normalizeContextualTranscript } from '../semantic/transcript-normalization.js';
 import { deriveCaptureTimeAssignments } from '../semantic/temporal-fields.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
 import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
@@ -30,8 +31,8 @@ import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
 
-const PROCESSING_VERSION = 'authoritative-capture.v3';
-const EXTRACTION_VERSION = 'atomic-semantic-extraction.v5';
+const PROCESSING_VERSION = 'authoritative-capture.v4';
+const EXTRACTION_VERSION = 'atomic-semantic-extraction.v6';
 const RETRIEVAL_VERSION = 'scope-lexical.v1';
 const ATTACHMENT_PURPOSES = new Set([
   'BEFORE_WORK_PHOTO', 'AFTER_WORK_PHOTO', 'MEASUREMENT', 'PARTS_EVIDENCE',
@@ -103,12 +104,14 @@ function reportBinding(session) {
   };
 }
 
-function transcriptInput({ session, evidence, rawText, language, provider, model, segments, captureContext = null, createdAt }) {
+function transcriptInput({ session, evidence, rawText, normalizedText, corrections, language, provider, model, segments, captureContext = null, createdAt }) {
   return {
     session_id: session.session_id,
     source_evidence_id: evidence.evidence_id,
     source_hash: evidence.source_hash,
     raw_text: rawText,
+    normalized_text: normalizedText,
+    corrections,
     language,
     provider,
     model,
@@ -222,6 +225,19 @@ function correctedTextProjection(rawText, items, decisions) {
   return { effectiveText, mapSpan };
 }
 
+function transcriptProjection(transcript, items = [], decisions = []) {
+  const automatic = (transcript.corrections || []).map((correction, index) => ({
+    review_item_id: `automatic:${index}`,
+    kind: 'CORRECTION',
+    source_span: { start: correction.sourceSpan.start, end: correction.sourceSpan.end, quote: correction.original },
+    proposed_text: correction.replacement,
+  }));
+  return correctedTextProjection(transcript.raw_text, [...automatic, ...items], [
+    ...automatic.map((item) => ({ review_item_id: item.review_item_id, decision: 'ACCEPT' })),
+    ...decisions,
+  ]);
+}
+
 export class AuthoritativeCaptureService {
   constructor({
     artifactStore,
@@ -270,6 +286,16 @@ export class AuthoritativeCaptureService {
       if (!provided) throw workflowError('Published template was not found.', 'TEMPLATE_NOT_FOUND', 404);
       return structuredClone(provided);
     }
+  }
+
+  async createCapturedTranscript(input) {
+    const template = await this.resolveTemplate(input.session.template_binding.template_id);
+    const normalization = normalizeContextualTranscript({ rawText: input.rawText, template });
+    return createTranscriptArtifact(transcriptInput({
+      ...input,
+      normalizedText: normalization.normalizedText,
+      corrections: normalization.corrections,
+    }));
   }
 
   async captureContext(session, { target_field_id: targetFieldId, target_section_id: targetSectionId, capture_mode: captureMode } = {}) {
@@ -795,7 +821,7 @@ export class AuthoritativeCaptureService {
     return { session: computed.session, evidence, agent_state: computed.agent_state };
   }
 
-  async extractFacts({ session, transcript, extractionText = transcript.raw_text }) {
+  async extractFacts({ session, transcript, extractionText = transcript.normalized_text ?? transcript.raw_text }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
     const deterministic = await extractAtomicFacts({
       scope_id: session.context_binding.scope_id,
@@ -833,7 +859,9 @@ export class AuthoritativeCaptureService {
       usedFields.add(assignment.field_id);
       return true;
     });
-    const cuedFields = extractCuedFieldAssignments({ template, raw_text: extractionText }).assignments
+    const cuedFields = extractCuedFieldAssignments({
+      template, raw_text: extractionText, capture_context: transcript.capture_context,
+    }).assignments
       .filter((assignment) => {
         if (usedFields.has(assignment.field_id)) return false;
         usedFields.add(assignment.field_id);
@@ -852,7 +880,7 @@ export class AuthoritativeCaptureService {
     session,
     transcript,
     supportType,
-    extractionText = transcript.raw_text,
+    extractionText = transcript.normalized_text ?? transcript.raw_text,
     mapSourceSpan = (span) => span,
     confirmedCorrections = [],
     correctionContext = null,
@@ -959,7 +987,7 @@ export class AuthoritativeCaptureService {
     return { spans, candidates, facts };
   }
 
-  async retrieveGuidance({ session, transcript, facts, query = transcript.raw_text }) {
+  async retrieveGuidance({ session, transcript, facts, query = transcript.normalized_text ?? transcript.raw_text }) {
     if (!CONTEXT_BY_SCOPE[session.context_binding.scope_id]) return { session, guidanceContext: null };
     const dependencies = await this.guidanceDependencies();
     if (!dependencies) return { session, guidanceContext: null };
@@ -1520,11 +1548,15 @@ export class AuthoritativeCaptureService {
         }];
       });
     }
+    const automatic = transcript.corrections || [];
+    proposedItems = proposedItems.filter((item) => !automatic.some((correction) => (
+      item.source_span.start < correction.sourceSpan.end && item.source_span.end > correction.sourceSpan.start
+    )));
     if (!proposedItems.length) return { items: [], confirmationRequirements };
-    const rawFacts = await this.extractFacts({ session, transcript });
+    const rawFacts = await this.extractFacts({ session, transcript, extractionText: transcript.normalized_text });
     const items = [];
     for (const item of proposedItems) {
-      const projection = correctedTextProjection(transcript.raw_text, [item], [{ review_item_id: item.review_item_id, decision: 'ACCEPT' }]);
+      const projection = transcriptProjection(transcript, [item], [{ review_item_id: item.review_item_id, decision: 'ACCEPT' }]);
       const confirmedCorrections = [{
         correction_id: item.review_item_id,
         source_span: { start: item.source_span.start, end: item.source_span.end, text: item.source_span.quote },
@@ -1579,13 +1611,16 @@ export class AuthoritativeCaptureService {
         next_action: 'REVIEW_TRANSCRIPT',
       };
     }
+    const projection = transcriptProjection(transcript);
     const { spans, candidates, facts } = await this.extractCandidates({
       session,
       transcript,
       supportType,
+      extractionText: projection.effectiveText,
+      mapSourceSpan: projection.mapSpan,
       confirmationRequirements,
     });
-    const guided = await this.retrieveGuidance({ session, transcript, facts, query: transcript.raw_text });
+    const guided = await this.retrieveGuidance({ session, transcript, facts, query: projection.effectiveText });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
       expected_revision: guided.session.revision,
@@ -1675,7 +1710,7 @@ export class AuthoritativeCaptureService {
       confirmation_requirements: pending.confirmation_requirements,
       reviewer_principal_ref: 'principal:demo-technician',
       reviewed_at: this.clock(),
-      effective_projection_hash: hashContract(correctedTextProjection(transcript.raw_text, pending.items, normalized).effectiveText),
+      effective_projection_hash: hashContract(transcriptProjection(transcript, pending.items, normalized).effectiveText),
     });
     await this.sessionStore.putRecord('transcript-reviews', review.review_id, review);
     const confirmedCorrections = normalized.flatMap((decision) => {
@@ -1688,7 +1723,7 @@ export class AuthoritativeCaptureService {
         status: 'CONFIRMED_BY_TECHNICIAN',
       }];
     });
-    const projection = correctedTextProjection(transcript.raw_text, pending.items, normalized);
+    const projection = transcriptProjection(transcript, pending.items, normalized);
     const supportType = transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE';
     const acceptedItems = pending.items.filter((item) => normalized.some((decision) => (
       decision.review_item_id === item.review_item_id && decision.decision === 'ACCEPT'
@@ -1822,7 +1857,7 @@ export class AuthoritativeCaptureService {
         model: record.model,
         language: record.language,
       });
-      const transcript = createTranscriptArtifact(transcriptInput({
+      const transcript = await this.createCapturedTranscript({
         session,
         evidence,
         rawText: result.raw_text,
@@ -1832,7 +1867,7 @@ export class AuthoritativeCaptureService {
         segments: Array.isArray(result.segments) ? result.segments : [],
         captureContext: record.capture_context,
         createdAt: this.clock(),
-      }));
+      });
       const completed = await this.finishTranscript({ session, evidence, transcript, supportType: 'TRANSCRIPT_EVIDENCE' });
       await this.sessionStore.saveCapture({
         ...record,
@@ -1951,7 +1986,7 @@ export class AuthoritativeCaptureService {
     };
     await this.sessionStore.saveCapture(record);
     const processing = await this.beginCapture({ sessionId, expectedRevision, evidence, source: 'TECHNICIAN_TEXT' });
-    const transcript = createTranscriptArtifact(transcriptInput({
+    const transcript = await this.createCapturedTranscript({
       session: processing.session,
       evidence,
       rawText,
@@ -1961,7 +1996,7 @@ export class AuthoritativeCaptureService {
       segments: [],
       captureContext,
       createdAt: this.clock(),
-    }));
+    });
     const completed = await this.finishTranscript({ session: processing.session, evidence, transcript, supportType: 'MANUAL_TECHNICIAN_INPUT' });
     await this.sessionStore.saveCapture({
       ...record,

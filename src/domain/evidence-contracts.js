@@ -93,6 +93,29 @@ export function createTranscriptArtifact(input = {}) {
     }
     return { start_ms: start, end_ms: end, text: requiredString(segment.text, `segments[${index}].text`, code) };
   });
+  const normalizedText = String(input.normalized_text ?? rawText);
+  const corrections = (input.corrections || []).map((item, index) => {
+    const sourceStart = Number(item?.sourceSpan?.start);
+    const sourceEnd = Number(item?.sourceSpan?.end);
+    const normalizedStart = Number(item?.normalizedSpan?.start);
+    const normalizedEnd = Number(item?.normalizedSpan?.end);
+    if (![sourceStart, sourceEnd, normalizedStart, normalizedEnd].every(Number.isSafeInteger)
+      || sourceStart < 0 || sourceEnd <= sourceStart || normalizedStart < 0 || normalizedEnd <= normalizedStart
+      || rawText.slice(sourceStart, sourceEnd) !== item.original
+      || normalizedText.slice(normalizedStart, normalizedEnd) !== item.replacement) {
+      throw new ContractValidationError(`corrections[${index}] must match exact raw and normalized spans.`, code);
+    }
+    return copy(item);
+  });
+  let rebuilt = '';
+  let cursor = 0;
+  for (const correction of corrections) {
+    if (correction.sourceSpan.start < cursor) throw new ContractValidationError('Transcript corrections overlap or are unordered.', code);
+    rebuilt += rawText.slice(cursor, correction.sourceSpan.start) + correction.replacement;
+    cursor = correction.sourceSpan.end;
+  }
+  rebuilt += rawText.slice(cursor);
+  if (rebuilt !== normalizedText) throw new ContractValidationError('Normalized transcript does not match correction spans.', code);
   const body = {
     contract: 'TranscriptArtifact',
     contract_version: '1',
@@ -101,6 +124,9 @@ export function createTranscriptArtifact(input = {}) {
     source_hash: sourceHash,
     raw_text: rawText,
     text_hash: hashContract(rawText),
+    normalized_text: normalizedText,
+    normalized_text_hash: hashContract(normalizedText),
+    corrections,
     language: String(input.language || 'und'),
     provider: requiredString(input.provider, 'provider', code),
     model: requiredString(input.model, 'model', code),

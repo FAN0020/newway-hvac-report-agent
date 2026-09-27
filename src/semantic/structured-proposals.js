@@ -225,6 +225,16 @@ export function verifyStructuredFactProposals({
 
 const FIELD_CUE_STOP_WORDS = new Set(['asset', 'work', 'report', 'field', 'the', 'and', 'for', 'of', 'to', 'a', 'id', 'number']);
 const PROTECTED_FIELD = /^(?:work_order$|work\.(?:work_order_id|order_id)$|equipment$|asset\.(?:internal_fleet_no|registration_no|bus_model)$|customer_complaint$|inspection_findings$|diagnosis\.root_cause$|completion\.|completion_status$|test\.|test_results$|parts\.|parts_used$|work_performed$|check\.|handover\.)/u;
+const IDENTIFIER_FIELD_WORDS = new Set(['id', 'identifier', 'number', 'no', 'serial', 'tag', 'code', 'registration']);
+const SPOKEN_DIGITS = Object.freeze({
+  zero: '0', oh: '0', one: '1', two: '2', three: '3', four: '4',
+  five: '5', six: '6', seven: '7', eight: '8', nine: '9',
+});
+const SPOKEN_SEPARATORS = Object.freeze({ hyphen: '-', dash: '-', slash: '/', dot: '.', point: '.' });
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
 
 function cueToken(token) {
   const lower = token.toLocaleLowerCase();
@@ -237,22 +247,81 @@ function fieldCues(field) {
     .map(cueToken).filter((token) => token.length > 3 && !FIELD_CUE_STOP_WORDS.has(token)));
 }
 
-export function extractCuedFieldAssignments({ template, raw_text: rawText } = {}) {
+function fieldPhrases(field) {
+  const sources = [field.id.replaceAll(/[._-]/gu, ' '), field.label || ''];
+  return new Set(sources.map((source) => words(source).join(' ')).filter(Boolean));
+}
+
+function phrasePattern(phrase) {
+  return phrase.split(/\s+/u).map((token) => token === 'id'
+    ? '(?:id|identifier)'
+    : token === 'identifier' ? '(?:identifier|id)' : escapeRegExp(token)).join('\\s+');
+}
+
+function identifierField(field) {
+  if (field?.type !== 'string') return false;
+  return words(`${field.id.replaceAll(/[._-]/gu, ' ')} ${field.label || ''}`)
+    .some((token) => IDENTIFIER_FIELD_WORDS.has(token));
+}
+
+function normalizeSpokenIdentifier(value) {
+  const source = String(value || '').normalize('NFKC').trim().replace(/^[.,;:!?\s]+|[.,;:!?\s]+$/gu, '');
+  if (!source || source.length > 128) return null;
+  const tokens = source.toLocaleLowerCase().match(/[\p{L}\p{N}]+|[-._/]/gu) || [];
+  if (!tokens.length) return null;
+  const descriptiveWords = tokens.filter((token) => /^[\p{L}]+$/u.test(token)
+    && token.length > 1 && !Object.hasOwn(SPOKEN_DIGITS, token) && !Object.hasOwn(SPOKEN_SEPARATORS, token));
+  if (descriptiveWords.length > 1) return null;
+  let normalized = '';
+  for (const token of tokens) {
+    if (Object.hasOwn(SPOKEN_DIGITS, token)) normalized += SPOKEN_DIGITS[token];
+    else if (Object.hasOwn(SPOKEN_SEPARATORS, token)) normalized += SPOKEN_SEPARATORS[token];
+    else if (/^[-._/]$/u.test(token)) normalized += token;
+    else if (/^[\p{L}\p{N}]+$/u.test(token)) normalized += token.toLocaleUpperCase();
+    else return null;
+  }
+  return /^[\p{L}\p{N}][\p{L}\p{N}._/-]{0,63}$/u.test(normalized) ? normalized : null;
+}
+
+function fieldCuePatterns(fields) {
+  const patterns = new Set();
+  for (const field of fields) {
+    for (const phrase of fieldPhrases(field)) {
+      if (phrase.includes(' ')) patterns.add(phrasePattern(phrase));
+    }
+    for (const cue of fieldCues(field)) patterns.add(`${escapeRegExp(cue)}(?:s|ed|ing)?`);
+  }
+  return [...patterns].sort((a, b) => b.length - a.length);
+}
+
+function quoteHasFieldCue(field, fields, quote, captureContext, value) {
+  if (captureContext?.target_field_id === field.id && quote.trim() === value.trim()) return true;
+  const phraseMatches = [...fieldPhrases(field)].filter((phrase) => new RegExp(`\\b${phrasePattern(phrase)}\\b`, 'iu').test(quote));
+  if (phraseMatches.some((phrase) => !fields.some((other) => other.id !== field.id && fieldPhrases(other).has(phrase)))) return true;
+  const quoteWords = new Set(words(quote).map(cueToken));
+  const matched = [...fieldCues(field)].filter((cue) => quoteWords.has(cue));
+  return matched.length > 0 && !matched.some((cue) => fields.some((other) => other.id !== field.id && fieldCues(other).has(cue)));
+}
+
+export function extractCuedFieldAssignments({ template, raw_text: rawText, capture_context: captureContext = null } = {}) {
   const text = String(rawText || '');
   const proposals = [];
   const fields = (template?.schema?.fields || []).filter((field) => !field.id.includes('*')
     && !PROTECTED_FIELD.test(field.id) && ['string', 'text'].includes(field.type));
-  const allCues = [...new Set(fields.flatMap((field) => [...fieldCues(field)]))];
-  const nextField = allCues.length
-    ? new RegExp(`\\s*,?\\s*(?:and|but|then|so)\\s+(?=(?:the\\s+)?(?:${allCues.join('|')})(?:s|ed|ing)?\\s+(?:is|was|are|were|by|:|=)\\b)`, 'iu')
+  const allCuePatterns = fieldCuePatterns(fields);
+  const nextField = allCuePatterns.length
+    ? new RegExp(`\\s*,?\\s*(?:and|but|then|so)\\s+(?=(?:the\\s+)?(?:${allCuePatterns.join('|')})\\s+(?:is|was|are|were|by|:|=)\\b)`, 'iu')
     : null;
   for (const segment of text.matchAll(/[^.!?;\n]+/gu)) {
     const clause = segment[0].trim();
     if (!clause || evidenceTemporality(clause) !== 'CURRENT' || /\b(?:not|never|no|unknown|unclear|unconfirmed|suspected|mentioned)\b/iu.test(clause)) continue;
     for (const field of fields) {
-      const cues = [...fieldCues(field)];
-      for (const cue of cues) {
-        const pattern = new RegExp(`\\b${cue}(?:s|ed|ing)?\\b\\s*(?:(?:is|was|are|were|:|=)\\s*|(?:by|due\\s+to)\\s+)`, 'iu');
+      const cues = [
+        ...(identifierField(field) ? [...fieldPhrases(field)].map(phrasePattern) : []),
+        ...[...fieldCues(field)].map((cue) => `${escapeRegExp(cue)}(?:s|ed|ing)?`),
+      ];
+      for (const cue of [...new Set(cues)]) {
+        const pattern = new RegExp(`\\b(?:the\\s+)?${cue}\\b\\s*(?:(?:is|was|are|were|:|=)\\s*|(?:by|due\\s+to)\\s+)`, 'iu');
         const match = pattern.exec(clause);
         if (!match) continue;
         const valueStart = match.index + match[0].length;
@@ -265,10 +334,16 @@ export function extractCuedFieldAssignments({ template, raw_text: rawText } = {}
       }
     }
   }
-  return verifySchemaFieldProposals({ template, raw_text: text, proposals });
+  const target = fields.find((field) => field.id === captureContext?.target_field_id && identifierField(field));
+  const bareValue = text.trim();
+  if (target && !proposals.some((proposal) => proposal.field_id === target.id)
+    && bareValue && !/[.!?;\n]/u.test(bareValue.slice(0, -1))) {
+    proposals.push({ field_id: target.id, value: bareValue, evidence_quote: bareValue });
+  }
+  return verifySchemaFieldProposals({ template, raw_text: text, proposals, capture_context: captureContext });
 }
 
-export function verifySchemaFieldProposals({ template, raw_text: rawText, proposals = [] } = {}) {
+export function verifySchemaFieldProposals({ template, raw_text: rawText, proposals = [], capture_context: captureContext = null } = {}) {
   const text = String(rawText || '');
   const fields = (template?.schema?.fields || []).filter((field) => !field.id.includes('*'));
   const assignments = [];
@@ -291,15 +366,22 @@ export function verifySchemaFieldProposals({ template, raw_text: rawText, propos
       rejections.push({ index, reason: 'UNSUPPORTED_FIELD_VALUE' });
       continue;
     }
-    const quoteWords = new Set(words(quote).map(cueToken));
-    const cues = fieldCues(field);
-    const matched = [...cues].filter((cue) => quoteWords.has(cue));
-    if (!matched.length || matched.some((cue) => fields.some((other) => other.id !== field.id && fieldCues(other).has(cue)))) {
+    if (identifierField(field) && (!identifierIsCertain(text, start, start + quote.length)
+      || /\b(?:sorry|i\s+mean|correction)\b/iu.test(quote))) {
+      rejections.push({ index, reason: 'UNCERTAIN_IDENTIFIER' });
+      continue;
+    }
+    if (!quoteHasFieldCue(field, fields, quote, captureContext, value)) {
       rejections.push({ index, reason: 'AMBIGUOUS_OR_MISSING_FIELD_CUE' });
       continue;
     }
+    const normalizedValue = identifierField(field) ? normalizeSpokenIdentifier(value) : value.trim();
+    if (!normalizedValue) {
+      rejections.push({ index, reason: 'UNSUPPORTED_FIELD_VALUE' });
+      continue;
+    }
     assignments.push({
-      field_id: field.id, value: value.trim(), claim_kind: 'VALUE', support_status: 'CONFIRMED_BY_EVIDENCE',
+      field_id: field.id, value: normalizedValue, claim_kind: 'VALUE', support_status: 'CONFIRMED_BY_EVIDENCE',
       semantic_type: 'SCHEMA_FIELD_VALUE', source_span: { start, end: start + quote.length, text: quote },
       extraction_method: 'structured-schema-field-proposal',
       critical: Boolean(field.critical || field.requiresTechnicianConfirmation),
@@ -397,7 +479,9 @@ export async function proposeStructuredAtomicFacts({
       scope_id: scopeId, transcript_id: transcriptId, raw_text: rawText,
       proposals, capture_context: captureContext,
     });
-  const verifiedFields = verifySchemaFieldProposals({ template, raw_text: rawText, proposals: fieldProposals });
+  const verifiedFields = verifySchemaFieldProposals({
+    template, raw_text: rawText, proposals: fieldProposals, capture_context: captureContext,
+  });
   return {
     facts: verifiedFacts.facts,
     field_assignments: verifiedFields.assignments,

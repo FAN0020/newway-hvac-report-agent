@@ -1,0 +1,90 @@
+{
+  "schema_version": "schema-identifier-autofill.v1",
+  "provenance": "Frozen synthetic ASR-text regressions plus the exact persisted Whisper transcript reported on 2026-09-28.",
+  "cases": [
+    {
+      "id": "asset-id-lowercase-exact-regression",
+      "split": "regression",
+      "category": "regression",
+      "input": "the asset id is abcd1234",
+      "expected": [{ "field_id": "asset.id", "value": "ABCD1234" }],
+      "forbidden": [],
+      "rationale": "Whisper preserves the identifier characters but not capitalization; an explicit Asset ID must fill the matching schema field.",
+      "tags": ["whisper", "case-normalization", "known-regression"]
+    },
+    {
+      "id": "asset-id-spelled-characters-and-digits",
+      "split": "regression",
+      "category": "edge",
+      "input": "asset identifier is a b c d one two three four",
+      "expected": [{ "field_id": "asset.id", "value": "ABCD1234" }],
+      "forbidden": [],
+      "rationale": "ASR commonly separates spelled characters and emits digit words.",
+      "tags": ["spelling", "spoken-digits", "asr"]
+    },
+    {
+      "id": "asset-id-punctuation-and-hyphen",
+      "split": "regression",
+      "category": "positive",
+      "input": "Asset ID: pump-7a.",
+      "expected": [{ "field_id": "asset.id", "value": "PUMP-7A" }],
+      "forbidden": [],
+      "rationale": "A colon is a normal field cue and identifier punctuation must be retained.",
+      "tags": ["punctuation", "hyphen", "case-normalization"]
+    },
+    {
+      "id": "asset-id-and-second-schema-field",
+      "split": "regression",
+      "category": "positive",
+      "input": "asset id is abcd1234 and inspection result is normal",
+      "expected": [
+        { "field_id": "asset.id", "value": "ABCD1234" },
+        { "field_id": "inspection.result", "value": "normal" }
+      ],
+      "forbidden": [],
+      "rationale": "The identifier must stop at the next schema cue instead of swallowing the rest of the utterance.",
+      "tags": ["multi-field", "atomicity"]
+    },
+    {
+      "id": "targeted-asset-id-bare-value",
+      "split": "regression",
+      "category": "positive",
+      "input": "abcd1234.",
+      "capture_context": { "target_field_id": "asset.id" },
+      "expected": [{ "field_id": "asset.id", "value": "ABCD1234" }],
+      "forbidden": [],
+      "rationale": "Field-owned dictation already supplies the schema cue through capture context.",
+      "tags": ["targeted-capture", "bare-value"]
+    },
+    {
+      "id": "uncertain-asset-id-abstains",
+      "split": "test",
+      "category": "ambiguous",
+      "input": "the asset id might be abcd1234",
+      "expected": [],
+      "forbidden": [{ "field_id": "asset.id" }],
+      "rationale": "An uncertain identifier must not silently become authoritative.",
+      "tags": ["uncertainty", "abstention"]
+    },
+    {
+      "id": "self-corrected-asset-id-abstains",
+      "split": "test",
+      "category": "ambiguous",
+      "input": "asset id is abcd1234, no sorry, abcd1235",
+      "expected": [],
+      "forbidden": [{ "field_id": "asset.id" }],
+      "rationale": "A correction containing two identifiers requires explicit resolution rather than an arbitrary choice.",
+      "tags": ["self-correction", "abstention"]
+    },
+    {
+      "id": "negated-asset-id-abstains",
+      "split": "test",
+      "category": "negative",
+      "input": "the asset id is not abcd1234",
+      "expected": [],
+      "forbidden": [{ "field_id": "asset.id" }],
+      "rationale": "A negated identifier is not a value assertion.",
+      "tags": ["negation", "abstention"]
+    }
+  ]
+}

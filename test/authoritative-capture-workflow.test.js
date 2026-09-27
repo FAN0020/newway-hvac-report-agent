@@ -80,6 +80,157 @@ test('published manual-schema templates open in the authoritative workflow and r
   assert.equal(current.agent_state.resolution_queue.length, 0);
 });
 
+test('explicit lowercase Asset ID from ASR auto-fills a published custom schema without a model', async (t) => {
+  const customTemplate = {
+    templateId: 'qa-pump-checklist', name: 'QA Pump Checklist', status: 'PUBLISHED', templateVersion: '1.0.0',
+    domain: 'CUSTOM',
+    schema: {
+      id: 'qa-pump-checklist-schema', version: '1.0.0',
+      fields: [
+        { id: 'asset.id', label: 'Asset ID', section: 'Report fields', type: 'string', required: true },
+        { id: 'inspection.result', label: 'Inspection result', section: 'Report fields', type: 'text', required: true },
+      ],
+    },
+    contextCorpus: { id: 'qa-pump-checklist-context', version: '1.0.0', sources: [] },
+    adapter: { id: 'manual-schema-v1', version: '1.0.0' },
+  };
+  const { service, sessionStore } = await fixture(t, 'custom-template-asset-id-autofill', {
+    templateProvider: async (templateId) => (templateId === customTemplate.templateId ? structuredClone(customTemplate) : null),
+  });
+  const created = await service.createSession({
+    template_id: customTemplate.templateId,
+    template_version: customTemplate.templateVersion,
+    job_context_ref: 'new-report:custom-template-asset-id-autofill',
+  });
+  const captured = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'the asset id is abcd1234',
+    language: 'en',
+    idempotency_key: 'custom-template-asset-id-autofill',
+  });
+
+  const asset = captured.agent_state.report_fields.find((field) => field.field_id === 'asset.id');
+  assert.equal(asset.state, 'KNOWN_VALUE');
+  assert.equal(asset.value, 'ABCD1234');
+  const candidate = captured.candidates.find((item) => item.field_id === 'asset.id');
+  assert.equal(candidate.claim.value, 'ABCD1234');
+  const span = await sessionStore.readRecord('evidence-spans', candidate.evidence_refs[0].span_id);
+  assert.equal(captured.transcript.raw_text.slice(span.start_offset, span.end_offset), 'the asset id is abcd1234');
+});
+
+test('schema-supported STT terminology is normalized before extraction without changing raw evidence', async (t) => {
+  const customTemplate = {
+    templateId: 'qa-pump-checklist', name: 'QA Pump Checklist', status: 'PUBLISHED', templateVersion: '1.0.0',
+    domain: 'CUSTOM',
+    schema: { id: 'qa-pump-checklist-schema', version: '1.0.0', fields: [
+      { id: 'asset.id', label: 'Asset ID', section: 'Report fields', type: 'string', required: true },
+      { id: 'inspection.result', label: 'Inspection result', section: 'Report fields', type: 'text', required: true },
+    ] },
+    contextCorpus: { id: 'qa-pump-checklist-context', version: '1.0.0', sources: [] },
+    adapter: { id: 'manual-schema-v1', version: '1.0.0' },
+  };
+  const unrelatedTemplate = {
+    ...customTemplate,
+    templateId: 'qa-motor-checklist', name: 'QA Motor Checklist',
+    schema: { ...customTemplate.schema, id: 'qa-motor-checklist-schema', fields: [
+      { id: 'motor.id', label: 'Motor ID', section: 'Report fields', type: 'string', required: true },
+    ] },
+    contextCorpus: { ...customTemplate.contextCorpus, id: 'qa-motor-checklist-context' },
+  };
+  const { service, sessionStore } = await fixture(t, 'schema-stt-correction', {
+    templateProvider: async (id) => {
+      const found = [customTemplate, unrelatedTemplate].find((item) => item.templateId === id);
+      return found ? structuredClone(found) : null;
+    },
+    whisper: { transcribe: async () => ({
+      raw_text: 'The AZERT ID is ABCD1234.', language: 'en', provider: 'fake-whisper', model: 'base', segments: [],
+    }) },
+  });
+  const created = await service.createSession({
+    template_id: customTemplate.templateId, template_version: customTemplate.templateVersion,
+    job_context_ref: 'new-report:schema-stt-correction',
+  });
+  const extractionInputs = [];
+  const extractFacts = service.extractFacts.bind(service);
+  service.extractFacts = (input) => {
+    extractionInputs.push(input.extractionText);
+    return extractFacts(input);
+  };
+  const rawText = 'Hello, this is Alex. The AZERT ID is ABCD1234 and the inspection result is various. No problem.';
+  const captured = await service.captureText({
+    session_id: created.session.session_id, expected_revision: created.session.revision,
+    text: rawText, language: 'en', idempotency_key: 'schema-stt-correction',
+  });
+  assert.equal(captured.transcript.raw_text, rawText);
+  assert.equal(captured.transcript.normalized_text,
+    'Hello, this is Alex. The Asset ID is ABCD1234 and the inspection result is various. No problem.');
+  assert.deepEqual(captured.transcript.corrections.map(({ original, replacement }) => [original, replacement]), [['AZERT', 'Asset']]);
+  assert.equal(captured.session.phase, 'RESOLVE');
+  const asset = captured.agent_state.report_fields.find((field) => field.field_id === 'asset.id');
+  assert.equal(asset.state, 'KNOWN_VALUE');
+  assert.equal(asset.value, 'ABCD1234');
+  const candidate = captured.candidates.find((item) => item.field_id === 'asset.id');
+  const span = await sessionStore.readRecord('evidence-spans', candidate.evidence_refs[0].span_id);
+  assert.match(rawText.slice(span.start_offset, span.end_offset), /AZERT ID is ABCD1234/u);
+  const chain = await sessionStore.loadChain(created.session.session_id);
+  assert.equal(chain.transcripts[0].raw_text, rawText);
+  assert.equal(chain.transcripts[0].normalized_text, captured.transcript.normalized_text);
+  assert.deepEqual(extractionInputs, [captured.transcript.normalized_text]);
+  assert.equal(extractionInputs.some((text) => text.includes('AZERT Asset')), false);
+  assert.deepEqual(captured.candidates.map((item) => item.field_id).sort(), ['asset.id', 'inspection.result']);
+
+  const next = await service.createSession({
+    template_id: customTemplate.templateId, template_version: customTemplate.templateVersion,
+    job_context_ref: 'new-report:schema-stt-multiple',
+  });
+  const multiple = await service.captureText({
+    session_id: next.session.session_id, expected_revision: next.session.revision,
+    text: 'The AZERT ID is ABCD1234 and the inspextion reslt is various.',
+    language: 'en', idempotency_key: 'schema-stt-multiple',
+  });
+  assert.equal(multiple.transcript.normalized_text, 'The Asset ID is ABCD1234 and the Inspection result is various.');
+  assert.equal(multiple.transcript.corrections.length, 3);
+  assert.deepEqual(extractionInputs.at(-1), multiple.transcript.normalized_text);
+  assert.deepEqual(multiple.candidates.map((item) => item.field_id).sort(), ['asset.id', 'inspection.result']);
+
+  const audioSession = await service.createSession({
+    template_id: customTemplate.templateId, template_version: customTemplate.templateVersion,
+    job_context_ref: 'new-report:schema-stt-audio',
+  });
+  const audio = await service.captureAudio({
+    session_id: audioSession.session.session_id, expected_revision: audioSession.session.revision,
+    wav_buffer: pcmWav({ samples: 333 }), model: 'base', language: 'en', idempotency_key: 'schema-stt-audio',
+  });
+  assert.equal(audio.transcript.raw_text, 'The AZERT ID is ABCD1234.');
+  assert.equal(audio.transcript.normalized_text, 'The Asset ID is ABCD1234.');
+  assert.equal(audio.candidates.find((item) => item.field_id === 'asset.id')?.claim.value, 'ABCD1234');
+  assert.equal(extractionInputs.at(-1), audio.transcript.normalized_text);
+
+  const otherSession = await service.createSession({
+    template_id: unrelatedTemplate.templateId, template_version: unrelatedTemplate.templateVersion,
+    job_context_ref: 'new-report:unrelated-stt-context',
+  });
+  const unrelated = await service.captureText({
+    session_id: otherSession.session.session_id, expected_revision: otherSession.session.revision,
+    text: 'The AZERT ID is ABCD1234.', language: 'en', idempotency_key: 'unrelated-stt-context',
+  });
+  assert.equal(unrelated.transcript.normalized_text, unrelated.transcript.raw_text);
+  assert.deepEqual(unrelated.transcript.corrections, []);
+
+  const meaningfulSession = await service.createSession({
+    template_id: customTemplate.templateId, template_version: customTemplate.templateVersion,
+    job_context_ref: 'new-report:meaningful-alternative',
+  });
+  const meaningful = await service.captureText({
+    session_id: meaningfulSession.session.session_id, expected_revision: meaningfulSession.session.revision,
+    text: 'The Agent ID is ABCD1234.', language: 'en', idempotency_key: 'meaningful-alternative',
+  });
+  assert.equal(meaningful.transcript.normalized_text, meaningful.transcript.raw_text);
+  assert.deepEqual(meaningful.transcript.corrections, []);
+  assert.equal(meaningful.candidates.some((item) => item.field_id === 'asset.id'), false);
+});
+
 async function busSession(service, suffix = '1') {
   return service.createSession({
     template_id: 'bus-defect-rectification-corrective-maintenance',
