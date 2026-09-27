@@ -334,25 +334,49 @@ function renderReportSections(view) {
   }
 }
 
-function renderCapture(panel, task) {
+function renderReporterComposer(container, {
+  inputId,
+  microphoneId,
+  placeholder,
+  submitLabel = 'Continue',
+  compact = false,
+  onSubmit,
+} = {}) {
   const workspace = activeWorkspace();
   const microphoneInUseElsewhere = Boolean(recorder && recorderWorkspace !== workspace);
-  panel.append(element('h3', '', task.title)); panel.lastChild.id = 'active-task-title';
-  const composer = element('div', 'workspace-composer'); const textarea = element('textarea'); textarea.id = 'workspace-statement'; textarea.rows = 4;
-  textarea.placeholder = 'Describe the issue, findings, work performed, tests, and handover.'; textarea.value = state.interaction.statement;
-  textarea.addEventListener('input', () => { state.interaction.statement = textarea.value; submit.disabled = !textarea.value.trim(); });
-  textarea.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && textarea.value.trim()) captureText(); });
-  const mic = button('● Record', 'composer-microphone', startRecording);
-  mic.id = 'workspace-microphone'; mic.setAttribute('aria-label', microphoneInUseElsewhere ? 'Microphone in use by another report' : 'Start recording'); mic.setAttribute('aria-pressed', 'false');
-  mic.disabled = !state.interaction.microphone_available || microphoneInUseElsewhere; composer.append(textarea, mic); panel.append(composer);
+  const wrapper = element('div', compact ? 'workspace-composer compact-composer' : 'workspace-composer');
+  const textarea = element('textarea'); textarea.id = inputId; textarea.rows = compact ? 3 : 4;
+  textarea.placeholder = placeholder; textarea.value = workspace.interaction.statement;
+  textarea.setAttribute('aria-label', placeholder);
   const actions = element('div', 'capture-actions');
-  const submit = button('Continue', 'primary', captureText); submit.id = 'workspace-capture-submit'; submit.disabled = !textarea.value.trim();
+  const submit = button(submitLabel, 'primary', () => onSubmit(textarea.value.trim())); submit.disabled = !textarea.value.trim();
+  textarea.addEventListener('input', () => { workspace.interaction.statement = textarea.value; submit.disabled = !textarea.value.trim(); });
+  textarea.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && textarea.value.trim()) onSubmit(textarea.value.trim());
+  });
+  const mic = button('● Record', 'composer-microphone', startRecording); mic.id = microphoneId;
+  mic.setAttribute('aria-label', microphoneInUseElsewhere ? 'Microphone in use by another report' : 'Record an answer');
+  mic.setAttribute('aria-pressed', 'false'); mic.disabled = !workspace.interaction.microphone_available || microphoneInUseElsewhere;
+  wrapper.append(textarea, mic); actions.append(submit); container.append(wrapper, actions);
+  return { textarea, submit, mic, actions, microphoneInUseElsewhere };
+}
+
+function renderCapture(panel, task) {
+  const workspace = activeWorkspace();
+  panel.append(element('h3', '', task.title)); panel.lastChild.id = 'active-task-title';
+  const composer = renderReporterComposer(panel, {
+    inputId: 'workspace-statement', microphoneId: 'workspace-microphone',
+    placeholder: 'Describe the issue, findings, work performed, tests, and handover.',
+    submitLabel: 'Continue', onSubmit: captureText,
+  });
+  composer.submit.id = 'workspace-capture-submit';
+  if (!composer.microphoneInUseElsewhere) composer.mic.setAttribute('aria-label', 'Start recording');
   const upload = button('Upload recording', 'secondary', () => $('workspace-audio-upload').click());
   const attach = button('Attach evidence', 'text-button', () => $('workspace-attachment-dialog').showModal());
-  actions.append(submit, upload, attach); panel.append(actions);
+  composer.actions.append(upload, attach);
   if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
   if (!state.interaction.microphone_available) panel.append(element('p', 'task-note', 'Microphone unavailable. Type a statement or upload a recording.'));
-  else if (microphoneInUseElsewhere) panel.append(element('p', 'task-note', 'The microphone is recording another report. You can continue with text here or return to that report to stop it.'));
+  else if (composer.microphoneInUseElsewhere) panel.append(element('p', 'task-note', 'The microphone is recording another report. You can continue with text here or return to that report to stop it.'));
 }
 
 function renderRecording(panel, task) {
@@ -385,16 +409,21 @@ function candidateForResolution(item) {
 
 function submitOtherAnswer(panel, item, semantic = null) {
   panel.querySelector('.compact-answer')?.remove();
-  const form = element('form', 'compact-answer'); const input = element('input'); input.required = true; input.placeholder = semantic === 'SUSPECTED' ? 'Describe the suspected cause' : `Enter ${item.field_id}`;
-  const submit = element('button', 'primary', 'Continue'); submit.type = 'submit'; form.append(input, submit);
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
+  const answer = element('div', 'compact-answer');
+  const definition = state.activeTemplate.schema.fields.find((field) => field.id === item.field_id);
+  const label = definition?.label || 'this report detail';
+  answer.append(element('p', 'task-note', 'Type or record your answer.'));
+  renderReporterComposer(answer, {
+    inputId: 'workspace-resolution-answer', microphoneId: 'workspace-resolution-microphone', compact: true,
+    placeholder: semantic === 'SUSPECTED' ? 'Describe the suspected cause.' : `Answer for ${label.toLowerCase()}.`,
+    submitLabel: 'Continue', onSubmit: (text) => {
     const definition = state.activeTemplate.schema.fields.find((field) => field.id === item.field_id);
-    const value = definition?.type === 'number' ? Number(input.value) : input.value;
+    const value = definition?.type === 'number' ? Number(text) : text;
     const unit = item.field_id.endsWith('_km') ? 'km' : undefined;
-    answerResolution(item, semantic ? { kind: 'SEMANTIC_STATE', state: semantic, value: input.value } : { kind: 'VALUE', value, ...(unit ? { unit } : {}) });
+    answerResolution(item, semantic ? { kind: 'SEMANTIC_STATE', state: semantic, value: text } : { kind: 'VALUE', value, ...(unit ? { unit } : {}) });
+    },
   });
-  panel.append(form); input.focus();
+  panel.append(answer); answer.querySelector('textarea').focus();
 }
 
 function renderResolution(panel, task) {
@@ -564,7 +593,7 @@ async function answerResolution(item, answer) {
   setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/resolution-items/${encodeURIComponent(item.resolution_id)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, answer, idempotency_key: crypto.randomUUID() } });
-    workspace.session = result.session; workspace.agentState = result.agent_state; await refreshSession(workspace); await enterReviewIfComplete(workspace);
+    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.interaction.statement = ''; await refreshSession(workspace); await enterReviewIfComplete(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -664,7 +693,9 @@ async function exportReport() {
   if (workspace.session?.phase !== 'CONFIRMED') { workspace.recoverableError = { kind: 'NETWORK', message: 'Reopen the confirmed report package before exporting.', retry_action: 'REFRESH_SESSION' }; renderWorkspaceIfActive(workspace); return; }
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/export`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
-    const text = result.export_text || result.text || JSON.stringify(result, null, 2); const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = element('a'); link.href = url; link.download = `${workspace.activeTemplate.templateId}.txt`; link.click(); URL.revokeObjectURL(url);
+    if (!result.content_base64 || result.mime_type !== 'application/pdf') throw new Error('The server did not return a PDF report.');
+    const binary = atob(result.content_base64); const bytes = new Uint8Array(binary.length); for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    const url = URL.createObjectURL(new Blob([bytes], { type: result.mime_type })); const link = element('a'); link.href = url; link.download = result.filename || `${workspace.activeTemplate.templateId}.pdf`; link.click(); URL.revokeObjectURL(url);
     workspace.exportStatus = 'Export downloaded.'; renderWorkspaceIfActive(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }

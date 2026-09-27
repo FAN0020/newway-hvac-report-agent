@@ -28,7 +28,8 @@ test('workspace has one capture primary, one embedded microphone, and two second
   assert.match(client, /workspace-microphone/);
   assert.match(client, /Upload recording/);
   assert.match(client, /Attach evidence/);
-  assert.match(client, /const submit = button\('Continue', 'primary'/);
+  assert.match(client, /submitLabel: 'Continue'/);
+  assert.match(client, /const submit = button\(submitLabel, 'primary'/);
   assert.doesNotMatch(client, /Update report|workspace-analyze|workspace-confirm-check/);
 });
 
@@ -61,6 +62,9 @@ test('resolution UI prefers structured controls and never exposes developer meta
   const client = await fs.readFile('web/template-app.js', 'utf8');
   for (const type of ['SELECT_OR_PROVIDE', 'SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'CONFIRM_OR_REPLACE']) assert.match(client, new RegExp(type));
   assert.match(client, /Why is this required\?/);
+  assert.match(client, /function renderReporterComposer/);
+  assert.match(client, /renderReporterComposer\(panel/);
+  assert.doesNotMatch(client, /Enter \$\{item\.field_id\}/u);
   assert.doesNotMatch(client, /retrieval score|chunk id|AI confidence|trace id/iu);
 });
 
