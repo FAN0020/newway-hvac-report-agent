@@ -153,6 +153,27 @@ test('recording exposes one explicit stop-and-fill action', () => {
   });
 });
 
+test('recording expands exactly the report sections that still contain blank fields', () => {
+  const result = view({
+    session: session('CONTEXT'),
+    processing: 'RECORDING',
+    agent_state: agent({ fields: [
+      known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
+      known('asset.internal_fleet_no', '8300-354', 'AUTHORITATIVE_SYSTEM_DATA'),
+      unknown('diagnosis.root_cause'),
+      { ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' },
+      unknown('completion.state'),
+    ] }),
+  });
+
+  assert.deepEqual(Object.fromEntries(result.report_sections.map((section) => [section.title, section.expanded])), {
+    'Job Identity': false,
+    Diagnosis: true,
+    Rectification: false,
+    'Completion & Handover': true,
+  });
+});
+
 test('correction task ignores non-material items and shows the next material interpretation', () => {
   const result = view({
     session: session('CORRECTION_IF_NEEDED'),

@@ -182,7 +182,7 @@ function valueFor(fields, id, conflictLabel = 'Needs resolution') {
   return field?.state === 'CONFLICT' ? conflictLabel : displayValue(field);
 }
 
-function buildSections(template, agentState, sessionPhase) {
+function buildSections(template, agentState, sessionPhase, processing) {
   const fieldMap = new Map((agentState?.report_fields || []).map((field) => [field.field_id, field]));
   const unresolved = new Set((agentState?.resolution_queue || []).map((item) => item.field_id));
   const activeFieldId = agentState?.resolution_queue?.[0]?.field_id;
@@ -212,6 +212,7 @@ function buildSections(template, agentState, sessionPhase) {
     const reviewPriority = fields.filter((field) => field.review_priority).length;
     const activeIssueIsHere = fields.some((field) => field.field_id === activeFieldId);
     const reviewing = sessionPhase === 'REVIEW';
+    const recordingWithBlanks = processing === 'RECORDING' && fields.some((field) => field.state === 'UNKNOWN');
     return {
       title,
       status: needsAttention
@@ -219,7 +220,9 @@ function buildSections(template, agentState, sessionPhase) {
         : reviewing && reviewPriority ? `${reviewPriority} to review` : 'Complete',
       needs_attention: needsAttention,
       review_priority: reviewPriority,
-      expanded: sessionPhase === 'CONTEXT' ? false : reviewing ? reviewPriority > 0 : activeIssueIsHere,
+      expanded: processing === 'RECORDING'
+        ? recordingWithBlanks
+        : sessionPhase === 'CONTEXT' ? false : reviewing ? reviewPriority > 0 : activeIssueIsHere,
       fields,
     };
   });
@@ -248,6 +251,6 @@ export function deriveWorkspaceView(input = {}) {
       need_input: input.agent_state?.resolution_queue?.length || 0,
     },
     active_task: deriveActiveTask(input),
-    report_sections: buildSections(input.template, input.agent_state, input.session?.phase),
+    report_sections: buildSections(input.template, input.agent_state, input.session?.phase, input.processing),
   };
 }
