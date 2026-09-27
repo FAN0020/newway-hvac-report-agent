@@ -51,6 +51,7 @@ test('capture and report display are progressive, read-first, and source-aware',
   assert.match(client, /report-section-accordion/);
   assert.match(client, /showProvenance/);
   assert.match(client, /state\.editingField === field\.field_id/);
+  assert.match(client, /section\.fields\.some\(\(field\) => field\.field_id === state\.editingField\)/u);
   assert.match(client, /View full report/);
   assert.match(client, /field\.review_priority/);
   assert.doesNotMatch(workspace, /<main[\s>]/u);

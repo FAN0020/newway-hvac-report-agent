@@ -325,7 +325,8 @@ function renderReportSections(view) {
   const container = $('workspace-sections'); container.replaceChildren();
   for (const section of view.report_sections) {
     const details = element('details', `report-section-accordion${section.needs_attention ? ' needs-attention' : ''}`);
-    details.open = state.session?.phase === 'REVIEW' && state.reviewFullReport ? true : section.expanded;
+    const containsEditingField = section.fields.some((field) => field.field_id === state.editingField);
+    details.open = containsEditingField || (state.session?.phase === 'REVIEW' && state.reviewFullReport ? true : section.expanded);
     const summaryStatus = section.needs_attention
       ? `⚠ ${section.status}`
       : state.session?.phase === 'REVIEW' && section.review_priority ? `Review · ${section.status}` : '✓ Complete';
