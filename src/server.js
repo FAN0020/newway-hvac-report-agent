@@ -16,6 +16,9 @@ import { ReportStore } from './storage/reports.js';
 import { TemplateStore } from './storage/templates.js';
 import { ReportSessionStore } from './storage/report-sessions.js';
 import { WhisperProvider } from './providers/whisper.js';
+import { WhisperModelManager } from './providers/whisper-model-manager.js';
+import { SpeechToTextConfigStore } from './config/speech-to-text.js';
+import { LocalSpeechToTextService } from './services/local-speech-to-text.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { normalizeHvacTranscript } from './tools/normalize-hvac-transcript.js';
 import { extractServiceFacts } from './tools/extract-service-facts.js';
@@ -64,7 +67,10 @@ const maxUploadBytes = 20 * 1024 * 1024;
 const artifacts = new ArtifactStore({ root: dataRoot });
 const reports = new ReportStore({ root: dataRoot });
 const templates = new TemplateStore({ root: path.join(dataRoot, 'templates') });
-const whisper = new WhisperProvider({ runtimeRoot, tempRoot });
+const whisperModelManager = new WhisperModelManager({ runtimeRoot });
+const speechToTextConfig = new SpeechToTextConfigStore({ filePath: path.join(dataRoot, 'settings', 'speech-to-text.json') });
+const speechToText = new LocalSpeechToTextService({ configStore: speechToTextConfig, modelManager: whisperModelManager });
+const whisper = new WhisperProvider({ runtimeRoot, tempRoot, modelManager: whisperModelManager });
 const ollama = new OllamaProvider();
 const reportSessions = new ReportSessionStore({ root: path.join(dataRoot, 'report-session-authority') });
 // V2 wiring: one upload store and one lazily-loaded scope registry shared by
@@ -81,6 +87,7 @@ const authoritativeCapture = new AuthoritativeCaptureService({
   artifactStore: artifacts,
   sessionStore: reportSessions,
   whisperProvider: whisper,
+  modelResolver: () => speechToText.resolveModel(),
   scopeRegistryProvider: ensureV2Registry,
   uploadStore: v2UploadStore,
   templateProvider: async (templateId) => (
@@ -192,6 +199,25 @@ function rejectUntrustedAuthority(input, { allow = [] } = {}) {
 
 async function handleApi(request, response, url, traceId, config, services) {
   const captureService = services.authoritativeCapture;
+  const speechService = services.speechToText;
+  const whisperProvider = services.whisper || whisper;
+  if (request.method === 'GET' && url.pathname === '/api/settings/speech-to-text') {
+    writeJson(response, 200, toolEnvelope('speech_to_text_settings', traceId, 'PASS', await speechService.getState()));
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/api/settings/speech-to-text') {
+    const input = await readJson(request);
+    const state = await speechService.selectModel(input.model);
+    writeJson(response, 200, toolEnvelope('select_speech_to_text_model', traceId, 'PASS', state));
+    return;
+  }
+  const modelInstallMatch = url.pathname.match(/^\/api\/speech-to-text\/models\/([^/]+)\/install$/u);
+  if (request.method === 'POST' && modelInstallMatch) {
+    await readJson(request);
+    const state = await speechService.installModel(decodeURIComponent(modelInstallMatch[1]));
+    writeJson(response, 200, toolEnvelope('install_speech_to_text_model', traceId, 'PASS', state));
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/api/report-sessions') {
     const sessions = await captureService.sessionStore.listSessions();
     const reports = await Promise.all(sessions.map(async (session) => ({
@@ -610,7 +636,8 @@ async function handleApi(request, response, url, traceId, config, services) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/health') {
-    const [stt, llm] = await Promise.all([whisper.health(), ollama.health()]);
+    const selectedModel = await speechService.resolveModel();
+    const [stt, llm] = await Promise.all([whisperProvider.health({ model: selectedModel }), ollama.health()]);
     writeJson(response, 200, toolEnvelope('provider_health', traceId, stt.ready ? 'PASS' : 'FAIL', {
       server: { ready: true, bound_to: `${config.host}:${config.port}`, mode: config.lanMode ? 'lan-demo' : 'local-only' },
       whisper: stt,
@@ -630,7 +657,7 @@ async function handleApi(request, response, url, traceId, config, services) {
 
   if (request.method === 'POST' && url.pathname === '/api/transcriptions') {
     const input = await readJson(request);
-    const model = String(input.model || 'base');
+    const model = await speechService.resolveModel();
     const language = String(input.language || 'auto');
     const attempt = Math.max(1, Math.min(2, Number(input.attempt) || 1));
     const idempotencyKey = String(input.idempotency_key || `${input.audio_id}:${model}:${language}:attempt-${attempt}`);
@@ -643,7 +670,7 @@ async function handleApi(request, response, url, traceId, config, services) {
       throw Object.assign(new Error('Audio artifact was not found.'), { code: 'AUDIO_NOT_FOUND', status: 404 });
     }
     const audioMetadata = await artifacts.readAudioMetadata(input.audio_id);
-    const result = await whisper.transcribe(artifacts.audioPath(input.audio_id), { model, language });
+    const result = await whisperProvider.transcribe(artifacts.audioPath(input.audio_id), { model, language });
     const transcript = await artifacts.putTranscript({
       audio_id: input.audio_id,
       ...result,
@@ -1072,6 +1099,7 @@ const staticFiles = new Map([
   ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],
+  ['/speech-to-text-settings.js', ['speech-to-text-settings.js', 'text/javascript; charset=utf-8']],
   ['/pcm-capture-worklet.js', ['pcm-capture-worklet.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
 ]);
@@ -1097,7 +1125,7 @@ function denyRequest(response, traceId, status, code) {
 }
 
 export function createServer({ config = resolveServerConfig(), services = {} } = {}) {
-  const resolvedServices = { authoritativeCapture, ...services };
+  const resolvedServices = { authoritativeCapture, speechToText, whisper, ...services };
   return http.createServer(async (request, response) => {
     const traceId = `trace_${crypto.randomUUID()}`;
     const url = new URL(request.url, 'http://server.invalid');
@@ -1125,7 +1153,7 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
       if (response.headersSent || response.destroyed) return;
       const status = Number(error.status) || 500;
       writeJson(response, status, toolEnvelope('request', traceId, error.retryable ? 'RETRYABLE_ERROR' : 'FAIL', {
-        message: status >= 500 ? 'Internal server error.' : String(error.message),
+        message: status >= 500 && error.expose !== true ? 'Internal server error.' : String(error.message),
       }, { retryable: error.retryable, error_code: error.code || 'INTERNAL_ERROR' }));
     }
   });

@@ -26,7 +26,7 @@ function freePort() {
   });
 }
 
-async function fixture(t, name, { whisper } = {}) {
+async function fixture(t, name, { whisper, speechToText } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-server-${name}`);
   await fs.rm(root, { recursive: true, force: true });
   const registry = await loadScopeRegistry();
@@ -42,6 +42,7 @@ async function fixture(t, name, { whisper } = {}) {
         provider: 'fake-whisper', model,
       }),
     },
+    modelResolver: speechToText ? () => speechToText.resolveModel() : undefined,
     scopeRegistry: registry,
     uploadStore,
     retriever: createRetriever({ registry, uploadStore }),
@@ -54,7 +55,7 @@ async function fixture(t, name, { whisper } = {}) {
     const config = resolveServerConfig({
       HVAC_HOST: '127.0.0.1', HVAC_PORT: String(port), HVAC_DEMO_TOKEN: TOKEN,
     });
-    server = createServer({ config, services: { authoritativeCapture: makeService() } });
+    server = createServer({ config, services: { authoritativeCapture: makeService(), ...(speechToText ? { speechToText } : {}) } });
     await new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, '127.0.0.1', resolve);
@@ -85,6 +86,58 @@ async function fixture(t, name, { whisper } = {}) {
     restart: async () => { await stop(); await start(); },
   };
 }
+
+test('HTTP speech-to-text settings are server-authoritative and expose lifecycle state', async (t) => {
+  let selected = 'base';
+  const installed = new Set(['base']);
+  const calls = [];
+  const state = () => ({
+    selected_model: selected,
+    default_model: 'base',
+    config_recovered: false,
+    warning: null,
+    models: ['base', 'small', 'medium'].map((id) => ({
+      id, display_name: id === 'base' ? 'Base' : id[0].toUpperCase() + id.slice(1),
+      description: 'Test model', state: installed.has(id) ? 'installed' : 'not_installed',
+      ready: installed.has(id), selected: id === selected,
+    })),
+  });
+  const speechToText = {
+    getState: async () => state(),
+    resolveModel: async () => selected,
+    selectModel: async (id) => { if (!installed.has(id)) throw Object.assign(new Error('not installed'), { code: 'STT_MODEL_NOT_INSTALLED', status: 409 }); selected = id; return state(); },
+    installModel: async (id) => { installed.add(id); return state(); },
+  };
+  const whisper = { transcribe: async (_path, { model }) => {
+    calls.push(model);
+    return { raw_text: 'Bus MAN A95 had a door fault.', language: 'en', segments: [], provider: 'fake-whisper', model };
+  } };
+  const { request } = await fixture(t, 'stt-settings', { whisper, speechToText });
+
+  const initial = await request('/api/settings/speech-to-text');
+  assert.equal(initial.status, 200);
+  assert.equal(initial.body.data.selected_model, 'base');
+  assert.equal(JSON.stringify(initial.body.data).includes('path'), false);
+  const unavailable = await request('/api/settings/speech-to-text', { method: 'POST', body: { model: 'medium' } });
+  assert.equal(unavailable.status, 409);
+  assert.equal(unavailable.body.error_code, 'STT_MODEL_NOT_INSTALLED');
+  const installedState = await request('/api/speech-to-text/models/medium/install', { method: 'POST', body: {} });
+  assert.equal(installedState.status, 200);
+  const selectedState = await request('/api/settings/speech-to-text', { method: 'POST', body: { model: 'medium' } });
+  assert.equal(selectedState.body.data.selected_model, 'medium');
+
+  const created = await createBusSession(request, 'CONFIGURED-MODEL');
+  const captured = await request(`/api/report-sessions/${created.body.data.session.session_id}/capture/audio`, {
+    method: 'POST', body: pcmWav({ samples: 213 }),
+    headers: {
+      'content-type': 'audio/wav', 'x-expected-revision': '0', 'x-stt-model': 'tiny',
+      'x-stt-language': 'en', 'idempotency-key': 'configured-http-model',
+    },
+  });
+  assert.equal(captured.status, 201);
+  assert.equal(captured.body.data.transcript.model, 'medium');
+  assert.deepEqual(calls, ['medium']);
+});
 
 async function createBusSession(request, suffix = '1') {
   return request('/api/report-sessions', { method: 'POST', body: {

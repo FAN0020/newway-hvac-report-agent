@@ -3,13 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
+import { WhisperModelManager } from './whisper-model-manager.js';
+import { DEFAULT_WHISPER_MODEL_ID, WHISPER_MODELS, whisperModel } from './whisper-models.js';
 
 export const WHISPER_LANGUAGES = Object.freeze(['auto', 'zh', 'en', 'ms', 'ta']);
-export const WHISPER_MODELS = Object.freeze({
-  tiny: 'ggml-tiny.bin',
-  base: 'ggml-base.bin',
-  small: 'ggml-small.bin',
-});
+export { WHISPER_MODELS } from './whisper-models.js';
 
 async function accessible(file, executable = false) {
   try {
@@ -102,6 +100,7 @@ export class WhisperProvider {
     runtimeRoot,
     tempRoot,
     runner = runWhisperCommand,
+    modelManager,
     timeoutMs = Number(process.env.HVAC_STT_TIMEOUT_MS) || 10 * 60 * 1000,
   }) {
     if (!runtimeRoot || !tempRoot) throw new TypeError('runtimeRoot and tempRoot are required');
@@ -111,19 +110,19 @@ export class WhisperProvider {
     this.modelRoot = path.join(this.runtimeRoot, 'models');
     this.manifestPath = path.join(this.runtimeRoot, 'manifest.json');
     this.runner = runner;
+    this.modelManager = modelManager || new WhisperModelManager({ runtimeRoot: this.runtimeRoot });
     this.timeoutMs = Math.max(1, timeoutMs);
-    this.integrityPromise = null;
+    this.binaryIntegrityPromise = null;
+    this.transcriptionTail = Promise.resolve();
   }
 
   modelPath(model) {
-    const filename = WHISPER_MODELS[model];
-    if (!filename) throw Object.assign(new Error(`Unsupported Whisper model: ${model}`), { code: 'STT_MODEL_UNSUPPORTED', status: 400 });
-    return path.join(this.modelRoot, filename);
+    return path.join(this.modelRoot, whisperModel(model).filename);
   }
 
-  async runtimeIntegrity(modelPath) {
-    if (!this.integrityPromise) {
-      this.integrityPromise = (async () => {
+  async runtimeIntegrity() {
+    if (!this.binaryIntegrityPromise) {
+      this.binaryIntegrityPromise = (async () => {
         let manifest;
         try {
           manifest = JSON.parse(await fs.readFile(this.manifestPath, 'utf8'));
@@ -132,42 +131,38 @@ export class WhisperProvider {
           return { available: true, valid: false, status: 'invalid-manifest', message: error.message };
         }
         try {
-          const [binarySha256, modelSha256] = await Promise.all([
-            sha256(this.binary),
-            sha256(modelPath),
-          ]);
+          const binarySha256 = await sha256(this.binary);
           const valid = manifest.platform === process.platform
             && manifest.arch === process.arch
-            && manifest.binary?.sha256 === binarySha256
-            && manifest.model?.filename === path.basename(modelPath)
-            && manifest.model?.sha256 === modelSha256;
+            && manifest.binary?.sha256 === binarySha256;
           return {
             available: true,
             valid,
             status: valid ? 'sha256-verified' : 'checksum-mismatch',
             version: manifest.version || null,
             binary_sha256: binarySha256,
-            model_sha256: modelSha256,
           };
         } catch (error) {
           return { available: true, valid: false, status: 'verification-failed', message: error.message };
         }
       })();
     }
-    return this.integrityPromise;
+    return this.binaryIntegrityPromise;
   }
 
-  async health({ model = 'base' } = {}) {
-    const modelPath = this.modelPath(model);
-    const [runtimeAvailable, modelAvailable] = await Promise.all([
+  async health({ model = DEFAULT_WHISPER_MODEL_ID } = {}) {
+    whisperModel(model);
+    const [runtimeAvailable, modelStatus] = await Promise.all([
       accessible(this.binary, true),
-      accessible(modelPath),
+      this.modelManager.status(model),
     ]);
-    const integrity = runtimeAvailable && modelAvailable
-      ? await this.runtimeIntegrity(modelPath)
+    const integrity = runtimeAvailable
+      ? await this.runtimeIntegrity()
       : { available: false, valid: null, status: 'not-checked' };
     const integrityFailed = integrity.available && !integrity.valid;
-    const ready = runtimeAvailable && modelAvailable && !integrityFailed;
+    const runtimeCompatible = !integrity.available || !integrity.version || whisperModel(model).runtime.versions.includes(integrity.version);
+    const modelAvailable = modelStatus.ready === true;
+    const ready = runtimeAvailable && modelAvailable && !integrityFailed && runtimeCompatible;
     return {
       provider: 'whisper.cpp',
       ready,
@@ -175,20 +170,34 @@ export class WhisperProvider {
       model_available: modelAvailable,
       model,
       binary_path: this.binary,
-      model_path: modelPath,
+      model_path: modelStatus.path || this.modelPath(model),
+      model_state: modelStatus.state,
       runtime_integrity: integrity,
       error_code: ready ? null : (!runtimeAvailable
         ? 'STT_RUNTIME_MISSING'
-        : (!modelAvailable ? 'STT_MODEL_MISSING' : 'STT_INTEGRITY_FAILED')),
+        : (integrityFailed ? 'STT_INTEGRITY_FAILED' : (!runtimeCompatible ? 'STT_RUNTIME_INCOMPATIBLE' : modelStatus.error_code))),
       message: ready
         ? `Whisper runtime and model are ready (${integrity.status}).`
         : (integrityFailed
           ? 'Whisper runtime integrity verification failed. Run "npm run stt:prepare" to replace it with verified artifacts.'
-          : `Whisper is not ready. Run "npm run stt:prepare" from this project (${!runtimeAvailable ? 'runtime missing' : 'model missing'}).`),
+          : (!runtimeCompatible
+            ? `The installed Whisper runtime is not compatible with ${whisperModel(model).displayName}.`
+            : (!runtimeAvailable
+            ? 'Whisper runtime is not prepared. Run "npm run stt:prepare" from this project.'
+            : modelStatus.message))),
     };
   }
 
-  async transcribe(audioPath, { model = 'base', language = 'auto', signal } = {}) {
+  async transcribe(audioPath, { model = DEFAULT_WHISPER_MODEL_ID, language = 'auto', signal } = {}) {
+    const pending = this.transcriptionTail.then(
+      () => this.transcribeNow(audioPath, { model, language, signal }),
+      () => this.transcribeNow(audioPath, { model, language, signal }),
+    );
+    this.transcriptionTail = pending.catch(() => {});
+    return pending;
+  }
+
+  async transcribeNow(audioPath, { model, language, signal }) {
     if (!WHISPER_LANGUAGES.includes(language)) {
       throw Object.assign(new Error(`Unsupported language: ${language}`), { code: 'STT_LANGUAGE_UNSUPPORTED', status: 400 });
     }

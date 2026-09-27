@@ -2,6 +2,7 @@ import { PcmWavRecorder } from './audio-recorder.js';
 import { deriveReportHistoryRow, deriveWorkspaceView, sortReportHistoryItems } from './report-workspace-view.js';
 import { createReportWorkspaceRegistry, registerRuntimeTemplate } from './report-runtime.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
+import { modelOptionLabel, modelSelectionView } from './speech-to-text-settings.js';
 
 const $ = (id) => document.getElementById(id);
 const RECENT_TEMPLATES_KEY = 'field-report.recent-template-ids';
@@ -11,6 +12,7 @@ const workspaceRegistry = createReportWorkspaceRegistry();
 const state = {
   token: '', templates: [], catalogCategory: 'All', templatesLoading: true,
   templatesError: null, recentTemplateIds: [],
+  speechToText: null, pendingSpeechModel: null, speechToTextError: null,
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
 };
 let recorder = null;
@@ -149,15 +151,73 @@ function syncCaptureNavigation() {
 }
 
 function setView(name) {
-  const views = { reports: 'template-reports', choose: 'template-choose', workspace: 'template-workspace', templates: 'template-manager', setup: 'template-setup' };
+  const views = { reports: 'template-reports', choose: 'template-choose', workspace: 'template-workspace', templates: 'template-manager', setup: 'template-setup', settings: 'template-settings' };
   for (const [key, id] of Object.entries(views)) { $(id).hidden = key !== name; $(id).classList.toggle('active', key === name); }
   document.querySelectorAll('[data-template-nav]').forEach((button) => button.classList.toggle('active', button.dataset.templateNav === name));
-  const headings = { reports: ['TECHNICIAN', 'Reports'], choose: ['', 'New report'], workspace: ['', 'Field Report'], templates: ['MANAGER', 'Templates'], setup: ['MANAGER', 'Template setup'] };
+  const headings = { reports: ['TECHNICIAN', 'Reports'], choose: ['', 'New report'], workspace: ['', 'Field Report'], templates: ['MANAGER', 'Templates'], setup: ['MANAGER', 'Template setup'], settings: ['LOCAL RUNTIME', 'Settings'] };
   $('template-eyebrow').textContent = headings[name][0]; $('template-eyebrow').hidden = !headings[name][0]; $('template-page-title').textContent = headings[name][1];
   if (name === 'reports') renderReports();
   if (name === 'choose') renderCatalog();
+  if (name === 'settings') refreshSpeechToTextSettings();
   syncMobileNavigation(false);
   return true;
+}
+
+function renderSpeechToTextSettings() {
+  const select = $('stt-model-select');
+  const actionButton = $('stt-model-action');
+  if (!state.speechToText) {
+    select.disabled = true;
+    $('stt-model-status').textContent = state.speechToTextError || 'Checking installed models…';
+    actionButton.hidden = true;
+    return;
+  }
+  const selectedId = state.pendingSpeechModel || state.speechToText.selected_model;
+  select.replaceChildren(...state.speechToText.models.map((model) => {
+    const option = element('option', '', modelOptionLabel(model));
+    option.value = model.id;
+    return option;
+  }));
+  select.value = selectedId;
+  select.disabled = false;
+  const view = modelSelectionView(state.speechToText, selectedId);
+  $('stt-model-status').textContent = state.speechToTextError || view.message;
+  actionButton.hidden = !view.actionLabel;
+  actionButton.disabled = view.action === 'wait';
+  actionButton.textContent = view.actionLabel || '';
+  actionButton.dataset.action = view.action;
+}
+
+async function refreshSpeechToTextSettings() {
+  try {
+    state.speechToText = await api('/api/settings/speech-to-text');
+    state.pendingSpeechModel = null;
+    state.speechToTextError = state.speechToText.warning?.message || null;
+  } catch (error) {
+    state.speechToTextError = `Model settings are unavailable: ${error.message}`;
+  }
+  renderSpeechToTextSettings();
+}
+
+async function applySpeechToTextAction() {
+  if (!state.speechToText) return;
+  const modelId = state.pendingSpeechModel || state.speechToText.selected_model;
+  const view = modelSelectionView(state.speechToText, modelId);
+  state.speechToTextError = null;
+  try {
+    if (view.action === 'install') {
+      const model = state.speechToText.models.find((entry) => entry.id === modelId);
+      if (model) model.state = 'installing';
+      renderSpeechToTextSettings();
+      state.speechToText = await api(`/api/speech-to-text/models/${encodeURIComponent(modelId)}/install`, { method: 'POST', body: {} });
+    }
+    state.speechToText = await api('/api/settings/speech-to-text', { method: 'POST', body: { model: modelId } });
+    state.pendingSpeechModel = null;
+  } catch (error) {
+    state.speechToTextError = `Could not use this model: ${error.message}`;
+    try { state.speechToText = await api('/api/settings/speech-to-text'); } catch { /* retain the actionable error */ }
+  }
+  renderSpeechToTextSettings();
 }
 
 function catalogButton(template) {
@@ -733,6 +793,14 @@ document.querySelectorAll('[data-template-nav]').forEach((node) => node.addEvent
 $('template-mobile-menu').addEventListener('click', () => syncMobileNavigation(!document.querySelector('.template-sidebar').classList.contains('open')));
 mobileNavigation.addEventListener('change', () => syncMobileNavigation(false));
 $('template-search').addEventListener('input', (event) => renderCatalog(event.target.value));
+$('stt-model-select').addEventListener('change', (event) => {
+  state.pendingSpeechModel = event.target.value;
+  state.speechToTextError = null;
+  const view = modelSelectionView(state.speechToText, state.pendingSpeechModel);
+  renderSpeechToTextSettings();
+  if (view.action === 'select') applySpeechToTextAction();
+});
+$('stt-model-action').addEventListener('click', applySpeechToTextAction);
 document.querySelectorAll('[data-template-category]').forEach((node) => node.addEventListener('click', () => { state.catalogCategory = node.dataset.templateCategory; document.querySelectorAll('[data-template-category]').forEach((candidate) => { const active = candidate === node; candidate.classList.toggle('active', active); candidate.setAttribute('aria-pressed', String(active)); }); renderCatalog(); }));
 $('workspace-progress').addEventListener('click', () => { const detail = $('workspace-progress-detail'); detail.hidden = !detail.hidden; $('workspace-progress').setAttribute('aria-expanded', String(!detail.hidden)); });
 $('workspace-full-report').addEventListener('click', () => {

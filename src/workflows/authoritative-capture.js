@@ -187,6 +187,7 @@ export class AuthoritativeCaptureService {
     retriever,
     jobContextProvider,
     templateProvider,
+    modelResolver,
     exportWriter,
     clock = () => new Date().toISOString(),
   } = {}) {
@@ -202,6 +203,7 @@ export class AuthoritativeCaptureService {
     this.retriever = retriever || null;
     this.jobContextProvider = jobContextProvider || null;
     this.templateProvider = templateProvider || null;
+    this.modelResolver = modelResolver || null;
     this.exportWriter = exportWriter || ((snapshotId, text) => this.sessionStore.writeOfficialExport(snapshotId, text));
     this.clock = clock;
   }
@@ -1585,7 +1587,7 @@ export class AuthoritativeCaptureService {
     if (session.phase === 'CONFIRMED') throw workflowError('Confirmed reports are immutable.', 'REPORT_SESSION_FINAL', 409);
     if (!Buffer.isBuffer(wavBuffer)) throw workflowError('Audio must be supplied as WAV bytes.', 'INVALID_WAV');
     const audio = await this.artifactStore.putAudio(wavBuffer);
-    const normalizedModel = String(model || 'base');
+    const normalizedModel = String(this.modelResolver ? await this.modelResolver() : (model || 'base'));
     const normalizedLanguage = String(language || 'auto');
     const identityHash = this.captureIdentity({
       session,

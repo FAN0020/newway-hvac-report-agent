@@ -7,7 +7,7 @@ import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
 import { pcmWav } from './helpers.js';
 
-async function fixture(t, name, { whisper, templateProvider } = {}) {
+async function fixture(t, name, { whisper, templateProvider, modelResolver } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-${name}`);
   await fs.rm(root, { recursive: true, force: true });
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -17,6 +17,7 @@ async function fixture(t, name, { whisper, templateProvider } = {}) {
     artifactStore,
     sessionStore,
     whisperProvider: whisper || { transcribe: async () => { throw new Error('Unexpected transcription.'); } },
+    modelResolver,
     templateProvider,
     clock: () => '2026-09-27T06:00:00.000Z',
   });
@@ -160,6 +161,41 @@ test('audio bytes exist before Whisper and the transcript preserves provider tim
   ]);
   assert.equal(result.transcript.context_binding.context_id, 'SBS/BUS');
   assert.equal(result.session.phase, 'RESOLVE');
+});
+
+test('audio capture snapshots the server-configured model for an in-flight job and ignores a client override', async (t) => {
+  const used = [];
+  let selected = 'small';
+  let releaseFirst;
+  const firstStarted = new Promise((resolve) => { releaseFirst = resolve; });
+  let continueFirst;
+  const firstCanFinish = new Promise((resolve) => { continueFirst = resolve; });
+  const whisper = { transcribe: async (_audioPath, { model }) => {
+    used.push(model);
+    if (used.length === 1) {
+      releaseFirst();
+      await firstCanFinish;
+    }
+    return { raw_text: 'Bus MAN A95 had a door fault.', language: 'en', segments: [], provider: 'fake-whisper', model };
+  } };
+  const { service } = await fixture(t, 'configured-model', { whisper, modelResolver: async () => selected });
+  const firstSession = await busSession(service, 'CONFIGURED-ONE');
+  const firstPending = service.captureAudio({
+    session_id: firstSession.session.session_id, expected_revision: 0,
+    wav_buffer: pcmWav({ samples: 177 }), model: 'tiny', language: 'en', idempotency_key: 'configured-one',
+  });
+  await firstStarted;
+  selected = 'medium';
+  continueFirst();
+  const first = await firstPending;
+  const secondSession = await busSession(service, 'CONFIGURED-TWO');
+  const second = await service.captureAudio({
+    session_id: secondSession.session.session_id, expected_revision: 0,
+    wav_buffer: pcmWav({ samples: 179 }), model: 'tiny', language: 'en', idempotency_key: 'configured-two',
+  });
+  assert.deepEqual(used, ['small', 'medium']);
+  assert.equal(first.transcript.model, 'small');
+  assert.equal(second.transcript.model, 'medium');
 });
 
 test('same-source retry is idempotent and never duplicates audio, evidence, transcript, or candidates', async (t) => {

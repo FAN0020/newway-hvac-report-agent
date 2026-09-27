@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { whisperModel } from '../src/providers/whisper-models.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temporaryRoot = path.join(projectRoot, '.tmp');
@@ -15,12 +16,7 @@ const whisper = Object.freeze({
   // Recorded from the fixed official GitHub tag archive on 2026-09-18.
   sourceSha256: '6d8d70a014ca2b10f8a6d006b8f423e5f5ef2afcfbe92b57ab4e01107238112a',
 });
-const model = Object.freeze({
-  name: 'base',
-  filename: 'ggml-base.bin',
-  url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin',
-  sha256: '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe',
-});
+const model = whisperModel('base');
 const cmake = Object.freeze({
   version: '3.31.10',
   filename: 'cmake-3.31.10-macos-universal.tar.gz',
@@ -192,9 +188,9 @@ try {
 
   const modelArchive = path.join(downloadsRoot, model.filename);
   const modelSha256 = await downloadVerified({
-    url: model.url,
+    url: model.download.url,
     destination: modelArchive,
-    expectedSha256: model.sha256,
+    expectedSha256: model.download.sha256,
     label: 'Whisper multilingual Base model',
   });
   await fs.copyFile(modelArchive, stagedModel);
@@ -225,10 +221,10 @@ try {
       bytes: binaryStat.size,
     },
     model: {
-      name: model.name,
+      name: model.id,
       filename: model.filename,
       multilingual: true,
-      url: model.url,
+      url: model.download.url,
       sha256: modelSha256,
       bytes: modelStat.size,
     },

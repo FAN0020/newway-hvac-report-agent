@@ -21,6 +21,10 @@
         <p>Manager</p>
         <button class="template-nav" data-template-nav="templates"><span>▦</span> Templates</button>
       </nav>
+      <nav aria-label="System">
+        <p>System</p>
+        <button class="template-nav" data-template-nav="settings"><span>⚙</span> Settings</button>
+      </nav>
     </aside>
 
     <main class="template-main">
@@ -111,6 +115,17 @@
             <h3>Test &amp; publish</h3><p>The test checks required fields, status defaults, unsupported autofill, and immutable bindings.</p><div class="button-row"><button id="setup-test" class="secondary">Run contract test</button><button id="setup-publish" class="primary" disabled>Publish version</button></div><p id="setup-test-status" class="setup-status">Not tested.</p>
           </section>
         </div>
+      </section>
+
+      <section id="template-settings" class="template-view" hidden aria-labelledby="stt-settings-title">
+        <div class="template-hero"><div><p class="eyebrow">LOCAL RUNTIME</p><h2 id="stt-settings-title">Settings</h2><p>Choose the local model used for new speech-to-text jobs.</p></div></div>
+        <section class="template-panel stt-settings-panel" aria-labelledby="stt-model-title">
+          <div><h3 id="stt-model-title">Speech-to-Text Model</h3><p class="supporting">A transcription already in progress keeps the model it started with.</p></div>
+          <label for="stt-model-select">Local Whisper model</label>
+          <select id="stt-model-select" disabled><option>Loading models…</option></select>
+          <p id="stt-model-status" class="stt-model-status" role="status" aria-live="polite">Checking installed models…</p>
+          <button id="stt-model-action" class="secondary" type="button" hidden></button>
+        </section>
       </section>
     </main>
   </div>
