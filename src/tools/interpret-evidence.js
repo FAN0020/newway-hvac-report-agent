@@ -98,27 +98,38 @@ function exactRawProvenance(fact, rawText) {
     && rawText.slice(span.start, span.end) === span.text);
 }
 
-export async function interpretEvidence({ scope_id: scopeId, raw_text: rawText, approach = 'FACT_CENTRIC_HYBRID' } = {}) {
+export async function interpretEvidence({
+  scope_id: scopeId,
+  raw_text: rawText,
+  approach = 'FACT_CENTRIC_HYBRID',
+  correction_items: correctionItems,
+  accepted_correction_ids: acceptedCorrectionIds,
+} = {}) {
   if (!EVIDENCE_APPROACHES.includes(approach)) throw new TypeError(`Unsupported evidence approach: ${approach}`);
   const text = String(rawText || '');
-  const review = await correctionsForScope(scopeId, text);
-  const projection = correctionProjection(text, review.items);
+  const review = Array.isArray(correctionItems)
+    ? { items: correctionItems, confirmations: [] }
+    : await correctionsForScope(scopeId, text);
+  const accepted = acceptedCorrectionIds === undefined
+    ? review.items
+    : review.items.filter((item) => new Set(acceptedCorrectionIds || []).has(item.correction_id));
+  const projection = correctionProjection(text, accepted);
   const none = exactNoneFact(text);
   let facts;
   if (approach === 'RAW_DIRECT') {
     facts = await extract(scopeId, text);
   } else if (approach === 'WHOLE_TRANSCRIPT_CORRECTION') {
-    facts = (await extract(scopeId, projection.effectiveText, review.items.map((item) => ({
+    facts = (await extract(scopeId, projection.effectiveText, accepted.map((item) => ({
       correction_id: item.correction_id, source_span: { start: item.start, end: item.end, text: item.source_text }, candidate: item.suggested_text, status: 'CONFIRMED_BY_TECHNICIAN',
     })))).map((fact) => {
       const mapped = projection.mapSpan(fact.source_span);
       return mapped ? { ...fact, source_span: { start: mapped.start, end: mapped.end, text: mapped.text }, correction_ids: mapped.corrections.map((item) => item.correction_id) } : fact;
     });
   } else {
-    const rawFacts = await extract(scopeId, text, review.items.map((item) => ({
+    const rawFacts = await extract(scopeId, text, accepted.map((item) => ({
       correction_id: item.correction_id, source_span: { start: item.start, end: item.end, text: item.source_text }, candidate: item.suggested_text, status: 'CONFIRMED_BY_TECHNICIAN',
     })));
-    const correctedFacts = await extract(scopeId, projection.effectiveText, review.items);
+    const correctedFacts = await extract(scopeId, projection.effectiveText, accepted);
     facts = [...rawFacts];
     const existing = new Set(facts.map(factKey));
     for (const fact of correctedFacts) {

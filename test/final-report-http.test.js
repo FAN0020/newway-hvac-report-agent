@@ -88,6 +88,9 @@ test('final HTTP confirmation accepts only expected_revision and returns an immu
   assert.equal(confirmed.body.data.confirmation.technician_principal_ref, 'principal:demo-technician');
   const exported = await request(`/api/report-sessions/${sessionId}/export`, { expected_revision: confirmed.body.data.session.revision });
   assert.equal(exported.status, 200);
+  assert.equal(exported.body.data.mime_type, 'application/pdf');
+  assert.match(exported.body.data.filename, /\.pdf$/u);
+  assert.equal(Buffer.from(exported.body.data.content_base64, 'base64').subarray(0, 5).toString('ascii'), '%PDF-');
   assert.match(exported.body.data.export_text, /Parts \/ materials: None/iu);
 });
 

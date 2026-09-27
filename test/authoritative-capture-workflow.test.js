@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { hashContract } from '../src/domain/index.js';
 import { ArtifactStore } from '../src/storage/artifacts.js';
 import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
@@ -395,4 +396,40 @@ test('accepting a material correction preserves raw evidence while candidates re
   assert.equal(rawText.slice(span.start_offset, span.end_offset), 'Bus MAN 9-5 had a door fault');
   assert.equal(span.quote_hash.startsWith('sha256:'), true);
   assert.equal((await sessionStore.loadChain(created.session.session_id)).transcripts[0].raw_text, rawText);
+});
+
+test('accepted terminology correction adds only correction-eligible facts and cannot invent an inspection action', async (t) => {
+  const { service, sessionStore } = await fixture(t, 'fact-centric-correction');
+  const created = await service.createSession({
+    template_id: 'rail-maintenance-completion-handover',
+    template_version: '1.0.0',
+    job_context_ref: 'job-context:RAIL-SEMANTIC-TRAP',
+  });
+  const rawText = 'Door control module 40 was mentioned during inspection.';
+  const pending = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: rawText,
+    language: 'en',
+  });
+  assert.equal(pending.session.phase, 'CORRECTION_IF_NEEDED');
+
+  const decided = await service.decideTranscriptReview({
+    session_id: created.session.session_id,
+    expected_revision: pending.session.revision,
+    review_id: pending.review.review_id,
+    decisions: pending.review.items.map((item) => ({
+      review_item_id: item.review_item_id,
+      decision: item.kind === 'CORRECTION' ? 'ACCEPT' : 'NO_CHANGE',
+    })),
+  });
+
+  const fields = new Set(decided.candidates.map((candidate) => candidate.field_id));
+  assert.ok(fields.has('parts.part_number'));
+  assert.ok(!fields.has('inspection_findings'));
+  assert.ok(!fields.has('work_performed'));
+  for (const candidate of decided.candidates) {
+    const span = await sessionStore.readRecord('evidence-spans', candidate.evidence_refs[0].span_id);
+    assert.equal(span.quote_hash, hashContract(rawText.slice(span.start_offset, span.end_offset)));
+  }
 });

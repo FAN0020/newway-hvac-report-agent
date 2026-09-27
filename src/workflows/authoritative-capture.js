@@ -14,11 +14,13 @@ import {
   hashContract,
 } from '../domain/index.js';
 import { buildAuthoritativeReport, runAuthoritativeAgent, AGENT_PROCESSING_VERSION } from '../agent/index.js';
+import { renderReportPdf } from '../export/template-pdf.js';
 import { reportToText } from '../tools/report-integrity.js';
 import { extractServiceFacts } from '../tools/extract-service-facts.js';
 import { extractV2Facts } from '../tools/extract-v2-facts.js';
+import { interpretEvidence } from '../tools/interpret-evidence.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
-import { applyConfirmedTranscriptCorrections, reviewV2Transcript } from '../v2/transcript-review.js';
+import { reviewV2Transcript } from '../v2/transcript-review.js';
 import { buildFollowUpQuestions } from '../v2/guided-reporting.js';
 import { planV2Report } from '../v2/report-builder.js';
 import { allowedScopes, resolveContext } from '../v2/scope.js';
@@ -85,58 +87,6 @@ function exactFactSpan(fact, rawText) {
   return span;
 }
 
-function correctedTextProjection(rawText, items, decisions) {
-  const accepted = new Set(decisions.filter((item) => item.decision === 'ACCEPT').map((item) => item.review_item_id));
-  const suggestions = items
-    .filter((item) => item.kind === 'CORRECTION' && accepted.has(item.review_item_id))
-    .map((item) => ({
-      correction_id: item.review_item_id,
-      start: item.source_span.start,
-      end: item.source_span.end,
-      source_text: item.source_span.quote,
-      suggested_text: item.proposed_text,
-    }))
-    .sort((a, b) => a.start - b.start);
-  const effectiveText = applyConfirmedTranscriptCorrections(rawText, suggestions, suggestions.map((item) => item.correction_id));
-  const pieces = [];
-  let rawCursor = 0;
-  let effectiveCursor = 0;
-  const appendRaw = (start, end) => {
-    if (end <= start) return;
-    const length = end - start;
-    pieces.push({ type: 'RAW', effective_start: effectiveCursor, effective_end: effectiveCursor + length, raw_start: start, raw_end: end });
-    effectiveCursor += length;
-  };
-  for (const suggestion of suggestions) {
-    appendRaw(rawCursor, suggestion.start);
-    const length = suggestion.suggested_text.length;
-    pieces.push({
-      type: 'REPLACEMENT',
-      effective_start: effectiveCursor,
-      effective_end: effectiveCursor + length,
-      raw_start: suggestion.start,
-      raw_end: suggestion.end,
-    });
-    effectiveCursor += length;
-    rawCursor = suggestion.end;
-  }
-  appendRaw(rawCursor, rawText.length);
-  const mapSpan = (span) => {
-    const overlapping = pieces.filter((piece) => span.start < piece.effective_end && span.end > piece.effective_start);
-    if (!overlapping.length) throw workflowError('Corrected transcript span cannot be mapped to raw evidence.', 'INVALID_EXTRACTED_PROVENANCE', 409);
-    const rawStarts = overlapping.map((piece) => piece.type === 'RAW'
-      ? piece.raw_start + Math.max(0, span.start - piece.effective_start)
-      : piece.raw_start);
-    const rawEnds = overlapping.map((piece) => piece.type === 'RAW'
-      ? piece.raw_start + Math.min(piece.effective_end, span.end) - piece.effective_start
-      : piece.raw_end);
-    const start = Math.min(...rawStarts);
-    const end = Math.max(...rawEnds);
-    return { start, end, text: rawText.slice(start, end) };
-  };
-  return { effectiveText, mapSpan };
-}
-
 export class AuthoritativeCaptureService {
   constructor({
     artifactStore,
@@ -149,6 +99,7 @@ export class AuthoritativeCaptureService {
     jobContextProvider,
     templateProvider,
     exportWriter,
+    pdfRenderer = renderReportPdf,
     clock = () => new Date().toISOString(),
   } = {}) {
     if (!artifactStore || !sessionStore || !whisperProvider?.transcribe) {
@@ -163,7 +114,8 @@ export class AuthoritativeCaptureService {
     this.retriever = retriever || null;
     this.jobContextProvider = jobContextProvider || null;
     this.templateProvider = templateProvider || null;
-    this.exportWriter = exportWriter || ((snapshotId, text) => this.sessionStore.writeOfficialExport(snapshotId, text));
+    this.exportWriter = exportWriter || ((snapshotId, payload) => this.sessionStore.writeOfficialExport(snapshotId, payload));
+    this.pdfRenderer = pdfRenderer;
     this.clock = clock;
   }
 
@@ -549,13 +501,27 @@ export class AuthoritativeCaptureService {
       report_hash: snapshot.snapshot_hash,
     };
     const text = reportToText(snapshot.report, exportConfirmation);
-    const exported = await this.exportWriter(snapshot.snapshot_id, text);
+    const template = await this.resolveTemplate(snapshot.template_binding.template_id);
+    if (template.templateVersion !== snapshot.template_binding.template_version) {
+      throw workflowError('The confirmed snapshot template version is unavailable.', 'SNAPSHOT_TEMPLATE_VERSION_MISMATCH', 409);
+    }
+    const existing = await this.sessionStore.readOfficialExport(snapshot.snapshot_id, 'pdf');
+    const rendered = existing ? null : await this.pdfRenderer({
+      report: snapshot.report,
+      confirmation: { ...confirmation, snapshot_hash: snapshot.snapshot_hash },
+      template,
+    });
+    const exported = existing || await this.exportWriter(snapshot.snapshot_id, { bytes: rendered.bytes, extension: 'pdf' });
+    const exportBytes = exported.bytes || rendered.bytes;
     return {
       session,
       snapshot_id: snapshot.snapshot_id,
-      export_hash: hashContract(text),
-      format: 'text/plain',
+      export_hash: `sha256:${digest(exportBytes)}`,
+      format: 'application/pdf',
+      mime_type: 'application/pdf',
+      filename: rendered?.filename || `${snapshot.template_binding.template_id}.pdf`,
       file: exported.file,
+      content_base64: exportBytes.toString('base64'),
       export_text: text,
       reused: !exported.created,
     };
@@ -596,18 +562,18 @@ export class AuthoritativeCaptureService {
     return { session: computed.session, evidence, agent_state: computed.agent_state };
   }
 
-  async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [] }) {
+  async extractCandidates({ session, transcript, supportType, extractionText = transcript.raw_text, mapSourceSpan = (span) => span, confirmedCorrections = [], preExtractedFacts = null }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
     if (template.adapter?.id === 'manual-schema-v1') return { spans: [], candidates: [], facts: [] };
-    let facts;
-    if (session.context_binding.scope_id === 'HVAC') {
+    let facts = preExtractedFacts;
+    if (!facts && session.context_binding.scope_id === 'HVAC') {
       const extracted = await extractServiceFacts({
         transcript: { artifact_id: transcript.transcript_id, raw_text: transcript.raw_text },
         confirmedCorrections,
       });
       if (extracted.status !== 'PASS') throw workflowError('HVAC candidate extraction failed.', extracted.error_code || 'CANDIDATE_EXTRACTION_FAILED', 409);
       facts = extracted.data.facts;
-    } else {
+    } else if (!facts) {
       facts = (await extractV2Facts({
         contextId: session.context_binding.context_id,
         rawText: extractionText,
@@ -1152,7 +1118,6 @@ export class AuthoritativeCaptureService {
       reviewed_at: this.clock(),
     });
     await this.sessionStore.putRecord('transcript-reviews', review.review_id, review);
-    const projection = correctedTextProjection(transcript.raw_text, pending.items, normalized);
     const confirmedCorrections = normalized.flatMap((decision) => {
       const item = itemMap.get(decision.review_item_id);
       if (decision.decision !== 'ACCEPT' || item.kind !== 'CORRECTION') return [];
@@ -1163,21 +1128,38 @@ export class AuthoritativeCaptureService {
         status: 'CONFIRMED_BY_TECHNICIAN',
       }];
     });
+    const correctionItems = pending.items.flatMap((item) => item.kind === 'CORRECTION' ? [{
+      correction_id: item.review_item_id,
+      start: item.source_span.start,
+      end: item.source_span.end,
+      source_text: item.source_span.quote,
+      suggested_text: item.proposed_text,
+      category: item.category,
+      reason: item.reason,
+      requires_confirmation: true,
+    }] : []);
+    const interpretation = await interpretEvidence({
+      scope_id: session.context_binding.scope_id,
+      raw_text: transcript.raw_text,
+      approach: 'FACT_CENTRIC_HYBRID',
+      correction_items: correctionItems,
+      accepted_correction_ids: confirmedCorrections.map((item) => item.correction_id),
+    });
     const supportType = transcript.provider === 'technician-text' ? 'MANUAL_TECHNICIAN_INPUT' : 'TRANSCRIPT_EVIDENCE';
     const extraction = await this.extractCandidates({
       session,
       transcript,
       supportType,
-      extractionText: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
-      mapSourceSpan: session.context_binding.scope_id === 'HVAC' ? (span) => span : projection.mapSpan,
+      extractionText: transcript.raw_text,
       confirmedCorrections,
+      preExtractedFacts: interpretation.facts,
     });
     const { spans, candidates, facts } = extraction;
     const guided = await this.retrieveGuidance({
       session,
       transcript,
       facts,
-      query: session.context_binding.scope_id === 'HVAC' ? transcript.raw_text : projection.effectiveText,
+      query: interpretation.effective_text,
     });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
