@@ -65,13 +65,13 @@
         </header>
 
         <div class="workspace-flow">
+          <section id="workspace-active-task" class="active-task-panel" data-workspace-area="ACTIVE_TASK_PANEL" aria-labelledby="active-task-title" aria-live="polite">
+            <div class="task-loading"><span class="task-spinner" aria-hidden="true"></span><h3 id="active-task-title">Loading job…</h3></div>
+          </section>
+
           <section id="workspace-report-summary" class="report-summary" data-workspace-area="REPORT_SUMMARY" aria-label="Report details">
             <div class="report-summary-heading"><button id="workspace-full-report" class="text-button" type="button" hidden>Collapse all</button></div>
             <div id="workspace-sections" class="report-accordions"></div>
-          </section>
-
-          <section id="workspace-active-task" class="active-task-panel" data-workspace-area="ACTIVE_TASK_PANEL" aria-labelledby="active-task-title" aria-live="polite">
-            <div class="task-loading"><span class="task-spinner" aria-hidden="true"></span><h3 id="active-task-title">Loading job…</h3></div>
           </section>
         </div>
 
