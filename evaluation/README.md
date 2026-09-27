@@ -55,6 +55,19 @@ npm run eval:summary
 
 `deepeval_adapter.py` converts `Case + synthetic seed expectation + Prediction` to `LLMTestCase` for correction, RAG and report. DeepEval 4.2.3 is pinned; it calls only `http://127.0.0.1:11434` through a custom `DeepEvalBaseLLM` using `qwen3.5:9b`, with telemetry opt-out. `--adapter-only` checks conversion and marks every semantic metric `NOT_RUN`; `--smoke` judges one report faithfulness case and marks all other semantic metrics `NOT_RUN: SMOKE_SELECTION`. A full run without either flag may take substantial local model time. The semantic metrics are correction semantic preservation; contextual relevancy, precision and recall; report faithfulness to **seed facts** and a report semantic rubric. Faithfulness uses facts as retrieval context because knowledge records cannot establish occurred service facts. DeepEval does not replace WER, exact term/ID/number/unit checks, fact-field F1, exact Hit@3, missing-set scores, scope isolation, or safety gates. A local judge score is provisional model judgment, not a human frozen Gold result.
 
+# Evidence-pipeline strategy comparison
+
+`evidence-pipeline-frozen.v1.json` is a frozen deterministic regression set derived from existing repository fixtures and acceptance tests. It is explicitly **not human Gold** and must not be described as field accuracy. The runner compares raw extraction, whole-transcript correction, and a fact-centric hybrid through the same extraction, retrieval, mapping, conflict, provenance, and completeness boundaries:
+
+```sh
+npm run eval:evidence-pipeline
+node --test test/evidence-pipeline-evaluation.test.js
+```
+
+The report writes `.tmp/evaluation-runs/evidence-pipeline-comparison.{json,md}` and records the fixture SHA-256. It reuses the Batch 2 typed-value scorer for equipment IDs, number/unit pairs, actions, completion states, and negation checks. A strategy is ineligible unless it emits zero false-supported facts, retains exact raw-text spans for every fact, preserves all frozen negation checks, and passes retrieval scope isolation. Among eligible strategies, selection uses field and typed-value F1, conflict recall, and unnecessary-intervention count. Retrieval scores are exact seeded-ID Hit@3/Recall@3. Completeness is deterministic required-field coverage for the selected catalog template; it is not a claim that a partial fixture is a complete field report.
+
+This comparison intentionally supplements rather than replaces the component, Batch 3, human annotation, and real-ASR runs. Correction suggestions are simulated as accepted only to compare strategy consequences. The product still requires explicit technician review before a material correction becomes authoritative.
+
 # Blind Ground Truth handoff
 
 Run `npm run eval:annotation-package` after generating all 15 synthetic WAV files. It creates an ignored folder and ZIP under `outputs/qiongwen-ground-truth-blind-package-2026-09-26*` containing only audio, checksums, case/scope metadata, blank per-case annotations, instructions, and the full knowledge catalog. The builder fails if seed transcripts or expected-answer keys appear in the handoff. Do not send `synthetic-cases.v1.json`, component predictions, retrieval results, reports, or evaluation scores to the independent annotator.
