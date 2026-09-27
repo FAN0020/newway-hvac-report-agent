@@ -36,7 +36,7 @@ test('workspace has one capture primary, one embedded microphone, and two second
 test('active recording keeps one stop-and-fill action while report navigation remains available', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /function renderRecording\([\s\S]*task\.primary_action\.label[\s\S]*stopRecording/s);
-  assert.match(client, /task\.kind === 'RECORDING'\) \{ renderRecording\(panel, task\); return; \}/);
+  assert.match(client, /task\.kind === 'RECORDING'\) renderRecording\(panel, task\)/);
   assert.match(client, /createReportWorkspaceRegistry/);
   assert.match(client, /recorderWorkspace/);
   assert.match(client, /function syncCaptureNavigation\([\s\S]*node\.disabled = false/s);
@@ -62,8 +62,8 @@ test('generated report is the correction workspace and keeps structured field co
   const client = await fs.readFile('web/template-app.js', 'utf8');
   for (const type of ['SELECT_OR_PROVIDE', 'SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'CONFIRM_OR_REPLACE']) assert.match(client, new RegExp(type));
   assert.match(client, /function renderInlineResolution/);
-  assert.match(client, /Describe any missing details in one statement/);
-  assert.match(client, /Report draft/);
+  assert.match(client, /Tell us anything you know…/);
+  assert.match(client, /AI draft/);
   assert.match(client, /Original words/);
   assert.match(client, /My edit/);
   assert.doesNotMatch(client, /function renderResolution/);
@@ -72,6 +72,46 @@ test('generated report is the correction workspace and keeps structured field co
   assert.match(client, /renderReporterComposer\(panel/);
   assert.doesNotMatch(client, /Enter \$\{item\.field_id\}/u);
   assert.doesNotMatch(client, /retrieval score|chunk id|AI confidence|trace id/iu);
+});
+
+test('missing-field controls stay collapsed until the selected report row is opened', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /field\.resolution_item && isEditing\) renderInlineResolution/);
+  assert.match(client, /field\.action\.label/);
+  assert.doesNotMatch(client, /if \(field\.resolution_item\) renderInlineResolution/);
+});
+
+test('an opened missing-field editor can be dismissed without changing the report', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  const inlineEditor = client.slice(client.indexOf('function renderInlineResolution('), client.indexOf('function renderFieldEditor('));
+  assert.match(client, /function appendFieldEditorFooter\([\s\S]*button\('Close editor'/u);
+  assert.match(inlineEditor, /appendFieldEditorFooter\(editor, field\)/u);
+});
+
+test('inline editors group source and close controls as secondary actions', async () => {
+  const [client, css] = await Promise.all([fs.readFile('web/template-app.js', 'utf8'), fs.readFile('web/styles.css', 'utf8')]);
+  const inlineEditor = client.slice(client.indexOf('function renderInlineResolution('), client.indexOf('function renderFieldEditor('));
+  const normalEditor = client.slice(client.indexOf('function renderFieldEditor('), client.indexOf('function renderField('));
+  assert.match(inlineEditor, /appendFieldEditorFooter\(editor, field\)/u);
+  assert.match(normalEditor, /appendFieldEditorFooter\(editor, field\)/u);
+  assert.match(css, /\.field-editor-footer/u);
+});
+
+test('report fields carry missing state without repeating a missing list above the composer', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.doesNotMatch(client, /missingHint: task\.missing_hint/);
+  assert.doesNotMatch(client, /textarea\.value\s*=\s*[^;]*missing_hint/);
+  assert.doesNotMatch(client, /Still missing:/);
+  assert.doesNotMatch(client, /Needs review:/);
+});
+
+test('report correction composer is compact on desktop and mobile', async () => {
+  const [client, css] = await Promise.all([
+    fs.readFile('web/template-app.js', 'utf8'),
+    fs.readFile('web/styles.css', 'utf8'),
+  ]);
+  assert.match(client, /function renderReportReview[\s\S]*compact: true,[\s\S]*submitLabel: 'Add to report'/s);
+  assert.match(css, /\.compact-composer textarea[^}]*min-height:\s*44px/s);
 });
 
 test('inline field editing offers report-owned dictation and exposes one stop action', async () => {
@@ -149,9 +189,9 @@ test('successful evidence attachment is visibly acknowledged without becoming a 
 
 test('the global missing-details composer stays visible after capture without another click', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
-  assert.match(client, /renderReporterComposer\(panel,[\s\S]*submitLabel: 'Fill report'/s);
+  assert.match(client, /function renderReportReview\(panel,[\s\S]*renderReporterComposer\(panel,[\s\S]*submitLabel: 'Add to report'/s);
   assert.match(client, /if \(task\.kind === 'CAPTURED'\)[\s\S]*renderReporterComposer\(panel/s);
-  assert.match(client, /function renderReview\(panel\)[\s\S]*renderReporterComposer\(panel/s);
+  assert.match(client, /function renderReview\(panel, task\)[\s\S]*renderReporterComposer\(panel/s);
   assert.doesNotMatch(client, /addingDetail/);
 });
 
@@ -172,9 +212,10 @@ test('local API client reacquires its ephemeral token once after a server restar
   assert.match(client, /allowReauthentication/);
 });
 
-test('inline field edit mode does not retain duplicate Source or Edit actions', async () => {
+test('field source stays secondary inside the inline editor', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /const isEditing = state\.editingField === field\.field_id/);
-  assert.match(client, /if \(!isEditing\) \{[\s\S]*field\.has_provenance[\s\S]*\['RESOLVE', 'REVIEW'\]/);
-  assert.doesNotMatch(client, /if \(isEditing\)[\s\S]*button\('Source'/);
+  const row = client.slice(client.indexOf('function renderField('), client.indexOf('function renderReportSections('));
+  assert.doesNotMatch(row, /button\('Source'/);
+  assert.match(client, /button\('Source details'/);
 });

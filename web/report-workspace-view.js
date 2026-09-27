@@ -1,4 +1,4 @@
-const MAJOR_AREAS = Object.freeze(['APP_SHELL', 'JOB_HEADER', 'ACTIVE_TASK_PANEL', 'REPORT_SUMMARY']);
+const MAJOR_AREAS = Object.freeze(['APP_SHELL', 'JOB_HEADER', 'REPORT_SUMMARY', 'ACTIVE_TASK_PANEL']);
 
 const FIELD_LABELS = Object.freeze({
   KNOWN_VALUE: 'Confirmed',
@@ -21,16 +21,126 @@ const RESOLUTION_CONTROLS = Object.freeze({
 });
 
 const PROCESSING_COPY = Object.freeze({
-  RECORDING: ['RECORDING', 'Recording…', 'STOP_RECORDING'],
-  PREPARING_AUDIO: ['PREPARING_AUDIO', 'Preparing recording…', null],
-  UPLOADING_AUDIO: ['UPLOADING_AUDIO', 'Uploading recording…', null],
+  RECORDING: ['RECORDING', 'Listening…', 'STOP_RECORDING'],
+  PREPARING_AUDIO: ['PREPARING_AUDIO', 'Finalizing recording…', null],
+  UPLOADING_AUDIO: ['UPLOADING_AUDIO', 'Saving audio & transcribing…', null],
   TRANSCRIBING: ['TRANSCRIBING', 'Transcribing…', null],
-  EXTRACTING: ['EXTRACTING', 'Extracting report details…', null],
-  CHECKING_COMPLETENESS: ['CHECKING_COMPLETENESS', 'Checking completeness…', null],
+  EXTRACTING: ['EXTRACTING', 'Updating report…', null],
+  CHECKING_COMPLETENESS: ['CHECKING_COMPLETENESS', 'Updating report…', null],
 });
+
+const FINALIZING_STATES = new Set(['PREPARING_AUDIO', 'UPLOADING_AUDIO', 'TRANSCRIBING']);
+const REPORT_UPDATE_STATES = new Set(['EXTRACTING', 'CHECKING_COMPLETENESS']);
 
 function action(id, label) {
   return id ? { id, label } : null;
+}
+
+export function sessionRecoveryError(session, chain) {
+  if (session?.phase !== 'RECOVERABLE_ERROR') return null;
+  if (session.recovery_phase === 'PROCESSING') {
+    const audio = chain?.evidence?.filter((item) => item.evidence_type === 'AUDIO'
+      && session.evidence_ids?.includes(item.evidence_id)).at(-1);
+    return {
+      kind: 'STT', message: 'Recording saved, but transcription could not finish.',
+      retry_action: 'RETRY_TRANSCRIPTION', evidence_id: audio?.evidence_id || null,
+    };
+  }
+  return {
+    kind: 'SESSION', message: session.last_error?.message || 'This report needs attention.',
+    retry_action: 'REFRESH_SESSION',
+  };
+}
+
+function captureFeedback(processing) {
+  if (processing === 'RECORDING') {
+    return {
+      state: 'RECORDING',
+      label: 'Listening…',
+      elapsed: true,
+      provisional_available: false,
+      provisional_text: null,
+      help: 'Final transcript appears after you stop recording.',
+    };
+  }
+  if (FINALIZING_STATES.has(processing)) {
+    return {
+      state: 'FINALIZING',
+      label: processing === 'TRANSCRIBING' ? 'Transcribing…'
+        : processing === 'UPLOADING_AUDIO' ? 'Saving audio & transcribing…' : 'Finalizing recording…',
+      elapsed: false,
+      provisional_available: false,
+      provisional_text: null,
+      help: 'Your finalized statement will appear here when transcription finishes.',
+    };
+  }
+  return null;
+}
+
+function authoritativeTranscript(input) {
+  const transcript = input.transcript;
+  const transcriptId = transcript?.transcript_id;
+  if (transcript?.contract !== 'TranscriptArtifact'
+    || !transcriptId
+    || !input.session?.transcript_ids?.includes(transcriptId)
+    || !transcript.raw_text) return null;
+  return transcript;
+}
+
+export function transcriptCorrections(transcript, candidateReview = null) {
+  const review = candidateReview?.status === 'REVIEWED'
+    && candidateReview.transcript_id === transcript.transcript_id ? candidateReview : null;
+  const accepted = new Set((review?.decisions || [])
+    .filter((decision) => decision.decision === 'ACCEPT').map((decision) => decision.review_item_id));
+  const corrections = [
+    ...(transcript.corrections || []),
+    ...(review?.items || []).filter((item) => item.kind === 'CORRECTION' && accepted.has(item.review_item_id))
+      .map((item) => ({
+        original: item.source_span.quote,
+        replacement: item.proposed_text,
+        sourceSpan: { start: item.source_span.start, end: item.source_span.end },
+        method: 'technician-review',
+        reviewId: review.review_id,
+      })),
+  ].sort((left, right) => left.sourceSpan.start - right.sourceSpan.start);
+  let normalizedText = '';
+  let cursor = 0;
+  const mappedCorrections = [];
+  for (const correction of corrections) {
+    if (correction.sourceSpan.start < cursor
+      || transcript.raw_text.slice(correction.sourceSpan.start, correction.sourceSpan.end) !== correction.original) continue;
+    normalizedText += transcript.raw_text.slice(cursor, correction.sourceSpan.start);
+    const start = normalizedText.length;
+    normalizedText += correction.replacement;
+    mappedCorrections.push({
+      ...correction,
+      normalizedSpan: { start, end: normalizedText.length },
+    });
+    cursor = correction.sourceSpan.end;
+  }
+  normalizedText += transcript.raw_text.slice(cursor);
+  return { normalizedText, corrections: mappedCorrections };
+}
+
+function latestStatement(input, transcript = authoritativeTranscript(input)) {
+  if (!transcript) return null;
+  const updating = REPORT_UPDATE_STATES.has(input.processing);
+  const needsReview = input.session?.phase === 'CORRECTION_IF_NEEDED';
+  const { normalizedText, corrections } = transcriptCorrections(transcript, input.transcript_review);
+  return {
+    transcript_id: transcript.transcript_id,
+    text: transcript.raw_text,
+    ...(transcript.provider === 'technician-text' ? { origin_label: 'Original typed input' } : {}),
+    ...(corrections.length ? {
+      normalized_text: normalizedText,
+      corrections,
+    } : {}),
+    authoritative: true,
+    label: updating || needsReview ? 'Final transcript' : 'Latest statement',
+    status: updating ? 'Updating report…' : needsReview ? 'Review needed' : 'Used',
+    expanded: updating || needsReview,
+    used: !updating && !needsReview,
+  };
 }
 
 function displayValue(field) {
@@ -159,6 +269,16 @@ export function fieldDisplay(field = {}, chain = null) {
   };
 }
 
+export function showFieldStateLabel(field = {}) {
+  return Boolean(field.actionable) || !['Confirmed', 'None', 'Not applicable'].includes(field.label);
+}
+
+export function fieldControlKind(phase, field = {}) {
+  if (['RESOLVE', 'REVIEW'].includes(phase)) return 'EDIT';
+  if (['READY', 'CONFIRMED'].includes(phase) && field.has_provenance) return 'SOURCE';
+  return null;
+}
+
 export function resolutionControl(item = {}) {
   return {
     kind: RESOLUTION_CONTROLS[item.answer_type] || 'COMPACT_INPUT',
@@ -169,6 +289,21 @@ export function resolutionControl(item = {}) {
     })),
     allow_other: Boolean(item.allow_other),
   };
+}
+
+export function fieldAction(field = {}) {
+  if (field.state === 'UNKNOWN') return { kind: 'ADD', label: '+ Add' };
+  if (field.resolution_item || ['UNCERTAIN', 'CONFLICT', 'INVALID', 'INFERRED'].includes(field.state)) {
+    const label = field.state === 'CONFLICT' ? 'Resolve'
+      : field.resolution_item?.type === 'SAFETY_CONFIRMATION' || ['UNCERTAIN', 'INFERRED'].includes(field.state) ? 'Confirm'
+        : 'Check';
+    return { kind: 'REVIEW', label };
+  }
+  return { kind: 'EDIT', label: 'Edit' };
+}
+
+export function showResolutionPrompt(item = {}) {
+  return !['MISSING', 'CONDITIONAL_REQUIREMENT'].includes(item.type);
 }
 
 function historyDate(value, timeZone) {
@@ -189,12 +324,22 @@ function historyDate(value, timeZone) {
   return match[4] ? `${date}, ${match[4]}:${match[5]}` : date;
 }
 
+function splitReportName(value) {
+  const name = String(value || 'Service report');
+  const match = name.match(/^(.*) · (\d{4}-\d{2}-\d{2})(?: \((\d+)\))?$/u);
+  if (!match) return { title: name, metadata: '' };
+  return { title: match[1], metadata: `${historyDate(match[2])}${match[3] ? ` · Report ${match[3]}` : ''}` };
+}
+
 export function deriveReportHistoryRow(summary = {}, { timeZone } = {}) {
+  const name = splitReportName(summary.report_name || summary.template?.display_name || 'Service report');
   const identity = [summary.work_order, summary.asset].filter(Boolean);
-  const dateLabel = summary.service_date ? 'Service' : 'Created';
-  identity.push(`${dateLabel} ${historyDate(summary.service_date || summary.created_at, timeZone)}`);
+  identity.unshift(...(name.metadata ? [name.metadata] : []));
+  const updatedAt = historyDate(summary.updated_at || summary.created_at, timeZone);
+  const reportDay = name.metadata.split(' · ')[0];
+  identity.push(`Updated ${reportDay && updatedAt.startsWith(`${reportDay}, `) ? updatedAt.slice(reportDay.length + 2) : updatedAt}`);
   return {
-    title: summary.report_name || summary.template?.display_name || 'Service report',
+    title: name.title,
     secondary: identity.join(' · '),
     status: summary.status?.label || 'In progress',
   };
@@ -215,6 +360,7 @@ function deriveActiveTask(input) {
     const labels = {
       RETRY_TRANSCRIPTION: 'Retry transcription', RETRY_ATTACHMENT: 'Try attachment again',
       RETRY_AUDIO_UPLOAD: 'Choose another recording',
+      RETRY_MICROPHONE: 'Try microphone again', RETRY_RECORDING: 'Record again',
       RETRY_CONNECTION: 'Try again', RETRY_INPUT: 'Edit answer', REFRESH_SESSION: 'Refresh report',
     };
     return {
@@ -227,7 +373,13 @@ function deriveActiveTask(input) {
   const processingBelongsToSession = !input.processing_session_id || input.processing_session_id === session.session_id;
   if (processing && processingBelongsToSession && PROCESSING_COPY[processing]) {
     const [kind, title, primary] = PROCESSING_COPY[processing];
-    return { kind, title, primary_action: action(primary, primary === 'STOP_RECORDING' ? 'Stop & fill report' : null) };
+    return {
+      kind,
+      title,
+      capture_feedback: captureFeedback(processing),
+      primary_action: action(primary, primary === 'STOP_RECORDING' ? 'Stop & fill report' : null),
+      secondary_action: processing === 'RECORDING' ? action('CANCEL_RECORDING', 'Cancel') : null,
+    };
   }
   if (session.phase === 'CONTEXT') {
     return {
@@ -252,11 +404,8 @@ function deriveActiveTask(input) {
       primary_action: action('CAPTURE_MISSING_DETAILS', 'Fill missing details'),
     };
   }
-  if (session.phase === 'REVIEW') {
-    return { kind: 'REVIEW', title: 'Review the completed report', composer_visible: true, primary_action: action('SUBMIT_REPORT', 'Submit report') };
-  }
-  if (session.phase === 'READY') {
-    return { kind: 'READY', title: 'Report is ready to submit', primary_action: action('SUBMIT_REPORT', 'Submit report') };
+  if (session.phase === 'REVIEW' || session.phase === 'READY') {
+    return { kind: 'READY', title: session.phase === 'REVIEW' ? 'Add information' : 'Report actions', composer_visible: session.phase === 'REVIEW', primary_action: action('SUBMIT_REPORT', 'Submit report') };
   }
   if (session.phase === 'CONFIRMED') {
     return { kind: 'CONFIRMED', title: 'Report confirmed', primary_action: action('EXPORT_REPORT', 'Export report') };
@@ -279,10 +428,11 @@ function valueFor(fields, id, conflictLabel = 'Needs resolution') {
   return field?.state === 'CONFLICT' ? conflictLabel : displayValue(field);
 }
 
-function buildSections(template, agentState, sessionPhase, processing, chain) {
+function buildSections(template, agentState, sessionPhase, processing, chain, changeSummary) {
   const fieldMap = new Map((agentState?.report_fields || []).map((field) => [field.field_id, field]));
   const resolutionByField = new Map((agentState?.resolution_queue || []).map((item) => [item.field_id, item]));
   const unresolved = new Set(resolutionByField.keys());
+  const updated = new Set(changeSummary?.field_ids || []);
   const groups = new Map();
   const declared = template?.schema?.fields || [];
   const declaredIds = new Set(declared.filter((definition) => !definition.id.endsWith('.*')).map((definition) => definition.id));
@@ -308,13 +458,12 @@ function buildSections(template, agentState, sessionPhase, processing, chain) {
       display.actionable = false;
     }
     const resolutionItem = projectResolutionItem(resolutionByField.get(field.field_id), field);
-    groups.get(title).push({
+    const projected = {
       ...display,
       name: definition.label,
       state: field.state,
+      updated: updated.has(field.field_id),
       editing: false,
-      review_priority: Boolean(definition.critical || definition.requiresTechnicianConfirmation
-        || field.candidates?.some((candidate) => candidate.extraction?.method === 'technician-resolution-answer')),
       has_provenance: Boolean(field.candidates?.some((candidate) => candidate.evidence_refs?.length)),
       definition: {
         type: definition.type || 'string',
@@ -323,26 +472,106 @@ function buildSections(template, agentState, sessionPhase, processing, chain) {
       },
       resolution_item: resolutionItem,
       resolution_control: resolutionItem ? resolutionControl(resolutionItem) : null,
-    });
+    };
+    projected.action = fieldAction(projected);
+    projected.requires_review = projected.action.kind === 'REVIEW';
+    groups.get(title).push(projected);
   }
+  const collapsible = groups.size > 1;
   return [...groups].map(([title, fields]) => {
     const needsAttention = fields.filter((field) => unresolved.has(field.field_id)).length;
-    const reviewPriority = fields.filter((field) => field.review_priority).length;
-    const reviewing = sessionPhase === 'REVIEW';
     const recordingWithBlanks = processing === 'RECORDING' && fields.some((field) => field.state === 'UNKNOWN');
     return {
       title,
       status: needsAttention
         ? `${needsAttention} need${needsAttention === 1 ? 's' : ''} attention`
-        : reviewing && reviewPriority ? `${reviewPriority} to review` : 'Complete',
+        : 'Complete',
       needs_attention: needsAttention,
-      review_priority: reviewPriority,
+      collapsible,
+      review_priority: 0,
       expanded: processing === 'RECORDING'
-        ? recordingWithBlanks
-        : ['RESOLVE', 'REVIEW', 'READY'].includes(sessionPhase),
+        ? recordingWithBlanks || needsAttention > 0
+        : needsAttention > 0 || ['CONTEXT', 'RESOLVE', 'REVIEW', 'READY', 'CONFIRMED'].includes(sessionPhase),
       fields,
     };
   });
+}
+
+function definitionForField(template, fieldId) {
+  const definitions = template?.schema?.fields || [];
+  return definitions.find((definition) => definition.id === fieldId)
+    || definitions.find((definition) => definition.id.endsWith('.*') && fieldId.startsWith(definition.id.slice(0, -1)))
+    || null;
+}
+
+function fieldName(template, fieldId) {
+  const definition = definitionForField(template, fieldId);
+  const wildcardPrefix = definition?.id?.endsWith('.*') ? definition.id.slice(0, -1) : null;
+  return wildcardPrefix
+    ? `${definition.label} — ${fieldId.slice(wildcardPrefix.length).replaceAll('_', ' ')}`
+    : definition?.label || fieldId;
+}
+
+function fieldSignature(field) {
+  if (!field) return null;
+  return JSON.stringify({
+    state: field.state || 'UNKNOWN',
+    value: field.value ?? null,
+    unit: field.unit ?? null,
+  });
+}
+
+export function deriveChangeSummary({ template, before, after } = {}) {
+  const beforeByField = new Map((before?.report_fields || []).map((field) => [field.field_id, field]));
+  const afterFields = after?.report_fields || [];
+  const fieldIds = afterFields
+    .filter((field) => fieldSignature(field) !== fieldSignature(beforeByField.get(field.field_id)))
+    .map((field) => field.field_id);
+  const categories = after?.completeness || {};
+  const missingIds = [
+    ...(categories.missing_required_fields || []),
+    ...(categories.conditional_required_fields || []),
+  ];
+  const reviewIds = [
+    ...(categories.uncertain_fields || []),
+    ...(categories.conflicting_fields || []),
+    ...(categories.invalid_fields || []),
+    ...(categories.inferred_fields || []),
+    ...(categories.critical_confirmation_fields || []),
+  ];
+  const names = (ids) => [...new Set(ids)].map((fieldId) => fieldName(template, fieldId));
+  return {
+    count: fieldIds.length,
+    summary: `Updated ${fieldIds.length} ${fieldIds.length === 1 ? 'detail' : 'details'}`,
+    field_ids: fieldIds,
+    field_names: names(fieldIds),
+    remaining: {
+      missing: names(missingIds),
+      review: names(reviewIds),
+    },
+  };
+}
+
+function missingHint(template, agentState, hasPriorCapture) {
+  const missingIds = [...new Set(agentState?.completeness?.missing_required_fields || [])];
+  const grouped = new Map();
+  for (const fieldId of missingIds) {
+    const definition = definitionForField(template, fieldId);
+    const section = definition?.section || 'Report';
+    const wildcardPrefix = definition?.id?.endsWith('.*') ? definition.id.slice(0, -1) : null;
+    const label = wildcardPrefix
+      ? `${definition.label} — ${fieldId.slice(wildcardPrefix.length).replaceAll('_', ' ')}`
+      : definition?.label || fieldId;
+    if (!grouped.has(section)) grouped.set(section, []);
+    grouped.get(section).push(label);
+  }
+  const count = missingIds.length;
+  return {
+    count,
+    summary: `${count} ${count === 1 ? 'detail' : 'details'} missing`,
+    lead: hasPriorCapture ? 'Still missing:' : 'Missing:',
+    groups: [...grouped].map(([section, fields]) => ({ section, fields })),
+  };
 }
 
 export function deriveWorkspaceView(input = {}) {
@@ -361,19 +590,50 @@ export function deriveWorkspaceView(input = {}) {
     asset === '—' ? valueFor(fields, 'equipment') : asset,
     valueFor(fields, 'technician.name'),
   ].filter((value) => value !== '—').join(' · ');
+  const finalizedTranscript = authoritativeTranscript(input);
+  const authoritativeInput = {
+    ...input, transcript: finalizedTranscript,
+    recoverable_error: input.recoverable_error || sessionRecoveryError(input.session, input.chain),
+  };
+  const authoritativeMissingHint = missingHint(input.template, input.agent_state, Boolean(finalizedTranscript));
+  const finalizedStatement = latestStatement(authoritativeInput, finalizedTranscript);
+  const reportName = splitReportName(input.session?.report_name || input.history?.report_name || input.template?.name);
+  const requiredIds = new Set(declaredFields.filter((field) => field.required && !field.id.endsWith('.*')).map((field) => field.id));
+  for (const definition of declaredFields.filter((field) => field.required && field.id.endsWith('.*'))) {
+    for (const field of fields) if (field.field_id.startsWith(definition.id.slice(0, -1))) requiredIds.add(field.field_id);
+  }
+  for (const fieldId of [...(completeness.missing_required_fields || []), ...(completeness.conditional_required_fields || [])]) requiredIds.add(fieldId);
+  const required = requiredIds.size;
+  const completed = [...requiredIds].filter((fieldId) => completeness.complete_fields?.includes(fieldId)).length;
+  const phase = input.session?.phase;
+  const ready = ['REVIEW', 'READY'].includes(phase) && completeness.complete && !(input.agent_state?.resolution_queue?.length);
+  const readiness = { completed, required, label: phase === 'CONFIRMED' ? 'Confirmed' : ready ? 'Ready' : 'Needs information' };
   return {
     major_areas: [...MAJOR_AREAS],
     session_id: input.session?.session_id || null,
     session_phase: input.session?.phase || null,
     revision: input.session?.revision ?? null,
+    readiness,
+    composer_density: ['READY', 'CONFIRMED'].includes(phase) ? 'hidden' : ready ? 'compact' : phase === 'CONTEXT' ? 'prominent' : input.agent_state?.resolution_queue?.length ? 'contextual' : 'standard',
     job_header: {
-      title: input.session?.report_name || input.history?.report_name || input.template?.name || 'Service report',
+      title: reportName.title,
+      metadata: reportName.metadata,
       identity_line: identity,
       complete,
       total,
       need_input: input.agent_state?.resolution_queue?.length || 0,
     },
-    active_task: deriveActiveTask(input),
-    report_sections: buildSections(input.template, input.agent_state, input.session?.phase, input.processing, input.chain),
+    active_task: { ...deriveActiveTask(authoritativeInput), missing_hint: authoritativeMissingHint },
+    missing_hint: authoritativeMissingHint,
+    latest_change: input.change_summary || null,
+    latest_statement: finalizedStatement,
+    report_sections: buildSections(
+      input.template,
+      input.agent_state,
+      input.session?.phase,
+      input.processing,
+      input.chain,
+      input.change_summary,
+    ),
   };
 }

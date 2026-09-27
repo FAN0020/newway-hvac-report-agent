@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
 
-test('visible technician journey is Choose Report → generated report review → one server-gated submit', async () => {
+test('visible technician journey is Choose Report → generated report review → one report-level confirmation', async () => {
   const [html, client] = await Promise.all([fs.readFile('web/index.html', 'utf8'), fs.readFile('web/template-app.js', 'utf8')]);
   const workspace = html.slice(html.indexOf('id="template-workspace"'), html.indexOf('id="template-manager"'));
   assert.match(html, /id="template-app"/);
@@ -15,7 +15,11 @@ test('visible technician journey is Choose Report → generated report review �
   assert.match(client, /\/review\/complete/);
   assert.match(client, /\/confirm/);
   assert.match(client, /\/export/);
-  assert.match(client, /async function submitReport/);
+  assert.match(client, /async function confirmAndSubmitReport/);
+  assert.match(workspace, /id="workspace-report-confirmation"/);
+  assert.match(workspace, /Back to report/);
+  assert.doesNotMatch(workspace, /REPORT COMPLETE/);
+  assert.match(workspace, /Confirm &amp; submit/);
   assert.doesNotMatch(client, /button\('Finish review'/);
   assert.doesNotMatch(client, /button\('Confirm report'/);
   assert.doesNotMatch(workspace, /Update report|workspace-confirm-check|workspace-fields/iu);
@@ -40,6 +44,7 @@ test('workspace uses authoritative ReportSession routes and never submits browse
 test('browser helper modules imported by the workspace are served explicitly', async () => {
   const server = await fs.readFile('src/server.js', 'utf8');
   assert.match(server, /\['\/report-input\.js', \['report-input\.js', 'text\/javascript; charset=utf-8'\]\]/u);
+  assert.match(server, /\['\/transcript-inline\.js', \['transcript-inline\.js', 'text\/javascript; charset=utf-8'\]\]/u);
 });
 
 test('capture and report display are progressive, read-first, and source-aware', async () => {
@@ -53,7 +58,7 @@ test('capture and report display are progressive, read-first, and source-aware',
   assert.match(client, /showProvenance/);
   assert.match(client, /state\.editingField === field\.field_id/);
   assert.match(client, /section\.fields\.some\(\(field\) => field\.field_id === state\.editingField\)/u);
-  assert.match(client, /Report draft/);
+  assert.match(client, /AI draft/);
   assert.match(client, /Original words/);
   assert.match(client, /My edit/);
   assert.match(client, /field\.resolution_item/);

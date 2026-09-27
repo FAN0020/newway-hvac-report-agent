@@ -53,9 +53,9 @@ Persistence is file-backed and content/hash checked. Session mutations are revis
 2. Text or audio is persisted as evidence. Audio bytes are stored before Whisper runs.
 3. Harmless normalization proceeds; only material transcript corrections interrupt the workflow.
 4. Server extraction creates evidence-bound FieldCandidates. Merge, conflict, validation, and completeness run deterministically.
-5. The UI projects every server-owned ResolutionItem into the generated schema-ordered report at the affected field. Populated fields expose reversible Report draft / Original words / My edit representations and type-or-dictate correction in place. Structured inline answers remain safety-prioritized by the server, while one global voice/text action can supply multiple missing facts without forcing a sequential wizard.
+5. The UI projects every server-owned ResolutionItem into the generated schema-ordered report at the affected field. Supported values remain compact and editable without per-field acceptance. Edit progressively exposes reversible AI draft / Original words / My edit representations and secondary source details. One global voice/text statement can update multiple facts, producing a compact Updated summary while only missing, uncertain, conflicting, invalid, conditional, and schema-critical confirmation exceptions require action.
 6. With no blocking queue, the server enters REVIEW. Review acknowledgement creates READY plus a validation receipt for the exact revision and structured-state hash.
-7. One visible `Submit report` action requests review completion and then confirmation for the returned exact revision. The server performs both gates, reloads authoritative state, binds the server principal, and creates one immutable snapshot; the browser does not supply a final draft.
+7. `Submit report` opens one report-level statement that the technician reviewed the report and confirms it reflects the completed work. `Back to review` performs no mutation. `Confirm & submit` lets the server perform the review-complete and confirmation gates for the returned exact revision, reload authoritative state, bind the server principal, and create one immutable snapshot; the browser does not supply a final draft.
 8. Export renders from the snapshot. Export failure cannot invalidate or duplicate confirmation, and retry is idempotent.
 
 ## 4. ReportSession lifecycle and final gates
@@ -125,7 +125,7 @@ Both `origin/feature/rag-guided-reporting@c2c2df2` and historical `223b7af` are 
 
 ## 9. Frozen P0 and adversarial verification
 
-`evaluation/p0-report-session-acceptance.v1.json` version 1.2 freezes the 15 final P0 authority scenarios plus generated-report-first review, inline typed and dictated correction, visible reversible source selection, inline and multi-field missing-detail completion, single submit, persistence, report-scoped recording isolation, and mobile review. The contract test requires expected/forbidden behavior and automated evidence for every case.
+`evaluation/p0-report-session-acceptance.v1.json` version 1.3 freezes the 15 final P0 authority scenarios plus generated-report-first review, inline typed and dictated correction, visible reversible source selection, compact multi-field update summaries, inline and multi-field missing-detail completion, one report-level confirmation, persistence, report-scoped recording isolation, and mobile review. The contract test requires expected/forbidden behavior and automated evidence for every case.
 
 The 30 requested trust attacks map to automated suites covering forged support/provenance/evidence/span/candidate/field/draft/validated/resolved claims; value-number-unit-identity/negation/planned mutations; Guidance/RAG promotion; cross-session evidence/transcript/receipt reuse; stale/replayed answers and confirmation; source-bound audio idempotency; cross-domain contamination; and direct endpoint bypass. The finalization suite additionally injects another session's validation receipt and verifies READY remains unchanged with no confirmation/snapshot.
 

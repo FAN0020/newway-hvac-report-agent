@@ -134,6 +134,30 @@ function writeJson(response, statusCode, value) {
   response.end(body);
 }
 
+function safeDownloadFilename(value) {
+  const filename = String(value || 'confirmed-report.pdf').replace(/[^A-Za-z0-9._-]+/gu, '-').replace(/^-+|-+$/gu, '');
+  return filename && filename.toLowerCase().endsWith('.pdf') ? filename : 'confirmed-report.pdf';
+}
+
+function writePdfDownload(response, result) {
+  const body = Buffer.from(String(result?.content_base64 || ''), 'base64');
+  if (result?.mime_type !== 'application/pdf' || body.length < 5 || body.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw Object.assign(new Error('The confirmed report export is not a valid PDF.'), {
+      code: 'INVALID_PDF_EXPORT', status: 500,
+    });
+  }
+  response.writeHead(200, {
+    'content-type': 'application/pdf',
+    'content-length': body.length,
+    'content-disposition': `attachment; filename="${safeDownloadFilename(result.filename)}"`,
+    'cache-control': 'no-store',
+    'x-report-snapshot-id': result.snapshot_id,
+    'x-report-export-hash': result.export_hash,
+    ...securityHeaders({ api: true }),
+  });
+  response.end(body);
+}
+
 function readBody(request, limit) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -311,7 +335,12 @@ async function handleApi(request, response, url, traceId, config, services) {
     const result = await captureService.exportConfirmedSession({
       session_id: decodeURIComponent(sessionExportMatch[1]), expected_revision: input.expected_revision,
     });
-    writeJson(response, 200, toolEnvelope('export_report_session', traceId, 'PASS', result));
+    if (String(request.headers.accept || '').split(',').map((value) => value.trim()).includes('application/json')) {
+      const prepared = services.reportDownloads.issue(result);
+      writeJson(response, 200, toolEnvelope('prepare_report_download', traceId, 'PASS', prepared));
+    } else {
+      writePdfDownload(response, result);
+    }
     return;
   }
 
@@ -1115,6 +1144,7 @@ const staticFiles = new Map([
   ['/template-workspace.js', ['template-workspace.js', 'text/javascript; charset=utf-8']],
   ['/report-workspace-view.js', ['report-workspace-view.js', 'text/javascript; charset=utf-8']],
   ['/report-input.js', ['report-input.js', 'text/javascript; charset=utf-8']],
+  ['/transcript-inline.js', ['transcript-inline.js', 'text/javascript; charset=utf-8']],
   ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],
@@ -1144,7 +1174,30 @@ function denyRequest(response, traceId, status, code) {
 }
 
 export function createServer({ config = resolveServerConfig(), services = {} } = {}) {
-  const resolvedServices = { authoritativeCapture, speechToText, whisper, ...services };
+  const reportDownloadTickets = new Map();
+  const reportDownloads = {
+    issue(result) {
+      const now = Date.now();
+      for (const [ticket, entry] of reportDownloadTickets) {
+        if (entry.expires_at <= now) reportDownloadTickets.delete(ticket);
+      }
+      const ticket = crypto.randomUUID();
+      reportDownloadTickets.set(ticket, { result, expires_at: now + 60_000 });
+      return {
+        download_url: `/report-download/${ticket}`,
+        filename: safeDownloadFilename(result.filename),
+        mime_type: result.mime_type,
+        snapshot_id: result.snapshot_id,
+        export_hash: result.export_hash,
+      };
+    },
+    consume(ticket) {
+      const entry = reportDownloadTickets.get(ticket);
+      reportDownloadTickets.delete(ticket);
+      return entry && entry.expires_at > Date.now() ? entry.result : null;
+    },
+  };
+  const resolvedServices = { authoritativeCapture, speechToText, whisper, reportDownloads, ...services };
   return http.createServer(async (request, response) => {
     const traceId = `trace_${crypto.randomUUID()}`;
     const url = new URL(request.url, 'http://server.invalid');
@@ -1162,6 +1215,19 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
           return;
         }
         writeJson(response, 200, { status: 'PASS', token: config.token, mode: 'local-only' });
+      } else if (request.method === 'GET' && /^\/report-download\/[a-f0-9-]+$/u.test(url.pathname)) {
+        if (!validateRequestHost(request.headers.host, config).ok) {
+          denyRequest(response, traceId, 403, 'REQUEST_DENIED');
+          return;
+        }
+        const result = reportDownloads.consume(url.pathname.slice('/report-download/'.length));
+        if (!result) {
+          writeJson(response, 404, toolEnvelope('report_download', traceId, 'FAIL', {
+            message: 'This report download is unavailable or expired.',
+          }, { error_code: 'REPORT_DOWNLOAD_UNAVAILABLE' }));
+          return;
+        }
+        writePdfDownload(response, result);
       } else if (!validateRequestHost(request.headers.host, config).ok) {
         denyRequest(response, traceId, 403, 'REQUEST_DENIED');
       } else if (!await serveStatic(response, url.pathname)) {

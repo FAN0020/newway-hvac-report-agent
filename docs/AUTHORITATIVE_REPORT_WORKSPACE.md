@@ -51,7 +51,7 @@ Removed or consolidated:
 
 - Removed manual **Update report** and client-side analysis controls; submission automatically starts processing.
 - Removed the permanent editable form; fields are read-first and edit only on demand during resolution.
-- Removed the confirmation checkbox and duplicate confirmation controls; one visible `Submit report` action invokes the server review and confirmation gates for the exact current revision.
+- Removed the confirmation checkbox, ordinary per-field acceptance, and duplicate confirmation controls; `Submit report` opens one report-level statement, and only `Confirm & submit` invokes the server review and confirmation gates for the exact current revision.
 - Removed permanent transcript, RAG/retrieval, confidence, trace, chunk, provider, and JSON panels.
 - Consolidated microphone, recording upload, and text into one capture composer.
 - Consolidated evidence uploads into one classified **Attach evidence** action.

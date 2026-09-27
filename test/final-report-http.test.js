@@ -43,14 +43,15 @@ async function fixture(t, name) {
   const server = createServer({ config, services: { authoritativeCapture: service } });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
   t.after(async () => { await new Promise((resolve) => server.close(resolve)); await fs.rm(root, { recursive: true, force: true }); });
-  const request = async (pathname, body = {}, method = 'POST') => {
-    const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
-      method, headers: { authorization: `Bearer ${TOKEN}`, ...(method === 'POST' ? { 'content-type': 'application/json' } : {}) },
+  const requestRaw = async (pathname, body = {}, method = 'POST', headers = {}) => fetch(`http://127.0.0.1:${port}${pathname}`, {
+      method, headers: { authorization: `Bearer ${TOKEN}`, ...(method === 'POST' ? { 'content-type': 'application/json' } : {}), ...headers },
       body: method === 'POST' ? JSON.stringify(body) : undefined,
     });
+  const request = async (pathname, body = {}, method = 'POST') => {
+    const response = await requestRaw(pathname, body, method);
     return { status: response.status, body: await response.json() };
   };
-  return { request, base: `http://127.0.0.1:${port}` };
+  return { request, requestRaw, base: `http://127.0.0.1:${port}` };
 }
 
 async function readyReport(request, suffix = '1') {
@@ -78,20 +79,52 @@ async function readyReport(request, suffix = '1') {
   return { sessionId, ready: ready.body.data };
 }
 
-test('final HTTP confirmation accepts only expected_revision and returns an immutable snapshot', async (t) => {
-  const { request } = await fixture(t, 'confirm');
+test('final HTTP confirmation exports a complete snapshot-bound PDF download and supports repetition', async (t) => {
+  const { request, requestRaw, base } = await fixture(t, 'confirm');
   const { sessionId, ready } = await readyReport(request);
+  const premature = await request(`/api/report-sessions/${sessionId}/export`, { expected_revision: ready.session.revision });
+  assert.equal(premature.status, 409);
+  assert.equal(premature.body.error_code, 'REPORT_NOT_CONFIRMED');
   const confirmed = await request(`/api/report-sessions/${sessionId}/confirm`, { expected_revision: ready.session.revision });
   assert.equal(confirmed.status, 200);
   assert.equal(confirmed.body.data.session.phase, 'CONFIRMED');
   assert.equal(confirmed.body.data.snapshot.session_id, sessionId);
   assert.equal(confirmed.body.data.confirmation.technician_principal_ref, 'principal:demo-technician');
-  const exported = await request(`/api/report-sessions/${sessionId}/export`, { expected_revision: confirmed.body.data.session.revision });
-  assert.equal(exported.status, 200);
-  assert.equal(exported.body.data.mime_type, 'application/pdf');
-  assert.match(exported.body.data.filename, /\.pdf$/u);
-  assert.equal(Buffer.from(exported.body.data.content_base64, 'base64').subarray(0, 5).toString('ascii'), '%PDF-');
-  assert.match(exported.body.data.export_text, /Parts \/ materials: None/iu);
+  const first = await requestRaw(`/api/report-sessions/${sessionId}/export`, { expected_revision: confirmed.body.data.session.revision });
+  const firstBytes = Buffer.from(await first.arrayBuffer());
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get('content-type'), 'application/pdf');
+  assert.match(first.headers.get('content-disposition') || '', /^attachment; filename="[A-Za-z0-9._-]+\.pdf"$/u);
+  assert.equal(first.headers.get('x-report-snapshot-id'), confirmed.body.data.snapshot.snapshot_id);
+  assert.equal(Number(first.headers.get('content-length')), firstBytes.length);
+  assert.equal(firstBytes.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(firstBytes.length > 5_000);
+
+  const second = await requestRaw(`/api/report-sessions/${sessionId}/export`, { expected_revision: confirmed.body.data.session.revision });
+  const secondBytes = Buffer.from(await second.arrayBuffer());
+  assert.equal(second.status, 200);
+  assert.deepEqual(secondBytes, firstBytes);
+  assert.equal(second.headers.get('x-report-snapshot-id'), confirmed.body.data.snapshot.snapshot_id);
+
+  const prepared = await requestRaw(
+    `/api/report-sessions/${sessionId}/export`,
+    { expected_revision: confirmed.body.data.session.revision },
+    'POST',
+    { accept: 'application/json' },
+  );
+  const preparedBody = await prepared.json();
+  assert.equal(prepared.status, 200);
+  assert.match(preparedBody.data.download_url, /^\/report-download\/[a-f0-9-]+$/u);
+  assert.equal(preparedBody.data.snapshot_id, confirmed.body.data.snapshot.snapshot_id);
+  assert.doesNotMatch(preparedBody.data.download_url, /token|authorization/iu);
+
+  const browserDownload = await fetch(`${base}${preparedBody.data.download_url}`);
+  const browserBytes = Buffer.from(await browserDownload.arrayBuffer());
+  assert.equal(browserDownload.status, 200);
+  assert.equal(browserDownload.headers.get('content-type'), 'application/pdf');
+  assert.match(browserDownload.headers.get('content-disposition') || '', /^attachment; filename="[A-Za-z0-9._-]+\.pdf"$/u);
+  assert.equal(browserDownload.headers.get('x-report-snapshot-id'), confirmed.body.data.snapshot.snapshot_id);
+  assert.deepEqual(browserBytes, firstBytes);
 });
 
 test('untrusted authority fields cannot bypass final confirmation', async (t) => {

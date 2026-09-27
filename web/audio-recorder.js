@@ -157,6 +157,11 @@ export class PcmWavRecorder {
     this.sink = null;
   }
 
+  async cancel() {
+    this.chunks = [];
+    await this.release();
+  }
+
   async stop() {
     if (!this.node || !this.context) throw new Error('Recorder is not active.');
     const sampleRate = this.context.sampleRate;

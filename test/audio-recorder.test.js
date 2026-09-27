@@ -37,3 +37,23 @@ test('a failed worklet load releases microphone and AudioContext resources', asy
   assert.equal(recorder.stream, null);
   assert.equal(recorder.context, null);
 });
+
+test('cancelling an active recording discards samples and releases capture resources', async () => {
+  let trackStops = 0;
+  let contextCloses = 0;
+  const recorder = new PcmWavRecorder();
+  recorder.stream = { getTracks: () => [{ stop: () => { trackStops += 1; } }] };
+  recorder.context = { state: 'running', close: async () => { contextCloses += 1; } };
+  recorder.source = { disconnect() {} };
+  recorder.node = { disconnect() {} };
+  recorder.sink = { disconnect() {} };
+  recorder.chunks = [new Float32Array([0.25, -0.25])];
+
+  await recorder.cancel();
+
+  assert.equal(trackStops, 1);
+  assert.equal(contextCloses, 1);
+  assert.deepEqual(recorder.chunks, []);
+  assert.equal(recorder.stream, null);
+  assert.equal(recorder.context, null);
+});

@@ -1,9 +1,10 @@
 import { PcmWavRecorder } from './audio-recorder.js';
-import { deriveReportHistoryRow, deriveWorkspaceView, sortReportHistoryItems } from './report-workspace-view.js';
+import { deriveChangeSummary, deriveReportHistoryRow, deriveWorkspaceView, fieldControlKind, sessionRecoveryError, showFieldStateLabel, showResolutionPrompt, sortReportHistoryItems, transcriptCorrections } from './report-workspace-view.js';
 import { parseTechnicianFieldAnswer } from './report-input.js';
 import { createReportWorkspaceRegistry, registerRuntimeTemplate } from './report-runtime.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
 import { modelOptionLabel, modelSelectionView } from './speech-to-text-settings.js';
+import { appendInlineTranscript, appendLatestStatement } from './transcript-inline.js';
 
 const $ = (id) => document.getElementById(id);
 const RECENT_TEMPLATES_KEY = 'field-report.recent-template-ids';
@@ -37,6 +38,9 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     confirmation: null,
     exportStatus: '',
     attachmentStatus: '',
+    captureNotice: '',
+    changeBaseline: null,
+    changeSummary: null,
     editingField: null,
     reviewFullReport: false,
     history: null,
@@ -51,6 +55,7 @@ for (const property of [
   'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
+  'captureNotice', 'changeBaseline', 'changeSummary',
   'history',
   'focusActiveTask', 'recordingFieldId',
 ]) {
@@ -80,12 +85,6 @@ function element(tag, className, text) {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
-}
-
-function renderReportTitle(node, title) {
-  const match = String(title).match(/^(.*) · (\d{4}-\d{2}-\d{2}(?: \(\d+\))?)$/u);
-  if (!match) { node.textContent = title; return; }
-  node.replaceChildren(document.createTextNode(`${match[1]} `), element('span', 'report-name-date', `· ${match[2]}`));
 }
 
 function loadRecentTemplateIds() {
@@ -145,8 +144,9 @@ function syncCaptureNavigation() {
 function setView(name) {
   const views = { reports: 'template-reports', choose: 'template-choose', workspace: 'template-workspace', templates: 'template-manager', setup: 'template-setup', settings: 'template-settings' };
   for (const [key, id] of Object.entries(views)) { $(id).hidden = key !== name; $(id).classList.toggle('active', key === name); }
+  document.querySelector('.template-main').classList.toggle('content-first-mode', ['workspace', 'reports', 'choose'].includes(name));
   document.querySelectorAll('[data-template-nav]').forEach((button) => button.classList.toggle('active', button.dataset.templateNav === name));
-  const headings = { reports: ['TECHNICIAN', 'Reports'], choose: ['', 'New report'], workspace: ['', 'Field Report'], templates: ['MANAGER', 'Templates'], setup: ['MANAGER', 'Template setup'], settings: ['LOCAL RUNTIME', 'Settings'] };
+  const headings = { reports: ['TECHNICIAN', 'Reports'], choose: ['', 'New report'], workspace: ['', 'Report'], templates: ['MANAGER', 'Templates'], setup: ['MANAGER', 'Template setup'], settings: ['LOCAL RUNTIME', 'Settings'] };
   $('template-eyebrow').textContent = headings[name][0]; $('template-eyebrow').hidden = !headings[name][0]; $('template-page-title').textContent = headings[name][1];
   if (name === 'reports') renderReports();
   if (name === 'choose') renderCatalog();
@@ -261,13 +261,15 @@ function renderReports() {
   }
   for (const { workspace } of workspaces) {
     const row = element('article', 'manager-row report-history-row'); const identity = element('div');
-    const historyRow = deriveReportHistoryRow(workspace.history || {
-      report_name: workspace.session?.report_name,
-      template: { display_name: workspace.activeTemplate.name },
-      created_at: workspace.session?.created_at,
-      status: { label: workspace.processing ? 'Processing' : 'In progress' },
+    const historyRow = deriveReportHistoryRow({
+      ...(workspace.history || {}),
+      report_name: workspace.session?.report_name || workspace.history?.report_name,
+      template: workspace.history?.template || { display_name: workspace.activeTemplate.name },
+      created_at: workspace.session?.created_at || workspace.history?.created_at,
+      updated_at: workspace.session?.updated_at || workspace.history?.updated_at,
+      status: workspace.processing ? { label: 'Processing' } : workspace.history?.status || { label: 'In progress' },
     });
-    const title = element('strong', '', ''); renderReportTitle(title, historyRow.title);
+    const title = element('strong', '', historyRow.title);
     identity.append(title, element('p', '', historyRow.secondary));
     row.append(identity, element('span', 'report-history-status', historyRow.status));
     const open = element('button', 'secondary', 'Open'); open.addEventListener('click', async () => {
@@ -284,11 +286,35 @@ function workspaceInput() {
     history: state.history,
     transcript: state.transcript, transcript_review: state.transcriptReview, processing: state.processing,
     processing_session_id: state.processingSessionId,
-    recoverable_error: state.recoverableError, interaction: state.interaction, confirmation: state.confirmation,
+    recoverable_error: state.recoverableError || sessionRecoveryError(state.session, state.chain), interaction: state.interaction, confirmation: state.confirmation,
+    change_summary: state.changeSummary,
   };
 }
 
 function currentView() { return deriveWorkspaceView(workspaceInput()); }
+
+function beginGlobalCorrection(workspace) {
+  workspace.changeSummary = null;
+  workspace.changeBaseline = workspace.transcript && workspace.agentState
+    ? structuredClone(workspace.agentState)
+    : null;
+}
+
+function finishGlobalCorrection(workspace) {
+  if (!workspace.changeBaseline || !workspace.agentState) return;
+  const summary = deriveChangeSummary({
+    template: workspace.activeTemplate,
+    before: workspace.changeBaseline,
+    after: workspace.agentState,
+  });
+  workspace.changeSummary = summary.count ? summary : null;
+  workspace.changeBaseline = null;
+}
+
+function clearChangeSummary(workspace) {
+  workspace.changeBaseline = null;
+  workspace.changeSummary = null;
+}
 
 async function refreshSession(workspace = activeWorkspace()) {
   if (!workspace?.session) return;
@@ -350,7 +376,23 @@ function showProvenance(fieldId) {
     for (const reference of candidate.evidence_refs || []) {
       const span = state.chain?.evidence_spans.find((entry) => entry.span_id === reference.span_id);
       const transcript = state.chain?.transcripts.find((entry) => entry.transcript_id === reference.evidence_id);
-      if (span && transcript) card.append(element('blockquote', '', `“${transcript.raw_text.slice(span.start_offset, span.end_offset)}”`));
+      if (span && transcript) {
+        const quote = element('blockquote', '');
+        const rawText = transcript.raw_text.slice(span.start_offset, span.end_offset);
+        const review = state.chain?.transcript_reviews.find((item) => (
+          item.transcript_id === transcript.transcript_id && item.status === 'REVIEWED'
+        ));
+        const corrections = transcriptCorrections(transcript, review).corrections
+          .filter((item) => item.sourceSpan.start >= span.start_offset && item.sourceSpan.end <= span.end_offset)
+          .map((item) => ({ ...item, sourceSpan: {
+            start: item.sourceSpan.start - span.start_offset,
+            end: item.sourceSpan.end - span.start_offset,
+          } }));
+        quote.append(document.createTextNode('“'));
+        appendInlineTranscript(quote, { rawText, corrections });
+        quote.append(document.createTextNode('”'));
+        card.append(quote);
+      }
       else {
         const evidence = state.chain?.evidence.find((entry) => entry.evidence_id === reference.evidence_id);
         card.append(element('p', '', evidence?.metadata?.record_id || evidence?.metadata?.filename || 'Saved evidence'));
@@ -436,11 +478,26 @@ function renderRepresentationGroup(container, title, options, field) {
   group.append(choices); container.append(group);
 }
 
+function closeFieldEditor(fieldId) {
+  state.editingField = null;
+  renderWorkspace();
+  const action = [...$('workspace-sections').querySelectorAll('.field-action')]
+    .find((candidate) => candidate.dataset.fieldId === fieldId);
+  action?.focus({ preventScroll: true });
+}
+
+function appendFieldEditorFooter(editor, field) {
+  const footer = element('div', 'field-editor-footer');
+  if (field.has_provenance) footer.append(button('Source details', 'text-button', () => showProvenance(field.field_id)));
+  footer.append(button('Close editor', 'text-button', () => closeFieldEditor(field.field_id)));
+  editor.append(footer);
+}
+
 function renderInlineResolution(container, field) {
   const item = field.resolution_item;
   if (!item) return;
   const editor = element('div', 'inline-field-editor unresolved-field-editor');
-  editor.append(element('p', 'inline-question', item.prompt));
+  if (showResolutionPrompt(item)) editor.append(element('p', 'inline-question', item.prompt));
   const choices = element('div', 'task-choices inline-choices');
   const choose = (label, selection, note = '') => {
     const choice = button(label, 'choice-button', () => selectFieldRepresentation(field.field_id, selection));
@@ -465,38 +522,47 @@ function renderInlineResolution(container, field) {
   if (choices.childElementCount) editor.append(choices);
   if (item.answer_type === 'SEMANTIC_STATE') renderSemanticCauseEditor(editor, field);
   else if (item.answer_type !== 'SINGLE_SELECT') renderManualFieldEditor(editor, field);
+  appendFieldEditorFooter(editor, field);
   container.append(editor);
+  setTimeout(() => editor.querySelector('button, input')?.focus(), 0);
 }
 
 function renderFieldEditor(container, field) {
   const editor = element('div', 'inline-field-editor');
-  renderRepresentationGroup(editor, 'Report draft', field.representations?.drafts, field);
+  renderRepresentationGroup(editor, 'AI draft', field.representations?.drafts, field);
   renderRepresentationGroup(editor, 'Original words', field.representations?.original_words, field);
   renderRepresentationGroup(editor, 'My edit', field.representations?.manual, field);
   renderManualFieldEditor(editor, field);
-  const cancel = button('Close editor', 'text-button', () => { state.editingField = null; renderWorkspace(); });
-  editor.append(cancel); container.append(editor); setTimeout(() => editor.querySelector('input')?.focus(), 0);
+  appendFieldEditorFooter(editor, field);
+  container.append(editor); setTimeout(() => editor.querySelector('input')?.focus(), 0);
 }
 
 function renderField(section, field) {
-  const row = element('div', `report-field state-${field.state.toLowerCase()}`);
-  const copy = element('div', 'report-field-copy'); copy.append(element('span', 'field-name', field.name));
   const isEditing = state.editingField === field.field_id;
+  const row = element('div', `report-field state-${field.state.toLowerCase()}${field.requires_review ? ' requires-review' : ''}${field.updated ? ' is-updated' : ''}${isEditing ? ' is-editing' : ''}`);
+  const copy = element('div', 'report-field-copy'); copy.append(element('span', 'field-name', field.name));
   const value = element('strong', 'field-value', field.value); value.title = field.value; copy.append(value);
   const meta = element('div', 'field-meta');
-  if (field.label !== 'Confirmed' || field.actionable) meta.append(element('span', 'field-state', field.label));
-  if (field.source_label) {
-    const accepted = ['KNOWN_VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE'].includes(field.state);
-    meta.append(element('span', 'field-source', `${accepted ? '✓ ' : ''}${field.source_label}`));
-  }
+  if (field.updated) meta.append(element('span', 'field-updated', 'Updated'));
+  if (showFieldStateLabel(field)) meta.append(element('span', 'field-state', field.label));
   copy.append(meta);
   const actions = element('div', 'report-field-actions');
   if (!isEditing) {
-    if (field.has_provenance) actions.append(button('Source', 'text-button', () => showProvenance(field.field_id)));
-    if (['RESOLVE', 'REVIEW'].includes(state.session?.phase) && !field.resolution_item) actions.append(button('Edit', 'text-button', () => { state.editingField = field.field_id; renderWorkspace(); }));
+    const controlKind = fieldControlKind(state.session?.phase, field);
+    if (controlKind === 'EDIT') {
+      const edit = button(field.action.kind === 'EDIT' ? '✎' : field.action.label, `text-button field-action${field.action.kind === 'EDIT' ? ' quiet-edit' : ''}`, () => { state.editingField = field.field_id; renderWorkspace(); });
+      edit.setAttribute('aria-expanded', 'false');
+      edit.setAttribute('aria-label', `${field.action.label.replace('+ ', '')} ${field.name}`);
+      edit.dataset.fieldId = field.field_id;
+      actions.append(edit);
+    } else if (controlKind === 'SOURCE') {
+      const source = button('ⓘ', 'text-button field-action quiet-source', () => showProvenance(field.field_id));
+      source.setAttribute('aria-label', `Source for ${field.name}`);
+      actions.append(source);
+    }
   }
   row.append(copy, actions);
-  if (field.resolution_item) renderInlineResolution(row, field);
+  if (field.resolution_item && isEditing) renderInlineResolution(row, field);
   else if (isEditing) renderFieldEditor(row, field);
   return row;
 }
@@ -504,14 +570,19 @@ function renderField(section, field) {
 function renderReportSections(view) {
   const container = $('workspace-sections'); container.replaceChildren();
   for (const section of view.report_sections) {
+    const body = element('div', 'report-section-fields'); for (const field of section.fields) body.append(renderField(section, field));
+    if (!section.collapsible) {
+      const content = element('section', 'report-section-static');
+      content.append(element('h2', '', section.title === 'Report fields' ? 'Report details' : section.title), body);
+      container.append(content);
+      continue;
+    }
     const details = element('details', `report-section-accordion${section.needs_attention ? ' needs-attention' : ''}`);
     const containsEditingField = section.fields.some((field) => field.field_id === state.editingField);
     details.open = containsEditingField || (state.session?.phase === 'REVIEW' && state.reviewFullReport ? true : section.expanded);
-    const summaryStatus = section.needs_attention
-      ? `⚠ ${section.status}`
-      : state.session?.phase === 'REVIEW' && section.review_priority ? `Review · ${section.status}` : '✓ Complete';
-    const summary = element('summary'); summary.append(element('strong', '', section.title), element('span', '', summaryStatus));
-    const body = element('div', 'report-section-fields'); for (const field of section.fields) body.append(renderField(section, field)); details.append(summary, body); container.append(details);
+    const summary = element('summary'); summary.append(element('strong', '', view.report_sections.length === 1 && section.title === 'Report fields' ? 'Report details' : section.title));
+    if (section.needs_attention && view.report_sections.length > 1) summary.append(element('span', '', `⚠ ${section.status}`));
+    details.append(summary, body); container.append(details);
   }
 }
 
@@ -527,12 +598,13 @@ function renderReporterComposer(container, {
   const workspace = activeWorkspace();
   const microphoneInUseElsewhere = Boolean(recorder && recorderWorkspace !== workspace);
   const wrapper = element('div', compact ? 'workspace-composer compact-composer' : 'workspace-composer');
-  const textarea = element('textarea'); textarea.id = inputId; textarea.rows = compact ? 3 : 4;
+  const textarea = element('textarea'); textarea.id = inputId; textarea.rows = compact ? 1 : 4;
   textarea.placeholder = placeholder; textarea.value = workspace.interaction.statement;
   textarea.setAttribute('aria-label', placeholder);
   const actions = element('div', 'capture-actions');
-  const submit = button(submitLabel, submitStyle, () => onSubmit(textarea.value.trim())); submit.disabled = !textarea.value.trim();
-  textarea.addEventListener('input', () => { workspace.interaction.statement = textarea.value; submit.disabled = !textarea.value.trim(); });
+  const submit = button(submitLabel, submitStyle, () => onSubmit(textarea.value.trim())); submit.disabled = !textarea.value.trim(); submit.hidden = compact && !textarea.value.trim();
+  wrapper.classList.toggle('has-text', Boolean(textarea.value.trim()));
+  textarea.addEventListener('input', () => { workspace.interaction.statement = textarea.value; submit.disabled = !textarea.value.trim(); submit.hidden = compact && !textarea.value.trim(); wrapper.classList.toggle('has-text', Boolean(textarea.value.trim())); });
   textarea.addEventListener('keydown', (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && textarea.value.trim()) onSubmit(textarea.value.trim());
   });
@@ -541,6 +613,37 @@ function renderReporterComposer(container, {
   mic.setAttribute('aria-pressed', 'false'); mic.disabled = !workspace.interaction.microphone_available || microphoneInUseElsewhere;
   wrapper.append(textarea, mic); actions.append(submit); container.append(wrapper, actions);
   return { textarea, submit, mic, actions, microphoneInUseElsewhere };
+}
+
+function renderChangeSummary(container, summary) {
+  if (!summary?.count) return;
+  const notice = element('section', 'workspace-change-summary');
+  notice.setAttribute('role', 'status');
+  notice.setAttribute('aria-live', 'polite');
+  notice.append(element('strong', '', summary.summary));
+  notice.append(element('span', '', summary.field_names.join(' · ')));
+  container.append(notice);
+}
+
+function renderCaptureNotice(container) {
+  if (!state.captureNotice) return;
+  const notice = element('p', 'capture-notice', state.captureNotice);
+  notice.setAttribute('role', 'status');
+  container.append(notice);
+}
+
+function renderCaptureFeedback(container, feedback) {
+  if (!feedback) return;
+  const card = element('section', 'captured-statement finalizing-statement');
+  card.setAttribute('aria-label', 'Captured statement status');
+  card.append(element('p', 'statement-kicker', 'CAPTURED STATEMENT'));
+  const status = element('div', 'statement-status');
+  status.append(element('strong', '', feedback.label), element('span', 'task-spinner'));
+  card.append(status, element('p', 'task-note', feedback.help));
+  if (!feedback.provisional_available) {
+    card.append(element('p', 'statement-boundary', 'No interim text is saved as report evidence.'));
+  }
+  container.append(card);
 }
 
 function renderCapture(panel, task) {
@@ -559,107 +662,121 @@ function renderCapture(panel, task) {
   if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
   if (!state.interaction.microphone_available) panel.append(element('p', 'task-note', 'Microphone unavailable. Type a statement or upload a recording.'));
   else if (composer.microphoneInUseElsewhere) panel.append(element('p', 'task-note', 'The microphone is recording another report. You can continue with text here or return to that report to stop it.'));
+  renderCaptureNotice(panel);
 }
 
 function renderRecording(panel, task) {
-  panel.append(element('p', 'task-counter', 'LIVE RECORDING'), element('h3', '', `Recording ${formatElapsed()}`));
+  panel.append(element('p', 'task-counter', 'RECORDING'), element('h3', '', `Listening · ${formatElapsed()}`));
   panel.children[1].id = 'active-task-title';
   if (state.recordingFieldId) {
     const definition = state.activeTemplate.schema.fields.find((field) => field.id === state.recordingFieldId);
     panel.append(element('p', 'task-note', `Recording an edit for ${definition?.label || 'this report field'}. Use the Stop & fill report action beside that field when you finish.`));
+    panel.append(button(task.secondary_action.label, 'secondary', cancelRecording));
     return;
   }
-  panel.append(element('p', 'task-note', 'When you finish, stop the recording to transcribe it and fill this report automatically.'));
+  panel.append(element('p', 'task-note', task.capture_feedback.help));
+  const actions = element('div', 'recording-actions');
   const stop = button(task.primary_action.label, 'primary', stopRecording);
   stop.id = 'workspace-stop-recording';
   stop.setAttribute('aria-label', 'Stop recording and fill report');
-  panel.append(stop);
+  actions.append(stop, button(task.secondary_action.label, 'secondary', cancelRecording));
+  panel.append(actions);
 }
 
 function processingTitle(kind) {
-  return ({ RECORDING: 'Recording…', PREPARING_AUDIO: 'Preparing recording…', UPLOADING_AUDIO: 'Uploading recording…', TRANSCRIBING: 'Transcribing…', EXTRACTING: 'Extracting report details…', CHECKING_COMPLETENESS: 'Checking completeness…' })[kind] || 'Working…';
+  return ({ RECORDING: 'Listening…', PREPARING_AUDIO: 'Finalizing recording…', UPLOADING_AUDIO: 'Saving audio & transcribing…', TRANSCRIBING: 'Transcribing…', EXTRACTING: 'Updating report…', CHECKING_COMPLETENESS: 'Updating report…' })[kind] || 'Working…';
 }
 
 function renderCorrection(panel, task) {
   const correction = task.correction; panel.append(element('p', 'eyebrow', 'CHECK WHAT WE HEARD'), element('h3', '', 'Is this interpretation right?'));
   panel.lastChild.id = 'active-task-title';
   const comparison = element('div', 'correction-comparison');
-  comparison.append(element('div', '', `I heard: “${correction.source_span.quote}”`), element('div', '', `Suggested interpretation: “${correction.proposed_text || correction.source_span.quote}”`)); panel.append(comparison);
+  comparison.append(element('div', '', `Original: “${correction.source_span.quote}”`), element('div', '', `Suggested: “${correction.proposed_text || correction.source_span.quote}”`)); panel.append(comparison);
   const choices = element('div', 'task-choices');
-  choices.append(button('Keep original', 'choice-button', () => decideCorrection(correction.review_item_id, 'REJECT')), button('Use correction', 'choice-button', () => decideCorrection(correction.review_item_id, 'ACCEPT'))); panel.append(choices);
+  choices.append(button(`Keep ${correction.source_span.quote}`, 'choice-button', () => decideCorrection(correction.review_item_id, 'REJECT')), button(`Use ${correction.proposed_text || correction.source_span.quote}`, 'choice-button', () => decideCorrection(correction.review_item_id, 'ACCEPT'))); panel.append(choices);
 }
 
 function renderReportReview(panel, task) {
-  panel.append(element('p', 'eyebrow', 'REPORT DRAFT'), element('h3', '', task.title));
+  panel.append(element('h3', '', 'Add information'));
   panel.lastChild.id = 'active-task-title';
-  panel.append(element('p', 'task-note', 'Review the report below. Missing or conflicting details are shown where they belong.'));
   renderReporterComposer(panel, {
     inputId: 'workspace-missing-details', microphoneId: 'workspace-missing-details-microphone',
-    placeholder: 'Describe any missing details in one statement.',
-    submitLabel: 'Fill report', onSubmit: captureText,
+    placeholder: 'Tell us anything you know…',
+    compact: true,
+    submitLabel: 'Add to report', onSubmit: captureText,
   });
   if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
+  renderCaptureNotice(panel);
 }
 
-function renderReview(panel) {
-  panel.append(element('p', 'eyebrow', 'REVIEW'), element('h3', '', 'Review the completed report')); panel.lastChild.id = 'active-task-title';
-  panel.append(element('p', 'task-note', 'Check the report fields and their sources. You can still edit any field below before submitting this exact version.'));
-  panel.append(button('Submit report', 'primary', submitReport));
-  panel.append(element('p', 'task-note', 'Need to add anything else? You can still speak or type more details.'));
-  renderReporterComposer(panel, {
+function renderReview(panel, task) {
+  panel.append(element('h3', '', task.title)); panel.lastChild.id = 'active-task-title';
+  if (task.composer_visible) renderReporterComposer(panel, {
     inputId: 'workspace-more-details', microphoneId: 'workspace-more-details-microphone',
-    placeholder: 'Describe any additional details for this report.',
+    placeholder: 'Speak or type anything else…', compact: true,
     submitLabel: 'Add to report', submitStyle: 'secondary', onSubmit: captureText,
   });
+  renderCaptureNotice(panel);
 }
 
 function renderActiveTask(view) {
-  const panel = $('workspace-active-task'); panel.className = `active-task-panel task-${view.active_task.kind.toLowerCase()}`; panel.replaceChildren(); const task = view.active_task;
+  const panel = $('workspace-active-task'); panel.className = `active-task-panel task-${view.active_task.kind.toLowerCase()} density-${view.composer_density}`; panel.replaceChildren(); const task = view.active_task;
+  panel.removeAttribute('aria-label');
+  panel.setAttribute('aria-labelledby', 'active-task-title');
+  renderChangeSummary(panel, view.latest_change);
   if (task.kind === 'LOADING_CONTEXT') { const heading = element('h3', 'task-loading', 'Loading job…'); heading.id = 'active-task-title'; panel.append(heading); return; }
-  if (task.kind === 'CAPTURE') { renderCapture(panel, task); return; }
-  if (task.kind === 'RECORDING') { renderRecording(panel, task); return; }
-  if (task.kind === 'CORRECTION') { renderCorrection(panel, task); return; }
-  if (task.kind === 'REPORT_REVIEW') { renderReportReview(panel, task); return; }
-  if (task.kind === 'REVIEW') { renderReview(panel); return; }
-  if (task.kind === 'READY') {
-    panel.append(element('p', 'eyebrow', 'READY'), element('h3', '', task.title), element('p', 'task-note', 'Submitting confirms the exact server-approved report version.'));
-    panel.children[1].id = 'active-task-title'; panel.append(button('Submit report', 'primary', submitReport)); return;
-  }
-  if (task.kind === 'CONFIRMED') {
-    panel.append(element('p', 'success-kicker', '✓ Confirmed'), element('h3', '', task.title)); panel.lastChild.id = 'active-task-title'; panel.append(button('Export report', 'primary', exportReport));
+  if (task.kind === 'CAPTURE') renderCapture(panel, task);
+  else if (task.kind === 'RECORDING') renderRecording(panel, task);
+  else if (task.kind === 'CORRECTION') renderCorrection(panel, task);
+  else if (task.kind === 'REPORT_REVIEW') renderReportReview(panel, task);
+  else if (task.kind === 'READY') renderReview(panel, task);
+  else if (task.kind === 'CONFIRMED') {
+    panel.removeAttribute('aria-labelledby');
+    panel.setAttribute('aria-label', 'Report actions');
     if (state.exportStatus) { const status = element('p', 'task-note', state.exportStatus); status.role = 'status'; panel.append(status); }
-    return;
   }
-  if (task.kind === 'RECOVERABLE_ERROR') {
+  else if (task.kind === 'RECOVERABLE_ERROR') {
     panel.append(element('p', 'error-kicker', 'Action needed'), element('h3', '', task.title), element('p', 'task-note', task.message)); panel.children[1].id = 'active-task-title';
     panel.append(button(task.primary_action.label, 'primary', retryActiveTask));
     if (task.error_kind === 'MICROPHONE') panel.append(button('Use text instead', 'secondary', () => { state.recoverableError = null; renderWorkspace(); }));
-    return;
   }
-  if (task.kind === 'CAPTURED') {
+  else if (task.kind === 'CAPTURED') {
     panel.append(element('p', 'success-kicker', '✓ Captured'), element('h3', '', 'Initial statement captured')); panel.lastChild.id = 'active-task-title';
-    const transcript = element('details', 'transcript-disclosure'); transcript.append(element('summary', '', 'View transcript'), element('p', '', state.transcript?.raw_text || '')); panel.append(transcript);
     renderReporterComposer(panel, {
       inputId: 'workspace-more-details', microphoneId: 'workspace-more-details-microphone',
       placeholder: 'Describe any additional details for this report.',
       submitLabel: 'Add to report', onSubmit: captureText,
     });
-    return;
+    renderCaptureNotice(panel);
   }
-  panel.append(element('span', 'task-spinner'), element('h3', '', processingTitle(task.kind))); panel.lastChild.id = 'active-task-title';
+  else {
+    panel.append(element('span', 'task-spinner'), element('h3', '', processingTitle(task.kind))); panel.lastChild.id = 'active-task-title';
+    renderCaptureFeedback(panel, task.capture_feedback);
+  }
+  appendLatestStatement(panel, view.latest_statement);
+  if (task.kind === 'READY') panel.append(button('Submit report', 'primary', openReportConfirmation));
+  if (task.kind === 'CONFIRMED') {
+    const actions = element('div', 'confirmed-actions');
+    actions.append(button('Export report', 'primary', exportReport), button('Start another report', 'secondary', () => setView('choose')));
+    panel.append(actions);
+  }
 }
 
 function renderWorkspace() {
   if (!state.activeTemplate) return;
   syncCaptureNavigation();
-  const view = currentView(); renderReportTitle($('workspace-title'), view.job_header.title);
-  $('workspace-company').textContent = state.activeTemplate.domain === 'HVAC' ? 'NEWWAY' : state.activeTemplate.domain.startsWith('SBS_') ? 'SBS TRANSIT' : 'REPORT WORKSPACE';
-  $('workspace-identity').textContent = view.job_header.identity_line || (state.session ? 'No work-order details yet.' : 'Preparing work-order details…');
-  $('report-complete-count').textContent = `${view.job_header.complete} / ${view.job_header.total} complete`;
-  $('report-need-input').textContent = view.job_header.need_input ? `${view.job_header.need_input} need input` : state.session?.phase === 'READY' ? 'Ready to confirm' : state.session?.phase === 'CONFIRMED' ? 'Confirmed' : 'No blocking questions';
-  renderActiveTask(view); renderReportSections(view);
+  const view = currentView(); $('workspace-title').textContent = view.job_header.title;
+  $('workspace-metadata').textContent = view.job_header.metadata;
+  $('workspace-metadata').hidden = !view.job_header.metadata;
+  $('workspace-identity').textContent = view.job_header.identity_line;
+  $('workspace-identity').hidden = !view.job_header.identity_line;
+  $('report-complete-count').textContent = view.readiness.label === 'Confirmed' ? 'Confirmed' : `${view.readiness.completed} / ${view.readiness.required} required`;
+  $('report-complete-count').hidden = view.readiness.label === 'Confirmed' ? false : !view.readiness.required;
+  $('report-need-input').textContent = view.readiness.label;
+  $('report-need-input').hidden = view.readiness.label === 'Confirmed';
+  renderReportSections(view); renderActiveTask(view);
+  $('workspace-full-report').hidden = view.report_sections.length < 2;
   $('workspace-full-report').textContent = view.report_sections.every((section) => section.expanded) ? 'Collapse all' : 'Expand all';
-  $('workspace-progress-detail').replaceChildren(element('p', '', view.job_header.need_input ? `${view.job_header.need_input} unresolved ${view.job_header.need_input === 1 ? 'item' : 'items'} remain.` : 'No unresolved blocking items.'));
   if (state.focusActiveTask) {
     state.focusActiveTask = false;
     requestAnimationFrame(() => {
@@ -702,11 +819,13 @@ function clearProcessing(workspace = activeWorkspace()) {
 async function captureText() {
   const workspace = activeWorkspace();
   const text = workspace?.interaction.statement.trim(); if (!text || !workspace.session) return;
+  beginGlobalCorrection(workspace);
   setProcessing('EXTRACTING', workspace);
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/text`, { method: 'POST', body: { expected_revision: workspace.session.revision, text, language: 'auto', idempotency_key: crypto.randomUUID() } });
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript || null; workspace.transcriptReview = result.review || null; workspace.interaction.statement = ''; setProcessing('CHECKING_COMPLETENESS', workspace);
     await refreshSession(workspace); await enterReviewIfComplete(workspace);
+    if (workspace.session.phase !== 'CORRECTION_IF_NEEDED') finishGlobalCorrection(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', 'Your statement is still in the text box.', workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -744,13 +863,14 @@ async function decideCorrection(reviewItemId, decision) {
   try {
     const decisions = review.items.map((item) => ({ review_item_id: item.review_item_id, decision: workspace.correctionDecisions.get(item.review_item_id) }));
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcript-reviews/${encodeURIComponent(review.review_id)}/decide`, { method: 'POST', body: { expected_revision: workspace.session.revision, decisions } });
-    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcriptReview = result.review; workspace.correctionDecisions.clear(); await refreshSession(workspace); await enterReviewIfComplete(workspace);
+    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcriptReview = result.review; workspace.correctionDecisions.clear(); await refreshSession(workspace); await enterReviewIfComplete(workspace); finishGlobalCorrection(workspace);
   } catch (error) { handleMutationError(error, mutationErrorKind(error), undefined, workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function selectFieldRepresentation(fieldId, selection) {
   const workspace = activeWorkspace();
+  clearChangeSummary(workspace);
   setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/fields/${encodeURIComponent(fieldId)}/select`, {
@@ -777,37 +897,62 @@ function formatElapsed() { const seconds = Math.floor((Date.now() - recordingSta
 async function startRecording(fieldId = null) {
   const workspace = activeWorkspace();
   if (!workspace?.interaction.microphone_available || recorder) return;
+  workspace.captureNotice = '';
   recorder = new PcmWavRecorder(); recorderWorkspace = workspace; workspace.recordingFieldId = fieldId;
   try {
     await recorder.start(); recordingStartedAt = Date.now(); setProcessing('RECORDING', workspace);
     recordingTimer = setInterval(() => {
       if (activeWorkspace() !== workspace) return;
-      const title = $('active-task-title'); if (title) title.textContent = `Recording ${formatElapsed()}`;
+      const title = $('active-task-title'); if (title) title.textContent = `Listening · ${formatElapsed()}`;
       const inlineTimer = document.querySelector('.inline-field-recording-time');
       if (inlineTimer) inlineTimer.textContent = `Recording ${formatElapsed()}`;
     }, 1000);
   }
   catch (error) {
     recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; workspace.interaction.microphone_available = false; clearProcessing(workspace);
-    workspace.recoverableError = { kind: 'MICROPHONE', message: 'Microphone permission is unavailable. Type a statement or upload a recording.', retry_action: 'RETRY_CONNECTION' };
+    workspace.recoverableError = { kind: 'MICROPHONE', message: 'Microphone permission is unavailable. Type a statement or upload a recording.', retry_action: 'RETRY_MICROPHONE', field_id: fieldId };
     renderWorkspaceIfActive(workspace);
   }
 }
 
+async function cancelRecording() {
+  if (!recorder || !recorderWorkspace) return;
+  clearInterval(recordingTimer);
+  recordingTimer = null;
+  const owned = recorder;
+  const workspace = recorderWorkspace;
+  recorder = null;
+  recorderWorkspace = null;
+  try { await owned.cancel(); } catch { /* release is best-effort; no capture is submitted */ }
+  workspace.recordingFieldId = null;
+  workspace.captureNotice = 'Recording cancelled. Nothing was added to the report.';
+  clearProcessing(workspace);
+  renderWorkspaceIfActive(workspace);
+}
+
 async function stopRecording() {
   if (!recorder || !recorderWorkspace) return;
-  clearInterval(recordingTimer); const owned = recorder; const workspace = recorderWorkspace; setProcessing('PREPARING_AUDIO', workspace);
+  clearInterval(recordingTimer); recordingTimer = null; const owned = recorder; const workspace = recorderWorkspace; setProcessing('PREPARING_AUDIO', workspace);
   try {
     const fieldId = workspace.recordingFieldId;
     const wav = await owned.stop(); recorder = null; recorderWorkspace = null; await uploadAudio(wav, workspace, fieldId);
   } catch (error) {
-    await owned.release(); recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null; handleMutationError(error, 'STT', undefined, workspace);
+    const fieldId = workspace.recordingFieldId;
+    await owned.release(); recorder = null; recorderWorkspace = null; workspace.recordingFieldId = null;
+    workspace.recoverableError = {
+      kind: 'RECORDER',
+      message: `Recording could not be finalized. ${error.message}`,
+      retry_action: 'RETRY_RECORDING',
+      field_id: fieldId,
+    };
   }
   finally { workspace.recordingFieldId = null; clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) {
   if (!workspace?.session) return;
+  if (fieldId) clearChangeSummary(workspace);
+  else beginGlobalCorrection(workspace);
   setProcessing('UPLOADING_AUDIO', workspace);
   try {
     const definition = fieldId ? workspace.template?.schema?.fields?.find((field) => field.id === fieldId || (field.id.endsWith('.*') && fieldId.startsWith(field.id.slice(0, -1)))) : null;
@@ -824,6 +969,7 @@ async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) 
       setProcessing('CHECKING_COMPLETENESS', workspace);
       await refreshSession(workspace);
       await enterReviewIfComplete(workspace);
+      if (workspace.session.phase !== 'CORRECTION_IF_NEEDED') finishGlobalCorrection(workspace);
     }
   } catch (error) {
     const kind = !error.status ? 'NETWORK' : error.status < 500 ? 'AUDIO_UPLOAD' : 'STT';
@@ -834,10 +980,22 @@ async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) 
 
 async function retryActiveTask() {
   const workspace = activeWorkspace();
-  const error = workspace.recoverableError; workspace.recoverableError = null;
+  const error = workspace.recoverableError || sessionRecoveryError(workspace.session, workspace.chain);
+  if (!error) return;
+  workspace.recoverableError = null;
   try {
     if (error.kind === 'NETWORK' && workspace.interaction.statement.trim()) { await captureText(); return; }
-    if (error.kind === 'STALE_REVISION' || error.kind === 'NETWORK' || error.kind === 'MICROPHONE') await refreshSession(workspace);
+    if (error.kind === 'MICROPHONE' || error.kind === 'RECORDER') {
+      workspace.interaction.microphone_available = Boolean(navigator.mediaDevices?.getUserMedia);
+      if (!workspace.interaction.microphone_available) {
+        workspace.recoverableError = error;
+        renderWorkspaceIfActive(workspace);
+        return;
+      }
+      await startRecording(error.field_id || null);
+      return;
+    }
+    if (error.kind === 'STALE_REVISION' || error.kind === 'NETWORK' || error.kind === 'SESSION') await refreshSession(workspace);
     else if (error.kind === 'STT' && error.evidence_id) {
       const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcription/retry`, { method: 'POST', body: { expected_revision: workspace.session.revision, evidence_id: error.evidence_id } }); workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     }
@@ -848,8 +1006,20 @@ async function retryActiveTask() {
   if (activeWorkspace() === workspace && error.kind === 'STT' && !error.evidence_id && !workspace.recoverableError) $('workspace-audio-upload').click();
 }
 
-async function submitReport() {
+function openReportConfirmation() {
   const workspace = activeWorkspace();
+  if (!['REVIEW', 'READY'].includes(workspace?.session?.phase)) return;
+  $('workspace-report-confirmation-status').textContent = '';
+  $('workspace-report-confirm').disabled = false;
+  $('workspace-report-confirmation').showModal();
+}
+
+async function confirmAndSubmitReport() {
+  const workspace = activeWorkspace();
+  const confirmButton = $('workspace-report-confirm');
+  confirmButton.disabled = true;
+  confirmButton.textContent = 'Submitting…';
+  $('workspace-report-confirmation-status').textContent = 'Confirming this report version…';
   setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
     if (workspace.session.phase === 'REVIEW') {
@@ -861,18 +1031,25 @@ async function submitReport() {
     if (workspace.session.phase !== 'READY') throw new Error('The server has not approved this report version for submission.');
     const confirmed = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/confirm`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
     workspace.confirmation = confirmed.confirmation; workspace.session = confirmed.session; workspace.agentState = confirmed.agent_state;
+    $('workspace-report-confirmation').close();
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
-  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
+  finally {
+    confirmButton.disabled = false;
+    confirmButton.textContent = 'Confirm & submit';
+    clearProcessing(workspace);
+    renderWorkspaceIfActive(workspace);
+  }
 }
 
 async function exportReport() {
   const workspace = activeWorkspace();
   if (workspace.session?.phase !== 'CONFIRMED') { workspace.recoverableError = { kind: 'NETWORK', message: 'Reopen the confirmed report package before exporting.', retry_action: 'REFRESH_SESSION' }; renderWorkspaceIfActive(workspace); return; }
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/export`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
-    if (!result.content_base64 || result.mime_type !== 'application/pdf') throw new Error('The server did not return a PDF report.');
-    const binary = atob(result.content_base64); const bytes = new Uint8Array(binary.length); for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-    const url = URL.createObjectURL(new Blob([bytes], { type: result.mime_type })); const link = element('a'); link.href = url; link.download = result.filename || `${workspace.activeTemplate.templateId}.pdf`; link.click(); URL.revokeObjectURL(url);
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/export`, {
+      method: 'POST', headers: { accept: 'application/json' }, body: { expected_revision: workspace.session.revision },
+    });
+    const link = element('a'); link.href = result.download_url; link.download = result.filename || `${workspace.activeTemplate.templateId}.pdf`; link.hidden = true;
+    document.body.append(link); link.click(); link.remove();
     workspace.exportStatus = 'Export downloaded.'; renderWorkspaceIfActive(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -906,11 +1083,11 @@ async function init() {
   try {
     await refreshLocalSessionToken();
     const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template);
-    state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local';
+    state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local'; $('template-runtime-status').parentElement.hidden = true;
     await restoreReportWorkspaces();
     setView('choose');
   }
-  catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; renderCatalog(); }
+  catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; $('template-runtime-status').parentElement.hidden = false; renderCatalog(); }
 }
 
 document.querySelectorAll('[data-template-nav]').forEach((node) => node.addEventListener('click', async () => {
@@ -931,12 +1108,13 @@ $('stt-model-select').addEventListener('change', (event) => {
 });
 $('stt-model-action').addEventListener('click', applySpeechToTextAction);
 document.querySelectorAll('[data-template-category]').forEach((node) => node.addEventListener('click', () => { state.catalogCategory = node.dataset.templateCategory; document.querySelectorAll('[data-template-category]').forEach((candidate) => { const active = candidate === node; candidate.classList.toggle('active', active); candidate.setAttribute('aria-pressed', String(active)); }); renderCatalog(); }));
-$('workspace-progress').addEventListener('click', () => { const detail = $('workspace-progress-detail'); detail.hidden = !detail.hidden; $('workspace-progress').setAttribute('aria-expanded', String(!detail.hidden)); });
 $('workspace-full-report').addEventListener('click', () => {
   const sections = [...document.querySelectorAll('.report-section-accordion')]; const expand = sections.some((section) => !section.open);
   sections.forEach((section) => { section.open = expand; }); $('workspace-full-report').textContent = expand ? 'Collapse all' : 'Expand all';
 });
 $('workspace-evidence-close').addEventListener('click', () => $('workspace-evidence-dialog').close());
+$('workspace-report-back').addEventListener('click', () => $('workspace-report-confirmation').close());
+$('workspace-report-confirm').addEventListener('click', confirmAndSubmitReport);
 $('workspace-attachment-choose').addEventListener('click', (event) => { event.preventDefault(); $('workspace-attachment-dialog').close(); $('workspace-evidence-upload').click(); });
 $('workspace-evidence-upload').addEventListener('change', async (event) => { const file = event.target.files[0]; if (file) await attachEvidence(file, $('workspace-attachment-purpose').value); event.target.value = ''; });
 $('workspace-audio-upload').addEventListener('change', async (event) => { const workspace = activeWorkspace(); const file = event.target.files[0]; if (file) await uploadAudio(file, workspace); event.target.value = ''; renderWorkspaceIfActive(workspace); });

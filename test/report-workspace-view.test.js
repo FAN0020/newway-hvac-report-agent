@@ -1,10 +1,43 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as workspaceView from '../web/report-workspace-view.js';
 import {
   deriveWorkspaceView,
+  sessionRecoveryError,
+  fieldAction,
   fieldDisplay,
   resolutionControl,
+  showResolutionPrompt,
 } from '../web/report-workspace-view.js';
+
+test('dated report identity separates the template name from a human-readable instance label', () => {
+  const seventh = view({ session: { ...session(), report_name: 'QA Pump Checklist 1445 · 2026-09-28 (7)' } });
+  assert.equal(seventh.job_header.title, 'QA Pump Checklist 1445');
+  assert.equal(seventh.job_header.metadata, '28 Sep 2026 · Report 7');
+  const first = view({ session: { ...session(), report_name: 'HVAC Service Report · 2026-09-28' } });
+  assert.equal(first.job_header.title, 'HVAC Service Report');
+  assert.equal(first.job_header.metadata, '28 Sep 2026');
+});
+
+test('saved transcription failure restores the retry action and its audio evidence', () => {
+  const failedSession = {
+    ...session('RECOVERABLE_ERROR'), recovery_phase: 'PROCESSING',
+    last_error: { code: 'NO_SPEECH', message: 'Transcription failed; immutable audio remains available for retry.', retryable: true },
+    evidence_ids: ['evidence_work', 'evidence_audio'],
+  };
+  const chain = { evidence: [
+    { evidence_id: 'evidence_work', evidence_type: 'SYSTEM_RECORD' },
+    { evidence_id: 'evidence_audio', evidence_type: 'AUDIO' },
+  ] };
+  assert.deepEqual(sessionRecoveryError(failedSession, chain), {
+    kind: 'STT', message: 'Recording saved, but transcription could not finish.',
+    retry_action: 'RETRY_TRANSCRIPTION', evidence_id: 'evidence_audio',
+  });
+  const restored = view({ session: failedSession, chain });
+  assert.equal(restored.active_task.kind, 'RECOVERABLE_ERROR');
+  assert.equal(restored.active_task.primary_action.id, 'RETRY_TRANSCRIPTION');
+  assert.equal(sessionRecoveryError(session('REVIEW'), chain), null);
+});
 
 const template = {
   templateId: 'bus-defect-rectification-corrective-maintenance',
@@ -49,8 +82,15 @@ function agent({ fields = [], queue = [], issues = [], complete = false } = {}) 
 
 const session = (phase = 'RESOLVE', revision = 4) => ({
   session_id: 'session_ui_1', revision, phase,
+  transcript_ids: ['transcript_1'],
   template_binding: { template_id: template.templateId, template_version: '1.0.0' },
   job_context_ref: 'work-order:WO-111-1222',
+});
+
+const finalizedTranscript = (rawText, transcriptId = 'transcript_1') => ({
+  contract: 'TranscriptArtifact',
+  transcript_id: transcriptId,
+  raw_text: rawText,
 });
 
 const item = (type, answerType = 'VALUE', fieldId = 'diagnosis.root_cause') => ({
@@ -96,6 +136,128 @@ test('ResolutionItem answer contracts map to structured controls before free tex
   assert.equal(resolutionControl(item('MISSING', 'VALUE')).kind, 'COMPACT_INPUT');
 });
 
+test('compact report rows derive Add, Edit, and Review actions from authoritative field state', () => {
+  assert.deepEqual(fieldAction({ ...unknown('missing'), resolution_item: item('MISSING', 'VALUE', 'missing') }), {
+    kind: 'ADD',
+    label: '+ Add',
+  });
+  assert.deepEqual(fieldAction({ ...known('known', 'Observed value'), resolution_item: null }), {
+    kind: 'EDIT',
+    label: 'Edit',
+  });
+  assert.deepEqual(fieldAction({ ...unknown('conflict'), state: 'CONFLICT', resolution_item: item('CONFLICT', 'SELECT_OR_PROVIDE', 'conflict') }), {
+    kind: 'REVIEW',
+    label: 'Resolve',
+  });
+  assert.deepEqual(fieldAction({ ...known('completion.state', 'READY'), resolution_item: item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state') }), {
+    kind: 'REVIEW', label: 'Confirm',
+  });
+});
+
+test('field state copy appears only when it adds information beyond the value', () => {
+  assert.equal(typeof workspaceView.showFieldStateLabel, 'function');
+  assert.equal(workspaceView.showFieldStateLabel(fieldDisplay({ ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' })), false);
+  assert.equal(workspaceView.showFieldStateLabel(fieldDisplay({ ...unknown('parts.part_number'), state: 'NOT_APPLICABLE' })), false);
+  assert.equal(workspaceView.showFieldStateLabel(fieldDisplay(known('asset.id', 'ABCD1234'))), false);
+  assert.equal(workspaceView.showFieldStateLabel(fieldDisplay(unknown('asset.id'))), true);
+  assert.equal(workspaceView.showFieldStateLabel(fieldDisplay({ ...unknown('asset.id'), state: 'CONFLICT' })), true);
+});
+
+test('confirmed and exact-version ready fields expose provenance without an edit action', () => {
+  assert.equal(typeof workspaceView.fieldControlKind, 'function');
+  const sourced = { has_provenance: true };
+  assert.equal(workspaceView.fieldControlKind('REVIEW', sourced), 'EDIT');
+  assert.equal(workspaceView.fieldControlKind('READY', sourced), 'SOURCE');
+  assert.equal(workspaceView.fieldControlKind('CONFIRMED', sourced), 'SOURCE');
+  assert.equal(workspaceView.fieldControlKind('CONFIRMED', { has_provenance: false }), null);
+  assert.equal(workspaceView.fieldControlKind('CONTEXT', sourced), null);
+});
+
+test('only fields requiring technician review receive the explicit review emphasis', () => {
+  const result = view({
+    agent_state: agent({
+      fields: [
+        known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
+        { ...known('asset.internal_fleet_no', '8300-354'), state: 'UNCERTAIN' },
+        unknown('diagnosis.root_cause'),
+      ],
+      queue: [
+        item('UNCERTAIN', 'CONFIRM_OR_REPLACE', 'asset.internal_fleet_no'),
+        item('MISSING', 'VALUE', 'diagnosis.root_cause'),
+      ],
+    }),
+  });
+  const fields = result.report_sections.flatMap((section) => section.fields);
+
+  assert.equal(fields.find((field) => field.field_id === 'asset.internal_fleet_no').requires_review, true);
+  assert.equal(fields.find((field) => field.field_id === 'work.work_order_id').requires_review, false);
+  assert.equal(fields.find((field) => field.field_id === 'diagnosis.root_cause').requires_review, false);
+});
+
+test('expanded missing rows do not repeat a prompt already communicated by the row label and state', () => {
+  assert.equal(showResolutionPrompt(item('MISSING')), false);
+  assert.equal(showResolutionPrompt(item('CONDITIONAL_REQUIREMENT')), false);
+  assert.equal(showResolutionPrompt(item('CONFLICT', 'SELECT_OR_PROVIDE')), true);
+  assert.equal(showResolutionPrompt(item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')), true);
+});
+
+test('report presentation counts required fields once and keeps fields open from an empty session', () => {
+  const result = view({
+    session: session('CONTEXT'),
+    agent_state: agent({ fields: [unknown('work.work_order_id'), unknown('asset.internal_fleet_no'), unknown('diagnosis.root_cause'), unknown('completion.state')] }),
+  });
+  assert.deepEqual(result.readiness, { completed: 0, required: 4, label: 'Needs information' });
+  assert.equal(result.composer_density, 'prominent');
+  assert.ok(result.report_sections.every((section) => section.expanded));
+});
+
+test('one report section stays visible as report content, while multiple sections may collapse', () => {
+  const oneSection = view({
+    template: { name: 'QA Pump Checklist', schema: { fields: [
+      { id: 'asset.id', label: 'Asset ID', section: 'Report fields', required: true },
+      { id: 'inspection.result', label: 'Inspection result', section: 'Report fields', required: true },
+    ] } },
+    agent_state: agent({ fields: [unknown('asset.id'), unknown('inspection.result')] }),
+  });
+  assert.equal(oneSection.report_sections.length, 1);
+  assert.equal(oneSection.report_sections[0].collapsible, false);
+  assert.ok(view().report_sections.length > 1);
+  assert.ok(view().report_sections.every((section) => section.collapsible));
+});
+
+test('unresolved report fields receive contextual composer density after the initial capture', () => {
+  const result = view({ agent_state: agent({
+    fields: [known('asset.internal_fleet_no', '8300-354'), unknown('diagnosis.root_cause')],
+    queue: [item('MISSING')],
+  }) });
+  assert.equal(result.active_task.kind, 'REPORT_REVIEW');
+  assert.equal(result.composer_density, 'contextual');
+});
+
+test('complete review and exact-version ready phases share a ready status without offering invalid capture', () => {
+  for (const phase of ['REVIEW', 'READY']) {
+    const result = view({
+      session: session(phase),
+      agent_state: agent({ fields: [
+        known('work.work_order_id', 'WO-111-1222'), known('asset.internal_fleet_no', '8300-354'),
+        known('diagnosis.root_cause', 'Not established'), known('completion.state', 'NOT_READY'),
+      ], complete: true }),
+    });
+    assert.deepEqual(result.readiness, { completed: 4, required: 4, label: 'Ready' });
+    assert.equal(result.composer_density, phase === 'REVIEW' ? 'compact' : 'hidden');
+    assert.equal(result.active_task.kind, 'READY');
+    assert.equal(result.active_task.composer_visible, phase === 'REVIEW');
+    assert.ok(result.report_sections.every((section) => section.expanded));
+  }
+});
+
+test('confirmed report has one confirmed status and no additional-input composer', () => {
+  const result = view({ session: session('CONFIRMED') });
+  assert.equal(result.readiness.label, 'Confirmed');
+  assert.equal(result.composer_density, 'hidden');
+  assert.ok(result.report_sections.every((section) => section.expanded));
+});
+
 const stateCases = [
   ['loading context', { session: null, agent_state: null }, 'LOADING_CONTEXT', null],
   ['empty capture', { session: session('CONTEXT'), agent_state: agent() }, 'CAPTURE', 'CAPTURE_STATEMENT'],
@@ -108,25 +270,27 @@ const stateCases = [
   ['processing transcription', { session: session('PROCESSING'), processing: 'TRANSCRIBING' }, 'TRANSCRIBING', null],
   ['extracting structured information', { processing: 'EXTRACTING' }, 'EXTRACTING', null],
   ['checking completeness', { processing: 'CHECKING_COMPLETENESS' }, 'CHECKING_COMPLETENESS', null],
-  ['successful initial extraction', { transcript: { raw_text: 'Door fault inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['successful initial extraction', { transcript: finalizedTranscript('Door fault inspected.') }, 'CAPTURED', 'CAPTURE_MORE'],
   ['material transcript correction required', { session: session('CORRECTION_IF_NEEDED'), transcript_review: { status: 'PENDING', items: [{ review_item_id: 'review_1', source_span: { quote: 'Z751A' }, proposed_text: 'C751A', reason: 'Rail terminology' }] } }, 'CORRECTION', 'DECIDE_CORRECTION'],
-  ['correction accepted', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'ACCEPT' }] }, transcript: { raw_text: 'C751A inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
-  ['correction rejected', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'REJECT' }] }, transcript: { raw_text: 'Z751A inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['correction accepted', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'ACCEPT' }] }, transcript: finalizedTranscript('C751A inspected.') }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['correction rejected', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'REJECT' }] }, transcript: finalizedTranscript('Z751A inspected.') }, 'CAPTURED', 'CAPTURE_MORE'],
   ['required field missing', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['uncertain field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 51020), state: 'UNCERTAIN' }], queue: [item('UNCERTAIN', 'CONFIRM_OR_REPLACE', 'measurement.odometer_km')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['conflicting field', { agent_state: agent({ fields: [{ ...unknown('asset.internal_fleet_no'), state: 'CONFLICT' }], queue: [item('CONFLICT', 'SELECT_OR_PROVIDE', 'asset.internal_fleet_no')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['invalid field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 9999999), state: 'INVALID' }], queue: [item('INVALID', 'VALUE', 'measurement.odometer_km')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['conditional requirement', { agent_state: agent({ fields: [unknown('test.result')], queue: [item('CONDITIONAL_REQUIREMENT', 'VALUE', 'test.result')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['safety confirmation', { agent_state: agent({ fields: [known('completion.state', 'NOT_READY')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
-  ['explicit none', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' }] }), transcript: { raw_text: 'No parts were used.' } }, 'CAPTURED', 'CAPTURE_MORE'],
-  ['not applicable', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'NOT_APPLICABLE' }] }), transcript: { raw_text: 'Parts do not apply.' } }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['explicit none', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' }] }), transcript: finalizedTranscript('No parts were used.') }, 'CAPTURED', 'CAPTURE_MORE'],
+  ['not applicable', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'NOT_APPLICABLE' }] }), transcript: finalizedTranscript('Parts do not apply.') }, 'CAPTURED', 'CAPTURE_MORE'],
   ['partially complete report', { agent_state: agent({ fields: [known('asset.internal_fleet_no', '8300-354'), unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['multiple remaining items', { agent_state: agent({ fields: [unknown('diagnosis.root_cause'), unknown('completion.state')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state'), item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['final resolution item', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
-  ['review state', { session: session('REVIEW'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'REVIEW', 'SUBMIT_REPORT'],
+  ['review state', { session: session('REVIEW'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'READY', 'SUBMIT_REPORT'],
   ['ready to confirm', { session: session('READY'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'READY', 'SUBMIT_REPORT'],
   ['confirmed', { session: session('CONFIRMED'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }), confirmation: { confirmation_token: 'confirmed' } }, 'CONFIRMED', 'EXPORT_REPORT'],
   ['STT recoverable failure', { session: session('RECOVERABLE_ERROR'), recoverable_error: { kind: 'STT', message: 'Recording saved.', retry_action: 'RETRY_TRANSCRIPTION' } }, 'RECOVERABLE_ERROR', 'RETRY_TRANSCRIPTION'],
+  ['microphone permission failure', { recoverable_error: { kind: 'MICROPHONE', message: 'Microphone permission is unavailable.', retry_action: 'RETRY_MICROPHONE' } }, 'RECOVERABLE_ERROR', 'RETRY_MICROPHONE'],
+  ['recorder finalization failure', { recoverable_error: { kind: 'RECORDER', message: 'Recording could not be finalized.', retry_action: 'RETRY_RECORDING' } }, 'RECOVERABLE_ERROR', 'RETRY_RECORDING'],
   ['upload recoverable failure', { recoverable_error: { kind: 'UPLOAD', message: 'Attachment was not added.', retry_action: 'RETRY_ATTACHMENT' } }, 'RECOVERABLE_ERROR', 'RETRY_ATTACHMENT'],
   ['network recoverable failure', { recoverable_error: { kind: 'NETWORK', message: 'Connection interrupted.', retry_action: 'RETRY_CONNECTION' } }, 'RECOVERABLE_ERROR', 'RETRY_CONNECTION'],
   ['stale revision response', { recoverable_error: { kind: 'STALE_REVISION', message: 'Report changed. Refreshing current state.', retry_action: 'REFRESH_SESSION' } }, 'RECOVERABLE_ERROR', 'REFRESH_SESSION'],
@@ -136,7 +300,7 @@ const stateCases = [
 for (const [name, overrides, expectedKind, primaryId] of stateCases) {
   test(`workspace state: ${name}`, () => {
     const result = view(overrides);
-    assert.deepEqual(result.major_areas, ['APP_SHELL', 'JOB_HEADER', 'ACTIVE_TASK_PANEL', 'REPORT_SUMMARY']);
+    assert.deepEqual(result.major_areas, ['APP_SHELL', 'JOB_HEADER', 'REPORT_SUMMARY', 'ACTIVE_TASK_PANEL']);
     assert.equal(result.active_task.kind, expectedKind);
     assert.equal(result.active_task.primary_action?.id || null, primaryId);
     assert.ok((result.active_task.primary_action ? 1 : 0) <= 1);
@@ -153,18 +317,244 @@ test('recording exposes one explicit stop-and-fill action', () => {
   });
 });
 
+test('microphone and recorder failures expose accurate recovery actions', () => {
+  const microphone = view({ recoverable_error: {
+    kind: 'MICROPHONE', message: 'Permission denied.', retry_action: 'RETRY_MICROPHONE',
+  } });
+  assert.deepEqual(microphone.active_task.primary_action, {
+    id: 'RETRY_MICROPHONE',
+    label: 'Try microphone again',
+  });
+
+  const recorder = view({ recoverable_error: {
+    kind: 'RECORDER', message: 'Recorder stopped unexpectedly.', retry_action: 'RETRY_RECORDING',
+  } });
+  assert.deepEqual(recorder.active_task.primary_action, {
+    id: 'RETRY_RECORDING',
+    label: 'Record again',
+  });
+});
+
+test('recording is honest about non-streaming STT and offers cancellation', () => {
+  const result = view({
+    processing: 'RECORDING',
+    interaction: {
+      statement: '',
+      microphone_available: true,
+      streaming_transcription_available: false,
+      provisional_transcript: 'This must never become evidence.',
+    },
+  });
+
+  assert.deepEqual(result.active_task.capture_feedback, {
+    state: 'RECORDING',
+    label: 'Listening…',
+    elapsed: true,
+    provisional_available: false,
+    provisional_text: null,
+    help: 'Final transcript appears after you stop recording.',
+  });
+  assert.deepEqual(result.active_task.secondary_action, {
+    id: 'CANCEL_RECORDING',
+    label: 'Cancel',
+  });
+  assert.equal(JSON.stringify(result).includes('This must never become evidence.'), false);
+});
+
+test('finalizing audio reserves the statement area without inventing provisional words', () => {
+  const result = view({
+    session: session('PROCESSING'),
+    processing: 'TRANSCRIBING',
+    interaction: {
+      statement: '',
+      microphone_available: true,
+      streaming_transcription_available: false,
+      provisional_transcript: 'Untrusted partial words',
+    },
+  });
+
+  assert.deepEqual(result.active_task.capture_feedback, {
+    state: 'FINALIZING',
+    label: 'Transcribing…',
+    elapsed: false,
+    provisional_available: false,
+    provisional_text: null,
+    help: 'Your finalized statement will appear here when transcription finishes.',
+  });
+  assert.equal(result.latest_statement, null);
+  assert.equal(JSON.stringify(result).includes('Untrusted partial words'), false);
+});
+
+test('unattached transcript-shaped text never becomes an authoritative latest statement', () => {
+  const result = view({
+    session: { ...session('PROCESSING'), transcript_ids: [] },
+    transcript: {
+      contract: 'TranscriptArtifact',
+      transcript_id: 'transcript_unattached',
+      raw_text: 'Partial words that have not completed the authoritative path.',
+    },
+    processing: 'CHECKING_COMPLETENESS',
+  });
+
+  assert.equal(result.latest_statement, null);
+  assert.equal(result.missing_hint.lead, 'Missing:');
+  assert.equal(JSON.stringify(result).includes('Partial words that have not completed the authoritative path.'), false);
+});
+
+test('finalized transcript stays exact while the report updates, then collapses as the used latest statement', () => {
+  const transcript = finalizedTranscript(
+    'Work order 112234: replaced the failed contactor and tested cooling.',
+    'transcript_final_1',
+  );
+  const updating = view({
+    session: { ...session('PROCESSING'), transcript_ids: [transcript.transcript_id] },
+    transcript,
+    processing: 'CHECKING_COMPLETENESS',
+  });
+  assert.deepEqual(updating.latest_statement, {
+    transcript_id: 'transcript_final_1',
+    text: transcript.raw_text,
+    authoritative: true,
+    label: 'Final transcript',
+    status: 'Updating report…',
+    expanded: true,
+    used: false,
+  });
+
+  const processed = view({
+    session: { ...session(), transcript_ids: [transcript.transcript_id] },
+    transcript,
+    processing: null,
+  });
+  assert.deepEqual(processed.latest_statement, {
+    transcript_id: 'transcript_final_1',
+    text: transcript.raw_text,
+    authoritative: true,
+    label: 'Latest statement',
+    status: 'Used',
+    expanded: false,
+    used: true,
+  });
+});
+
+test('latest statement carries accepted correction spans alongside immutable raw text', () => {
+  const transcript = {
+    ...finalizedTranscript('The AZERT ID is ABCD1234.', 'transcript_inline_1'),
+    normalized_text: 'The Asset ID is ABCD1234.',
+    corrections: [{ original: 'AZERT', replacement: 'Asset', sourceSpan: { start: 4, end: 9 }, normalizedSpan: { start: 4, end: 9 } }],
+  };
+  const result = view({ session: { ...session(), transcript_ids: [transcript.transcript_id] }, transcript });
+  assert.equal(result.latest_statement.text, transcript.raw_text);
+  assert.equal(result.latest_statement.normalized_text, transcript.normalized_text);
+  assert.deepEqual(result.latest_statement.corrections, transcript.corrections);
+});
+
+test('typed evidence is identified as typed input inside the provenance disclosure', () => {
+  const transcript = { ...finalizedTranscript('The AZERT ID is ABCD1234.', 'typed_1'), provider: 'technician-text' };
+  const result = view({ session: { ...session(), transcript_ids: [transcript.transcript_id] }, transcript });
+  assert.equal(result.latest_statement.origin_label, 'Original typed input');
+});
+
+test('reviewed technician corrections also render inline without showing rejected suggestions', () => {
+  const transcript = finalizedTranscript('The door control model was checked.', 'transcript_reviewed_inline');
+  const result = view({
+    session: { ...session(), transcript_ids: [transcript.transcript_id] }, transcript,
+    transcript_review: {
+      transcript_id: transcript.transcript_id, status: 'REVIEWED',
+      items: [
+        { review_item_id: 'accepted', kind: 'CORRECTION', source_span: { start: 17, end: 22, quote: 'model' }, proposed_text: 'module' },
+        { review_item_id: 'rejected', kind: 'CORRECTION', source_span: { start: 27, end: 34, quote: 'checked' }, proposed_text: 'replaced' },
+      ],
+      decisions: [
+        { review_item_id: 'accepted', decision: 'ACCEPT' },
+        { review_item_id: 'rejected', decision: 'REJECT' },
+      ],
+    },
+  });
+  assert.deepEqual(result.latest_statement.corrections.map(({ original, replacement }) => [original, replacement]), [['model', 'module']]);
+  assert.deepEqual(result.latest_statement.corrections[0].normalizedSpan, { start: 17, end: 23 });
+  assert.equal(result.latest_statement.normalized_text, 'The door control module was checked.');
+});
+
 test('text and microphone composer remains available after the first capture until final submission', () => {
   const states = [
-    view({ transcript: { raw_text: 'I checked the unit.' } }),
+    view({ transcript: finalizedTranscript('I checked the unit.') }),
     view({ agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }),
     view({ session: session('REVIEW'), agent_state: agent({ complete: true }) }),
     view({ session: session('CONTEXT') }),
   ];
   for (const state of states) assert.equal(state.active_task.composer_visible, true, state.active_task.kind);
-  for (const phase of ['READY', 'CONFIRMED']) {
+  for (const phase of ['READY']) {
     const state = view({ session: session(phase), agent_state: agent({ complete: true }) });
-    assert.notEqual(state.active_task.composer_visible, true, phase);
+    assert.equal(state.active_task.composer_visible, false, phase);
   }
+  assert.notEqual(view({ session: session('CONFIRMED') }).active_task.composer_visible, true);
+});
+
+test('missing hint uses only server-authoritative completeness and current schema labels', () => {
+  const result = view({
+    transcript: finalizedTranscript('I inspected the bus.'),
+    agent_state: {
+      ...agent({
+        fields: [
+          known('work.work_order_id', 'WO-111-1222'),
+          known('asset.internal_fleet_no', '8300-354'),
+          unknown('diagnosis.root_cause'),
+          { ...unknown('parts.part_number'), state: 'CONFLICT' },
+          unknown('completion.state'),
+        ],
+        queue: [
+          item('MISSING', 'SEMANTIC_STATE', 'diagnosis.root_cause'),
+          item('CONFLICT', 'SELECT_OR_PROVIDE', 'parts.part_number'),
+          item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state'),
+        ],
+      }),
+      completeness: {
+        complete: false,
+        complete_fields: ['work.work_order_id', 'asset.internal_fleet_no'],
+        missing_required_fields: ['diagnosis.root_cause', 'completion.state'],
+        missing_optional_fields: [],
+        uncertain_fields: [],
+        conflicting_fields: ['parts.part_number'],
+        invalid_fields: [],
+        inferred_fields: [],
+        conditional_required_fields: [],
+        critical_confirmation_fields: [],
+        blocking_issue_ids: ['issue_missing', 'issue_conflict'],
+      },
+    },
+  });
+
+  assert.deepEqual(result.missing_hint, {
+    count: 2,
+    summary: '2 details missing',
+    lead: 'Still missing:',
+    groups: [
+      { section: 'Diagnosis', fields: ['Root cause'] },
+      { section: 'Completion & Handover', fields: ['Return to service'] },
+    ],
+  });
+});
+
+test('missing hint recomputes immediately when one statement resolves several fields', () => {
+  const before = view({
+    transcript: finalizedTranscript('Initial statement.'),
+    agent_state: agent({
+      fields: [unknown('diagnosis.root_cause'), unknown('completion.state')],
+      queue: [item('MISSING'), item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')],
+    }),
+  });
+  const after = view({
+    transcript: finalizedTranscript('Root cause not established and unit returned to service.'),
+    agent_state: agent({
+      fields: [known('diagnosis.root_cause', 'Not established'), unknown('completion.state')],
+      queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')],
+    }),
+  });
+
+  assert.deepEqual(before.missing_hint.groups.flatMap((group) => group.fields), ['Root cause', 'Return to service']);
+  assert.deepEqual(after.missing_hint.groups.flatMap((group) => group.fields), ['Return to service']);
+  assert.equal(after.missing_hint.summary, '1 detail missing');
 });
 
 test('recording expands exactly the report sections that still contain blank fields', () => {
@@ -229,7 +619,7 @@ test('correction task ignores non-material items and shows the next material int
   assert.equal(result.active_task.correction.review_item_id, 'material');
 });
 
-test('report history row uses normalized summary data and created-date fallback', async () => {
+test('report history row displays the authoritative persisted update time', async () => {
   const module = await import('../web/report-workspace-view.js');
   assert.equal(typeof module.deriveReportHistoryRow, 'function');
   const base = {
@@ -238,33 +628,42 @@ test('report history row uses normalized summary data and created-date fallback'
     asset: 'AHU-03',
     service_date: null,
     created_at: '2026-09-27T04:30:00.000Z',
+    updated_at: '2026-09-27T05:45:00.000Z',
     status: { code: 'NEEDS_INPUT', label: 'Needs your input' },
   };
 
   assert.deepEqual(module.deriveReportHistoryRow(base, { timeZone: 'Asia/Shanghai' }), {
     title: 'HVAC Service Report',
-    secondary: 'WO-10482 · AHU-03 · Created 27 Sep 2026, 12:30',
+    secondary: 'WO-10482 · AHU-03 · Updated 27 Sep 2026, 13:45',
     status: 'Needs your input',
   });
   assert.equal(module.deriveReportHistoryRow({
     ...base,
     service_date: '2026-09-26 10:42',
-  }, { timeZone: 'Asia/Shanghai' }).secondary, 'WO-10482 · AHU-03 · Service 26 Sep 2026, 10:42');
+  }, { timeZone: 'Asia/Shanghai' }).secondary, 'WO-10482 · AHU-03 · Updated 27 Sep 2026, 13:45');
   assert.equal(module.deriveReportHistoryRow({
     ...base,
-    created_at: '2026-09-26T17:30:00.000Z',
-  }, { timeZone: 'Asia/Shanghai' }).secondary, 'WO-10482 · AHU-03 · Created 27 Sep 2026, 01:30');
+    updated_at: '2026-09-26T17:30:00.000Z',
+  }, { timeZone: 'Asia/Shanghai' }).secondary, 'WO-10482 · AHU-03 · Updated 27 Sep 2026, 01:30');
 });
 
 test('the report title identifies its creation day and same-day instance in both views', async () => {
   const { deriveReportHistoryRow } = await import('../web/report-workspace-view.js');
   const reportName = 'Bus Defect Rectification · 2026-09-27 (2)';
-  assert.equal(view({ session: { ...session(), report_name: reportName } }).job_header.title, reportName);
-  assert.equal(deriveReportHistoryRow({
+  const workspace = view({ session: { ...session(), report_name: reportName } });
+  assert.equal(workspace.job_header.title, 'Bus Defect Rectification');
+  assert.equal(workspace.job_header.metadata, '27 Sep 2026 · Report 2');
+  const history = deriveReportHistoryRow({
     report_name: reportName,
     template: { display_name: 'Bus Defect Rectification' },
     created_at: '2026-09-27T03:00:00.000Z',
-  }).title, reportName);
+  }, { timeZone: 'Asia/Shanghai' });
+  assert.equal(history.title, 'Bus Defect Rectification');
+  assert.equal(history.secondary, '27 Sep 2026 · Report 2 · Updated 11:00');
+  assert.equal(deriveReportHistoryRow({
+    report_name: reportName,
+    updated_at: '2026-09-28T03:00:00.000Z',
+  }, { timeZone: 'Asia/Shanghai' }).secondary, '27 Sep 2026 · Report 2 · Updated 28 Sep 2026, 11:00');
 });
 
 test('report history keeps the most recently updated report first', async () => {
@@ -433,7 +832,7 @@ test('selecting original transcript words is projected as the active reversible 
   assert.equal(projected.original_words[0].selected, true);
 });
 
-test('capture stays compact while generated report review exposes the complete schema in order', () => {
+test('report fields stay visible before capture and through completion in schema order', () => {
   const fields = [
     known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
     known('diagnosis.root_cause', 'Not established', 'MANUAL_TECHNICIAN_INPUT', 'technician-resolution-answer'),
@@ -443,10 +842,18 @@ test('capture stays compact while generated report review exposes the complete s
     session: session('CONTEXT'),
     agent_state: agent({ fields, queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }),
   });
-  assert.equal(capture.report_sections.some((section) => section.expanded), false);
+  assert.equal(capture.report_sections.every((section) => section.expanded), true);
 
   const review = view({ session: session('REVIEW'), agent_state: agent({ fields, complete: true }) });
   assert.equal(review.report_sections.find((section) => section.title === 'Job Identity').expanded, true);
   assert.equal(review.report_sections.find((section) => section.title === 'Diagnosis').expanded, true);
   assert.equal(review.report_sections.find((section) => section.title === 'Completion & Handover').expanded, true);
+});
+
+test('sections with unresolved fields stay open during intermediate session phases', () => {
+  const result = view({
+    session: session('PROCESSING'),
+    agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }),
+  });
+  assert.equal(result.report_sections.find((section) => section.title === 'Diagnosis').expanded, true);
 });

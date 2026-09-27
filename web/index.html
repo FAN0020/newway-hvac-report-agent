@@ -27,7 +27,7 @@
       </nav>
     </aside>
 
-    <main class="template-main">
+    <main class="template-main content-first-mode">
       <header class="template-topbar">
         <button id="template-mobile-menu" class="icon-button" aria-label="Open navigation">☰</button>
         <div><p class="eyebrow" id="template-eyebrow"></p><h1 id="template-page-title">New report</h1></div>
@@ -35,12 +35,12 @@
       </header>
 
       <section id="template-reports" class="template-view" hidden aria-labelledby="template-reports-title">
-        <div class="template-hero"><div><p class="eyebrow">REPORTS</p><h2 id="template-reports-title">Reports</h2></div><button class="primary" data-template-nav="choose">＋ New report</button></div>
+        <div class="template-hero"><h1 id="template-reports-title">Reports</h1><button class="primary" data-template-nav="choose">＋ New report</button></div>
         <div id="template-report-list" class="manager-template-list"></div>
       </section>
 
       <section id="template-choose" class="template-view active" aria-labelledby="choose-title">
-        <div class="template-selection-head"><h2 id="choose-title">Choose a report</h2><label class="template-search"><span aria-hidden="true">⌕</span><input id="template-search" type="search" placeholder="Search reports" aria-label="Search reports"></label></div>
+        <div class="template-selection-head"><h1 id="choose-title">Choose a report</h1><label class="template-search"><span aria-hidden="true">⌕</span><input id="template-search" type="search" placeholder="Search reports" aria-label="Search reports"></label></div>
         <div class="template-filters" role="group" aria-label="Filter reports by category">
           <button type="button" class="template-filter active" data-template-category="All" aria-pressed="true">All</button>
           <button type="button" class="template-filter" data-template-category="Bus" aria-pressed="false">Bus</button>
@@ -60,19 +60,18 @@
       <section id="template-workspace" class="template-view report-workspace" hidden aria-labelledby="workspace-title">
         <header id="workspace-job-header" class="job-header" data-workspace-area="JOB_HEADER">
           <button class="back-link" data-template-nav="reports">← Reports</button>
-          <div class="job-header-copy"><p class="eyebrow" id="workspace-company">REPORT WORKSPACE</p><h2 id="workspace-title">Maintenance report</h2><p id="workspace-identity"></p></div>
-          <button id="workspace-progress" class="job-progress" type="button" aria-expanded="false" aria-controls="workspace-progress-detail"><strong id="report-complete-count">0 / 0 complete</strong><span id="report-need-input">Loading…</span></button>
-          <div id="workspace-progress-detail" class="progress-popover" hidden></div>
+          <div class="job-header-copy"><h1 id="workspace-title">Maintenance report</h1><p id="workspace-metadata"></p><p id="workspace-identity"></p></div>
+          <div id="workspace-progress" class="job-progress" role="status"><strong id="report-complete-count">0 / 0 required</strong><span id="report-need-input">Loading…</span></div>
         </header>
 
         <div class="workspace-flow">
-          <section id="workspace-active-task" class="active-task-panel" data-workspace-area="ACTIVE_TASK_PANEL" aria-labelledby="active-task-title" aria-live="polite">
-            <div class="task-loading"><span class="task-spinner" aria-hidden="true"></span><h3 id="active-task-title">Loading job…</h3></div>
+          <section id="workspace-report-summary" class="report-summary" data-workspace-area="REPORT_SUMMARY" aria-label="Report details">
+            <div class="report-summary-heading"><button id="workspace-full-report" class="text-button" type="button" hidden>Collapse all</button></div>
+            <div id="workspace-sections" class="report-accordions"></div>
           </section>
 
-          <section id="workspace-report-summary" class="report-summary" data-workspace-area="REPORT_SUMMARY" aria-labelledby="report-summary-title">
-            <div class="report-summary-heading"><div><p class="eyebrow">REPORT SUMMARY</p><h3 id="report-summary-title">Report details</h3></div><button id="workspace-full-report" class="text-button" type="button">Expand all</button></div>
-            <div id="workspace-sections" class="report-accordions"></div>
+          <section id="workspace-active-task" class="active-task-panel" data-workspace-area="ACTIVE_TASK_PANEL" aria-labelledby="active-task-title" aria-live="polite">
+            <div class="task-loading"><span class="task-spinner" aria-hidden="true"></span><h3 id="active-task-title">Loading job…</h3></div>
           </section>
         </div>
 
@@ -87,6 +86,12 @@
             <label class="dialog-field">What does this show?<select id="workspace-attachment-purpose"><option value="BEFORE_WORK_PHOTO">Before-work photo</option><option value="AFTER_WORK_PHOTO">After-work photo</option><option value="MEASUREMENT">Measurement</option><option value="PARTS_EVIDENCE">Parts evidence</option><option value="CUSTOMER_DOCUMENT">Customer document</option><option value="EXISTING_SERVICE_RECORD">Existing service record</option><option value="OTHER">Other</option></select></label>
             <div class="dialog-actions"><button class="secondary" value="cancel">Cancel</button><button id="workspace-attachment-choose" class="primary" value="default">Choose file</button></div>
           </form>
+        </dialog>
+        <dialog id="workspace-report-confirmation" class="evidence-dialog report-confirmation-dialog" aria-labelledby="workspace-report-confirmation-title">
+          <div class="dialog-head"><h3 id="workspace-report-confirmation-title">Confirm this report</h3></div>
+          <div class="report-confirmation-copy"><p>You confirm that you have reviewed the report and it accurately reflects the completed work.</p></div>
+          <p id="workspace-report-confirmation-status" class="dialog-status" role="status" aria-live="polite"></p>
+          <div class="dialog-actions"><button id="workspace-report-back" class="secondary" type="button">Back to report</button><button id="workspace-report-confirm" class="primary" type="button">Confirm &amp; submit</button></div>
         </dialog>
       </section>
 

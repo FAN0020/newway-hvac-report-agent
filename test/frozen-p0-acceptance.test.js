@@ -36,7 +36,7 @@ const EXPECTED_CASES = [
 test('the frozen P0 ReportSession dataset has complete acceptance and anti-hallucination coverage', async () => {
   const dataset = JSON.parse(await fs.readFile(new URL('../evaluation/p0-report-session-acceptance.v1.json', import.meta.url), 'utf8'));
   assert.equal(dataset.contract, 'P0ReportSessionAcceptanceDataset');
-  assert.equal(dataset.version, '1.2.0');
+  assert.equal(dataset.version, '1.3.0');
   assert.equal(dataset.human_gold, false);
   assert.deepEqual(dataset.cases.map(({ id }) => id), EXPECTED_CASES);
   for (const scenario of dataset.cases) {

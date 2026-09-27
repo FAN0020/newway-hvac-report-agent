@@ -182,6 +182,16 @@ test('TranscriptArtifact directly binds source identity, session, template, cont
   assert.equal(transcript.provider, 'whisper.cpp');
   assert.equal(transcript.model, 'base.en');
   assert.equal(transcript.processing_version, 'authoritative-capture.v1');
+  assert.equal(transcript.normalized_text, transcript.raw_text);
+  assert.deepEqual(transcript.corrections, []);
+  assert.throws(() => createTranscriptArtifact({
+    ...transcript, transcript_id: undefined,
+    normalized_text: 'Bus MAN A95 had a door fault',
+  }), { code: 'INVALID_TRANSCRIPT_ARTIFACT' });
+  assert.throws(() => createTranscriptArtifact({
+    ...transcript, transcript_id: undefined,
+    corrections: [{ original: 'MAN', replacement: 'Bus', sourceSpan: { start: 4, end: 7 }, normalizedSpan: { start: 4, end: 7 } }],
+  }), { code: 'INVALID_TRANSCRIPT_ARTIFACT' });
 });
 
 test('GuidanceContext is structurally separate and permanently ineligible as job evidence', async () => {
@@ -491,6 +501,8 @@ test('the complete happy path uses deterministic transitions and increments one 
     session = transition.session;
     assert.equal(session.revision, before.revision + 1);
     assert.equal(session.phase, toPhase);
+    assert.equal(session.updated_at, occurredAt);
+    assert.equal(session.created_at, sessionInput().created_at);
     assert.equal(transition.event.event_type, 'PHASE_TRANSITION');
     assert.equal(transition.event.payload.from_phase, before.phase);
     assert.equal(transition.event.payload.to_phase, toPhase);

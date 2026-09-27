@@ -1,6 +1,6 @@
 {
   "contract": "P0ReportSessionAcceptanceDataset",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "frozen_at": "2026-09-27T00:00:00.000Z",
   "human_gold": false,
   "cases": [
@@ -196,11 +196,11 @@
     {
       "id": "single_submit_after_review",
       "category": "human_control",
-      "input": "Technician reviews the complete generated report and presses Submit report once.",
+      "input": "Technician reviews the complete generated report, presses Submit report, and confirms the single report-level statement.",
       "preconditions": ["server phase is REVIEW", "no blocking issue remains"],
-      "expected_properties": ["one visible action records review acknowledgement and requests confirmation", "server gates both transitions", "confirmed snapshot binds the exact current revision"],
-      "forbidden_behavior": ["browser confirms a client draft", "duplicate Finish review and Confirm report actions"],
-      "automated_evidence": ["test/template-ui-contract.test.js", "test/final-report-authority.test.js"]
+      "expected_properties": ["Submit report opens one report-level confirmation statement", "Back to review performs no confirmation mutation", "Confirm & submit lets the server gate review completion and confirmation", "confirmed snapshot binds the exact current revision"],
+      "forbidden_behavior": ["browser confirms a client draft", "per-field Accept actions for ordinary supported values", "duplicate report-level confirmation statements"],
+      "automated_evidence": ["test/exception-review-model.test.js", "test/template-ui-contract.test.js", "test/final-report-authority.test.js"]
     },
     {
       "id": "review_state_persistence",
