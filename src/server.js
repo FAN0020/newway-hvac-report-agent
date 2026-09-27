@@ -354,6 +354,19 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
+  const fieldSelectionMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/fields\/([^/]+)\/select$/u);
+  if (request.method === 'POST' && fieldSelectionMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.selectFieldRepresentation({
+      ...input,
+      session_id: decodeURIComponent(fieldSelectionMatch[1]),
+      field_id: decodeURIComponent(fieldSelectionMatch[2]),
+    });
+    writeJson(response, result.reused ? 200 : 201, toolEnvelope('select_report_field_representation', traceId, 'PASS', result));
+    return;
+  }
+
   const candidateConfirmMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/candidates\/([^/]+)\/confirm$/u);
   if (request.method === 'POST' && candidateConfirmMatch) {
     const input = await readJson(request);

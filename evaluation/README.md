@@ -68,6 +68,12 @@ The report writes `.tmp/evaluation-runs/evidence-pipeline-comparison.{json,md}` 
 
 This comparison intentionally supplements rather than replaces the component, Batch 3, human annotation, and real-ASR runs. Correction suggestions are simulated as accepted only to compare strategy consequences. The product still requires explicit technician review before a material correction becomes authoritative.
 
+# Report review workflow acceptance
+
+`p0-report-session-acceptance.v1.json` version 1.1 extends the deterministic P0 workflow contract with generated-report-first review, inline manual correction, reversible Report draft / Original words / My edit selection, multi-field missing-detail capture, single visible submit, persistence, and mobile usability cases. These are product workflow cases backed by server, view-model, contract, and rendered-browser verification. They are not speech labels and are explicitly `human_gold: false`.
+
+The independent blind-audio annotation package and its `zqw-ground-truth` validator remain the source for any future human-reviewed audio Gold labels. That branch did not contain completed annotation records, so UI workflow cases must not be reported as human Gold or ASR accuracy evidence.
+
 # Blind Ground Truth handoff
 
 Run `npm run eval:annotation-package` after generating all 15 synthetic WAV files. It creates an ignored folder and ZIP under `outputs/qiongwen-ground-truth-blind-package-2026-09-26*` containing only audio, checksums, case/scope metadata, blank per-case annotations, instructions, and the full knowledge catalog. The builder fails if seed transcripts or expected-answer keys appear in the handoff. Do not send `synthetic-cases.v1.json`, component predictions, retrieval results, reports, or evaluation scores to the independent annotator.

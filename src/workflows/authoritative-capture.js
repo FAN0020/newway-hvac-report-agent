@@ -844,6 +844,203 @@ export class AuthoritativeCaptureService {
     return { session: computed.session, event: recorded.event, candidate, agent_state: computed.agent_state };
   }
 
+  async selectFieldRepresentation({ session_id: sessionId, expected_revision: expectedRevision, field_id: fieldId, selection, idempotency_key: idempotencyKey } = {}) {
+    const normalizedFieldId = String(fieldId || '').trim();
+    const requestHash = hashContract({ session_id: sessionId, field_id: normalizedFieldId, selection });
+    const reused = await this.sessionStore.claimAnswer({
+      session_id: sessionId, idempotency_key: idempotencyKey, request_hash: requestHash,
+    });
+    if (reused) return { ...reused, reused: true };
+
+    const session = await this.sessionStore.load(sessionId);
+    assertExpectedRevision(session, expectedRevision);
+    if (!['RESOLVE', 'REVIEW'].includes(session.phase)) {
+      throw workflowError('Report fields can be reviewed only after extraction and before confirmation.', 'FIELD_SELECTION_PHASE_MISMATCH', 409);
+    }
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
+      throw workflowError('A structured field selection is required.', 'INVALID_FIELD_SELECTION');
+    }
+    const template = await this.resolveTemplate(session.template_binding.template_id);
+    const definition = template.schema.fields.find((item) => (
+      item.id.endsWith('.*') ? normalizedFieldId.startsWith(item.id.slice(0, -1)) : normalizedFieldId === item.id
+    ));
+    if (!definition) throw workflowError('Field is outside the bound template version.', 'FIELD_NOT_IN_TEMPLATE', 400);
+
+    const current = await this.getAgentState(sessionId);
+    const field = current.agent_state.report_fields.find((entry) => entry.field_id === normalizedFieldId);
+    if (!field) throw workflowError('Field is absent from the authoritative report state.', 'FIELD_NOT_IN_REPORT', 400);
+
+    const kind = String(selection.kind || '');
+    let claim;
+    let unit;
+    let sourceCandidate = null;
+    let evidence = null;
+    let span = null;
+    let selectedSource = null;
+    let selectedSpan = null;
+    let selectedQuote = null;
+
+    const readBoundCandidate = async () => {
+      const candidateId = String(selection.candidate_id || '');
+      if (!session.field_candidate_ids.includes(candidateId)) {
+        throw workflowError('Candidate belongs to another ReportSession.', 'FIELD_CANDIDATE_BINDING_MISMATCH', 409);
+      }
+      const candidate = await this.sessionStore.readRecord('field-candidates', candidateId);
+      if (candidate.session_id !== session.session_id || candidate.field_id !== normalizedFieldId || candidate.support_type === 'RAG_GUIDANCE') {
+        throw workflowError('Candidate belongs to another ReportSession or field.', 'FIELD_CANDIDATE_BINDING_MISMATCH', 409);
+      }
+      return candidate;
+    };
+
+    if (kind === 'CANDIDATE') {
+      selectedSource = await readBoundCandidate();
+      claim = selectedSource.claim;
+      unit = selectedSource.unit || undefined;
+    } else if (kind === 'TRANSCRIPT_SPAN') {
+      selectedSource = await readBoundCandidate();
+      const spanId = String(selection.span_id || '');
+      const reference = selectedSource.evidence_refs.find((item) => item.span_id === spanId);
+      const sourceBelongsToSession = session.evidence_ids.includes(reference?.evidence_id)
+        || session.transcript_ids.includes(reference?.evidence_id);
+      if (!reference || !session.evidence_span_ids.includes(spanId) || !sourceBelongsToSession) {
+        throw workflowError('Transcript words are outside this field or ReportSession.', 'FIELD_SPAN_BINDING_MISMATCH', 409);
+      }
+      selectedSpan = await this.sessionStore.readRecord('evidence-spans', spanId);
+      if (selectedSpan.evidence_id !== reference.evidence_id || !session.transcript_ids.includes(reference.evidence_id)) {
+        throw workflowError('Transcript words do not match the selected field evidence.', 'FIELD_SPAN_BINDING_MISMATCH', 409);
+      }
+      const sourceTranscript = await this.sessionStore.readRecord('transcripts', reference.evidence_id);
+      selectedQuote = sourceTranscript.raw_text.slice(selectedSpan.start_offset, selectedSpan.end_offset);
+      if (!selectedQuote.trim() || hashContract(selectedQuote) !== selectedSpan.quote_hash) {
+        throw workflowError('Transcript words do not match the immutable evidence span.', 'FIELD_SPAN_BINDING_MISMATCH', 409);
+      }
+      claim = { kind: 'VALUE', value: selectedQuote };
+    } else if (kind === 'MANUAL') {
+      const value = typeof selection.value === 'string' ? selection.value.trim() : selection.value;
+      if (value === '' || value === null || value === undefined) throw workflowError('Manual field value is required.', 'INVALID_FIELD_SELECTION');
+      unit = selection.unit === undefined || selection.unit === null || selection.unit === '' ? undefined : String(selection.unit);
+      claim = { kind: 'VALUE', value: unit ? { value, unit } : value };
+    } else if (kind === 'SEMANTIC_STATE') {
+      const semantic = String(selection.state || '');
+      const values = {
+        NOT_ESTABLISHED: 'Root cause not established',
+        FURTHER_INVESTIGATION_REQUIRED: 'Further investigation required',
+        SUSPECTED: selection.value ? `Suspected root cause: ${String(selection.value).trim()}` : 'Suspected root cause',
+        CONFIRMED: selection.value ? String(selection.value).trim() : 'Confirmed root cause',
+      };
+      if (!values[semantic]) throw workflowError('Semantic field state is invalid.', 'INVALID_FIELD_SELECTION');
+      claim = { kind: 'VALUE', value: values[semantic] };
+    } else if (kind === 'EXPLICIT_NONE') {
+      claim = { kind: 'EXPLICIT_NONE' };
+    } else if (kind === 'NOT_APPLICABLE') {
+      claim = { kind: 'NOT_APPLICABLE' };
+    } else {
+      throw workflowError('Field selection kind is invalid.', 'INVALID_FIELD_SELECTION');
+    }
+
+    const allowed = definition.allowedValues || definition.allowedStatuses;
+    const claimValue = claim.kind === 'VALUE'
+      ? (claim.value && typeof claim.value === 'object' && Object.hasOwn(claim.value, 'value') ? claim.value.value : claim.value)
+      : null;
+    if (allowed && claim.kind === 'VALUE' && !allowed.includes(String(claimValue))) {
+      throw workflowError('Technician field selection is outside the template allowed values.', 'FIELD_ANSWER_INVALID', 400);
+    }
+
+    if (kind !== 'CANDIDATE') {
+      const sourceText = kind === 'TRANSCRIPT_SPAN'
+        ? selectedQuote
+        : JSON.stringify({ field_id: normalizedFieldId, selection });
+      const sourceDigest = digest(Buffer.from(sourceText, 'utf8'));
+      if (kind === 'TRANSCRIPT_SPAN') {
+        sourceCandidate = createFieldCandidate({
+          session_id: session.session_id, field_id: normalizedFieldId, claim,
+          support_type: 'MANUAL_TECHNICIAN_INPUT', assessment: 'VALID',
+          evidence_refs: selectedSource.evidence_refs.filter((reference) => reference.span_id === selectedSpan.span_id),
+          source_ref: selectedSource.source_ref,
+          extraction: { method: 'technician-transcript-selection', version: PROCESSING_VERSION },
+          risk_class: definition.critical || definition.requiresTechnicianConfirmation ? 'CRITICAL' : 'STANDARD',
+          confidence_class: 'DIRECT_EVIDENCE',
+          source_context: selectedSource.source_context,
+        });
+      } else {
+        const storageRef = await this.sessionStore.putTextSource(sourceDigest, sourceText);
+        evidence = createEvidence({
+          evidence_type: 'MANUAL_INPUT', source_hash: `sha256:${sourceDigest}`, storage_ref: storageRef, created_at: this.clock(),
+          metadata: { input_kind: 'TECHNICIAN_FIELD_SELECTION', field_id: normalizedFieldId, selection_kind: kind, report_binding: reportBinding(session) },
+        });
+        span = createEvidenceSpan({
+          evidence_id: evidence.evidence_id, start_offset: 0, end_offset: sourceText.length, quote: sourceText, source_text: sourceText,
+        });
+        sourceCandidate = createFieldCandidate({
+          session_id: session.session_id, field_id: normalizedFieldId, claim, unit,
+          support_type: 'MANUAL_TECHNICIAN_INPUT',
+          assessment: kind === 'SEMANTIC_STATE' && selection.state === 'SUSPECTED' ? 'UNCERTAIN' : 'VALID',
+          evidence_refs: [{ evidence_id: evidence.evidence_id, span_id: span.span_id }], source_ref: evidence.evidence_id,
+          extraction: { method: 'technician-field-selection', version: PROCESSING_VERSION },
+          risk_class: definition.critical || definition.requiresTechnicianConfirmation ? 'CRITICAL' : 'STANDARD',
+          confidence_class: kind === 'SEMANTIC_STATE' && selection.state === 'SUSPECTED' ? 'UNCERTAIN' : 'DIRECT_EVIDENCE',
+          source_context: {
+            domain: session.context_binding.scope_id, context_id: session.context_binding.context_id,
+            context_version: session.context_binding.context_version, scope_id: session.context_binding.scope_id,
+          },
+        });
+      }
+    }
+
+    const confirmationSource = sourceCandidate || selectedSource;
+    const principalRef = 'principal:demo-technician';
+    const event = createTechnicianConfirmationEvent({
+      session_id: session.session_id, revision: session.revision + 1, field_id: normalizedFieldId,
+      candidate_id: confirmationSource.candidate_id, technician_principal_ref: principalRef, occurred_at: this.clock(),
+    });
+    const issueIds = current.agent_state.validation_issues
+      .filter((issue) => issue.field_id === normalizedFieldId)
+      .map((issue) => issue.issue_id);
+    const candidate = createConfirmedFieldCandidate({
+      session_id: session.session_id, field_id: normalizedFieldId,
+      confirmed_candidate_id: confirmationSource.candidate_id,
+      claim, unit,
+      assessment: kind === 'SEMANTIC_STATE' && selection.state === 'SUSPECTED' ? 'UNCERTAIN' : 'VALID',
+      evidence_refs: confirmationSource.evidence_refs,
+      source_ref: confirmationSource.source_ref,
+      extraction: { method: 'technician-field-selection-confirmation', version: PROCESSING_VERSION },
+      risk_class: confirmationSource.risk_class,
+      confidence_class: 'CONFIRMED',
+      source_context: confirmationSource.source_context,
+      resolution: {
+        resolution_id: `field-selection:${normalizedFieldId}:${session.revision + 1}`,
+        issue_ids: issueIds,
+        resolved_candidate_ids: field.candidates.map((entry) => entry.candidate_id),
+        answer_kind: kind,
+      },
+    }, { confirmation_event: event });
+
+    if (evidence) await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
+    if (span) await this.sessionStore.putRecord('evidence-spans', span.span_id, span);
+    if (sourceCandidate) await this.sessionStore.putRecord('field-candidates', sourceCandidate.candidate_id, sourceCandidate);
+    await this.sessionStore.putRecord('field-candidates', candidate.candidate_id, candidate);
+    const recorded = await this.sessionStore.recordEvent({
+      session_id: session.session_id, expected_revision: session.revision, event_type: 'TECHNICIAN_CONFIRMATION',
+      principal_ref: principalRef, occurred_at: event.occurred_at,
+      details: event.payload,
+      additions: {
+        evidence_ids: evidence ? [evidence.evidence_id] : [],
+        evidence_span_ids: span ? [span.span_id] : [],
+        field_candidate_ids: [sourceCandidate?.candidate_id, candidate.candidate_id].filter(Boolean),
+      },
+    });
+    if (recorded.event.event_id !== event.event_id) throw workflowError('Technician confirmation event identity mismatch.', 'CONFIRMATION_EVENT_MISMATCH', 409);
+    const computed = await this.persistAgentState(recorded.session);
+    const response = {
+      session: computed.session, evidence, span, candidate, source_candidate: sourceCandidate,
+      confirmation_event: recorded.event, agent_state: computed.agent_state, reused: false,
+    };
+    await this.sessionStore.saveAnswer({
+      session_id: sessionId, idempotency_key: idempotencyKey, request_hash: requestHash, response,
+    });
+    return response;
+  }
+
   async answerResolutionItem({ session_id: sessionId, expected_revision: expectedRevision, resolution_id: resolutionId, answer, idempotency_key: idempotencyKey } = {}) {
     const requestHash = hashContract({ session_id: sessionId, resolution_id: resolutionId, answer });
     const reused = await this.sessionStore.claimAnswer({
@@ -932,7 +1129,9 @@ export class AuthoritativeCaptureService {
     const resolvedCandidateIds = [...new Set([...item.candidate_ids, sourceCandidate.candidate_id])];
     const candidate = createConfirmedFieldCandidate({
       session_id: session.session_id, field_id: item.field_id, confirmed_candidate_id: sourceCandidate.candidate_id,
-      claim, unit, evidence_refs: linkedRefs, source_ref: evidence.evidence_id,
+      claim, unit,
+      assessment: kind === 'SEMANTIC_STATE' && answer.state === 'SUSPECTED' ? 'UNCERTAIN' : 'VALID',
+      evidence_refs: linkedRefs, source_ref: evidence.evidence_id,
       extraction: { method: 'technician-resolution-confirmation', version: PROCESSING_VERSION },
       risk_class: sourceCandidate.risk_class, confidence_class: 'CONFIRMED', source_context: sourceCandidate.source_context,
       resolution: {

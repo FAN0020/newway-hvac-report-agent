@@ -1,7 +1,8 @@
 {
   "contract": "P0ReportSessionAcceptanceDataset",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "frozen_at": "2026-09-27T00:00:00.000Z",
+  "human_gold": false,
   "cases": [
     {
       "id": "mostly_complete_sbs_bus",
@@ -137,6 +138,78 @@
       "expected_properties": ["immutable snapshot is created", "existing-format output is derived from snapshot", "retry is idempotent"],
       "forbidden_behavior": ["mutate snapshot", "duplicate confirmation", "invent output values"],
       "automated_evidence": ["final-report-authority.test.js", "final-report-http.test.js"]
+    },
+    {
+      "id": "generated_report_first_review",
+      "category": "review_workflow",
+      "input": "Passenger door would not close. Inspected the controller, secured the loose connector, used no parts, and passed five door cycles.",
+      "preconditions": ["active SBS Bus ReportSession", "schema-ordered report workspace"],
+      "expected_properties": ["the generated report is the primary correction surface", "all unresolved fields are shown at their schema locations", "no sequential resolution wizard replaces the report"],
+      "forbidden_behavior": ["one-at-a-time correction page", "hide the generated report behind Continue"],
+      "automated_evidence": ["test/report-workspace-view.test.js", "test/template-workspace-refinement.test.js"]
+    },
+    {
+      "id": "inline_manual_field_edit",
+      "category": "review_workflow",
+      "input": "Technician changes one generated report field and saves it inline.",
+      "preconditions": ["generated report contains a supported field"],
+      "expected_properties": ["manual value becomes server-owned technician evidence", "validation and completeness recompute", "report remains in place"],
+      "forbidden_behavior": ["browser-minted confirmation", "separate correction workflow"],
+      "automated_evidence": ["test/authoritative-agent-workflow.test.js", "test/authoritative-capture-server.test.js"]
+    },
+    {
+      "id": "reversible_field_source_selection",
+      "category": "traceable_review",
+      "input": "Technician selects report draft, then original transcript words, then a manual edit, then restores the original draft source.",
+      "preconditions": ["field has immutable transcript evidence and at least one extracted candidate"],
+      "expected_properties": ["each selection is server-owned", "all prior source representations remain traceable", "latest selection is authoritative", "selection survives reload"],
+      "forbidden_behavior": ["destroy prior evidence", "irreversible source switch", "cross-session candidate reuse"],
+      "automated_evidence": ["test/authoritative-agent-workflow.test.js", "test/authoritative-capture-server.test.js"]
+    },
+    {
+      "id": "inline_missing_field_resolution",
+      "category": "active_completeness",
+      "input": "Technician fills a missing field at its location in the generated report.",
+      "preconditions": ["ValidationIssue and ResolutionItem exist for the field"],
+      "expected_properties": ["structured choices are shown inline where applicable", "resolved field updates immediately", "resolved issue disappears"],
+      "forbidden_behavior": ["force a separate wizard", "duplicate the same question"],
+      "automated_evidence": ["test/report-workspace-view.test.js", "test/authoritative-agent-workflow.test.js"]
+    },
+    {
+      "id": "multi_missing_detail_capture",
+      "category": "active_completeness",
+      "input": "Odometer was 51020 kilometres. Root cause was not established. No outstanding issues. Vehicle remains out of service.",
+      "preconditions": ["multiple report fields are unresolved"],
+      "expected_properties": ["one global text or voice statement can update multiple fields", "completeness recomputes once the statement is processed", "only remaining blockers stay visible"],
+      "forbidden_behavior": ["one statement per field requirement", "ask again for resolved information"],
+      "automated_evidence": ["test/authoritative-capture-workflow.test.js", "test/template-workspace-refinement.test.js"]
+    },
+    {
+      "id": "single_submit_after_review",
+      "category": "human_control",
+      "input": "Technician reviews the complete generated report and presses Submit report once.",
+      "preconditions": ["server phase is REVIEW", "no blocking issue remains"],
+      "expected_properties": ["one visible action records review acknowledgement and requests confirmation", "server gates both transitions", "confirmed snapshot binds the exact current revision"],
+      "forbidden_behavior": ["browser confirms a client draft", "duplicate Finish review and Confirm report actions"],
+      "automated_evidence": ["test/template-ui-contract.test.js", "test/final-report-authority.test.js"]
+    },
+    {
+      "id": "review_state_persistence",
+      "category": "recovery",
+      "input": "Technician edits a field, refreshes the browser, and reopens the same report.",
+      "preconditions": ["server-owned field selection has been persisted"],
+      "expected_properties": ["selected value and alternatives survive reload", "revision and unresolved state remain authoritative"],
+      "forbidden_behavior": ["browser-only correction state", "revert to stale value after refresh"],
+      "automated_evidence": ["test/authoritative-agent-workflow.test.js", "test/authoritative-report-session-store.test.js"]
+    },
+    {
+      "id": "mobile_inline_report_review",
+      "category": "responsive_workflow",
+      "input": "Technician reviews and corrects the generated report at a 390 by 844 viewport.",
+      "preconditions": ["mobile browser viewport", "report has unresolved and completed fields"],
+      "expected_properties": ["field controls remain reachable", "touch targets remain practical", "no horizontal overflow blocks the workflow"],
+      "forbidden_behavior": ["hidden correction controls", "desktop-only wizard", "overlapping actions"],
+      "automated_evidence": ["test/template-workspace-refinement.test.js", "Playwright rendered-state verification"]
     }
   ]
 }

@@ -39,6 +39,7 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     editingField: null,
     reviewFullReport: false,
     addingDetail: false,
+    focusActiveTask: false,
   };
 }
 
@@ -48,7 +49,7 @@ for (const property of [
   'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
   'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
-  'addingDetail',
+  'addingDetail', 'focusActiveTask',
 ]) {
   Object.defineProperty(state, property, {
     get() { return activeWorkspace()?.[property] ?? null; },
@@ -224,6 +225,7 @@ function renderReports() {
 function workspaceInput() {
   return {
     template: state.activeTemplate, session: state.session, agent_state: state.agentState,
+    chain: state.chain,
     transcript: state.transcript, transcript_review: state.transcriptReview, processing: state.processing,
     processing_session_id: state.processingSessionId,
     recoverable_error: state.recoverableError, interaction: state.interaction, confirmation: state.confirmation,
@@ -296,31 +298,116 @@ function showProvenance(fieldId) {
   $('workspace-evidence-dialog').showModal();
 }
 
+function representationChoice(option, onSelect) {
+  const choice = button(option.value, 'representation-choice', onSelect);
+  if (option.source_label) choice.append(element('small', '', option.source_label));
+  return choice;
+}
+
+function renderManualFieldEditor(container, field, { label = 'My edit', placeholder = '' } = {}) {
+  const group = element('div', 'field-representation-group');
+  group.append(element('span', 'representation-label', label));
+  const row = element('div', 'manual-field-entry');
+  const input = element('input'); input.value = field.value === '—' ? '' : field.value;
+  input.placeholder = placeholder || `Enter ${field.name.toLowerCase()}`;
+  input.setAttribute('aria-label', `${label} for ${field.name}`);
+  const save = button('Save', 'secondary', () => saveField(field.field_id, input.value));
+  input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && input.value.trim()) save.click(); });
+  row.append(input, save); group.append(row); container.append(group);
+}
+
+function renderSemanticCauseEditor(container, field) {
+  const group = element('div', 'field-representation-group');
+  group.append(element('span', 'representation-label', 'Describe the cause if known'));
+  const input = element('input'); input.placeholder = 'Cause observed or suspected'; input.setAttribute('aria-label', `Cause for ${field.name}`);
+  const actions = element('div', 'semantic-cause-actions');
+  const suspected = button('Save as suspected', 'secondary', () => {
+    if (input.value.trim()) selectFieldRepresentation(field.field_id, { kind: 'SEMANTIC_STATE', state: 'SUSPECTED', value: input.value.trim() });
+  });
+  const confirmed = button('Save as confirmed', 'secondary', () => {
+    if (input.value.trim()) selectFieldRepresentation(field.field_id, { kind: 'SEMANTIC_STATE', state: 'CONFIRMED', value: input.value.trim() });
+  });
+  actions.append(suspected, confirmed); group.append(input, actions); container.append(group);
+}
+
+function renderRepresentationGroup(container, title, options, field) {
+  if (!options?.length) return;
+  const group = element('div', 'field-representation-group');
+  group.append(element('span', 'representation-label', title));
+  const choices = element('div', 'representation-choices');
+  for (const option of options) {
+    choices.append(representationChoice(option, () => selectFieldRepresentation(field.field_id, {
+      kind: option.kind,
+      candidate_id: option.candidate_id,
+      ...(option.span_id ? { span_id: option.span_id } : {}),
+    })));
+  }
+  group.append(choices); container.append(group);
+}
+
+function renderInlineResolution(container, field) {
+  const item = field.resolution_item;
+  if (!item) return;
+  const editor = element('div', 'inline-field-editor unresolved-field-editor');
+  editor.append(element('p', 'inline-question', item.prompt));
+  const choices = element('div', 'task-choices inline-choices');
+  const choose = (label, selection, note = '') => {
+    const choice = button(label, 'choice-button', () => selectFieldRepresentation(field.field_id, selection));
+    if (note) choice.append(element('small', '', note));
+    choices.append(choice);
+  };
+  if (item.answer_type === 'SELECT_OR_PROVIDE') {
+    for (const option of item.options || []) choose(`${option.value}${option.unit ? ` ${option.unit}` : ''}`, { kind: 'CANDIDATE', candidate_id: option.candidate_id }, option.source_label || 'Report evidence');
+  } else if (item.answer_type === 'SINGLE_SELECT') {
+    const labels = { READY: 'Returned to service', NOT_READY: 'Out of service', DEFERRED: 'Further inspection required', 'N/A': 'Not applicable' };
+    for (const option of (item.options || []).filter((entry) => entry.value !== 'NOT_CHECKED')) choose(labels[option.value] || String(option.label || option.value).replaceAll('_', ' '), { kind: 'MANUAL', value: option.value });
+  } else if (item.answer_type === 'SEMANTIC_STATE') {
+    for (const option of item.options || []) {
+      if (!['SUSPECTED', 'CONFIRMED'].includes(option.value)) choose(option.label || option.value, { kind: 'SEMANTIC_STATE', state: option.value });
+    }
+  } else if (item.answer_type === 'NONE_OR_VALUE') {
+    choose('None', { kind: 'EXPLICIT_NONE' });
+  } else if (item.answer_type === 'CONFIRM_OR_REPLACE') {
+    const options = item.options?.length ? item.options : field.representations?.drafts || [];
+    for (const option of options) choose(`Use ${option.value}${option.unit ? ` ${option.unit}` : ''}`, { kind: 'CANDIDATE', candidate_id: option.candidate_id }, option.source_label || 'Report evidence');
+  }
+  if (choices.childElementCount) editor.append(choices);
+  if (item.answer_type === 'SEMANTIC_STATE') renderSemanticCauseEditor(editor, field);
+  else if (item.answer_type !== 'SINGLE_SELECT') renderManualFieldEditor(editor, field);
+  container.append(editor);
+}
+
+function renderFieldEditor(container, field) {
+  const editor = element('div', 'inline-field-editor');
+  renderRepresentationGroup(editor, 'Report draft', field.representations?.drafts, field);
+  renderRepresentationGroup(editor, 'Original words', field.representations?.original_words, field);
+  renderRepresentationGroup(editor, 'My edit', field.representations?.manual, field);
+  renderManualFieldEditor(editor, field);
+  const cancel = button('Close editor', 'text-button', () => { state.editingField = null; renderWorkspace(); });
+  editor.append(cancel); container.append(editor); setTimeout(() => editor.querySelector('input')?.focus(), 0);
+}
+
 function renderField(section, field) {
   const row = element('div', `report-field state-${field.state.toLowerCase()}`);
   const copy = element('div', 'report-field-copy'); copy.append(element('span', 'field-name', field.name));
   const isEditing = state.editingField === field.field_id;
-  if (isEditing) {
-    const input = element('input'); input.value = field.value === '—' ? '' : field.value; input.setAttribute('aria-label', `Edit ${field.name}`);
-    const actions = element('div', 'field-edit-actions');
-    actions.append(button('Cancel', 'text-button', () => { state.editingField = null; renderWorkspace(); }), button('Save', 'secondary', () => saveField(field.field_id, input.value)));
-    copy.append(input, actions); setTimeout(() => input.focus(), 0);
-  } else {
-    const value = element('strong', 'field-value', field.value); value.title = field.value; copy.append(value);
-    const meta = element('div', 'field-meta');
-    if (field.label !== 'Confirmed' || field.actionable) meta.append(element('span', 'field-state', field.label));
-    if (field.source_label) {
-      const accepted = ['KNOWN_VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE'].includes(field.state);
-      meta.append(element('span', 'field-source', `${accepted ? '✓ ' : ''}${field.source_label}`));
-    }
-    copy.append(meta);
+  const value = element('strong', 'field-value', field.value); value.title = field.value; copy.append(value);
+  const meta = element('div', 'field-meta');
+  if (field.label !== 'Confirmed' || field.actionable) meta.append(element('span', 'field-state', field.label));
+  if (field.source_label) {
+    const accepted = ['KNOWN_VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE'].includes(field.state);
+    meta.append(element('span', 'field-source', `${accepted ? '✓ ' : ''}${field.source_label}`));
   }
+  copy.append(meta);
   const actions = element('div', 'report-field-actions');
   if (!isEditing) {
     if (field.has_provenance) actions.append(button('Source', 'text-button', () => showProvenance(field.field_id)));
-    if (state.session?.phase === 'RESOLVE') actions.append(button('Edit', 'text-button', () => { state.editingField = field.field_id; renderWorkspace(); }));
+    if (['RESOLVE', 'REVIEW'].includes(state.session?.phase) && !field.resolution_item) actions.append(button('Edit', 'text-button', () => { state.editingField = field.field_id; renderWorkspace(); }));
   }
-  row.append(copy, actions); return row;
+  row.append(copy, actions);
+  if (field.resolution_item) renderInlineResolution(row, field);
+  else if (isEditing) renderFieldEditor(row, field);
+  return row;
 }
 
 function renderReportSections(view) {
@@ -333,9 +420,7 @@ function renderReportSections(view) {
       ? `⚠ ${section.status}`
       : state.session?.phase === 'REVIEW' && section.review_priority ? `Review · ${section.status}` : '✓ Complete';
     const summary = element('summary'); summary.append(element('strong', '', section.title), element('span', '', summaryStatus));
-    const reviewFocus = state.session?.phase === 'REVIEW' && !state.reviewFullReport;
-    const visibleFields = reviewFocus && section.review_priority ? section.fields.filter((field) => field.review_priority) : section.fields;
-    const body = element('div', 'report-section-fields'); for (const field of visibleFields) body.append(renderField(section, field)); details.append(summary, body); container.append(details);
+    const body = element('div', 'report-section-fields'); for (const field of section.fields) body.append(renderField(section, field)); details.append(summary, body); container.append(details);
   }
 }
 
@@ -407,79 +492,27 @@ function renderCorrection(panel, task) {
   choices.append(button('Keep original', 'choice-button', () => decideCorrection(correction.review_item_id, 'REJECT')), button('Use correction', 'choice-button', () => decideCorrection(correction.review_item_id, 'ACCEPT'))); panel.append(choices);
 }
 
-function candidateForResolution(item) {
-  const field = state.agentState.report_fields.find((entry) => entry.field_id === item.field_id);
-  return (field?.candidates || []).filter((candidate) => item.candidate_ids.includes(candidate.candidate_id));
-}
-
-function submitOtherAnswer(panel, item, semantic = null) {
-  panel.querySelector('.compact-answer')?.remove();
-  const answer = element('div', 'compact-answer');
-  const definition = state.activeTemplate.schema.fields.find((field) => field.id === item.field_id);
-  const label = definition?.label || 'this report detail';
-  answer.append(element('p', 'task-note', 'Type or record your answer.'));
-  renderReporterComposer(answer, {
-    inputId: 'workspace-resolution-answer', microphoneId: 'workspace-resolution-microphone', compact: true,
-    placeholder: semantic === 'SUSPECTED' ? 'Describe the suspected cause.' : `Answer for ${label.toLowerCase()}.`,
-    submitLabel: 'Continue', onSubmit: (text) => {
-    const definition = state.activeTemplate.schema.fields.find((field) => field.id === item.field_id);
-    const parsed = parseTechnicianFieldAnswer({ definition, fieldId: item.field_id, text });
-    answerResolution(item, semantic ? { kind: 'SEMANTIC_STATE', state: semantic, value: text } : { kind: 'VALUE', ...parsed });
-    },
-  });
-  panel.append(answer); answer.querySelector('textarea').focus();
-}
-
-function renderResolution(panel, task) {
-  const item = task.item; panel.append(element('p', 'task-counter', `${task.remaining} ${task.remaining === 1 ? 'item' : 'items'} need input`), element('h3', '', item.prompt)); panel.lastChild.id = 'active-task-title';
-  const choices = element('div', 'task-choices'); const candidates = candidateForResolution(item);
-  const addChoice = (label, answer, note = '') => {
-    const choice = button(label, 'choice-button', () => answerResolution(item, answer)); if (note) choice.append(element('small', '', note)); choices.append(choice);
-  };
-  if (item.answer_type === 'SELECT_OR_PROVIDE') {
-    for (const option of item.options) {
-      const candidate = candidates.find((entry) => entry.candidate_id === option.candidate_id);
-      addChoice(`${option.value}${option.unit ? ` ${option.unit}` : ''}`, { kind: 'SELECT_CANDIDATE', candidate_id: option.candidate_id }, sourceLabel(option.support_type, candidate?.extraction?.method));
-    }
-    addChoice('Enter another', { kind: 'OTHER' });
-  } else if (item.answer_type === 'SINGLE_SELECT') {
-    const labels = { READY: 'Returned to service', NOT_READY: 'Out of service', DEFERRED: 'Further inspection required', 'N/A': 'Not applicable' };
-    for (const option of item.options.filter((entry) => entry.value !== 'NOT_CHECKED')) addChoice(labels[option.value] || String(option.label || option.value).replaceAll('_', ' '), { kind: 'VALUE', value: option.value });
-  } else if (item.answer_type === 'SEMANTIC_STATE') {
-    for (const option of item.options) addChoice(option.label || option.value, option.value === 'SUSPECTED' || option.value === 'CONFIRMED' ? { kind: 'SEMANTIC_OTHER', state: option.value } : { kind: 'SEMANTIC_STATE', state: option.value });
-  } else if (item.answer_type === 'NONE_OR_VALUE') {
-    addChoice('None', { kind: 'EXPLICIT_NONE' }); addChoice('Yes — describe', { kind: 'OTHER' });
-  } else if (item.answer_type === 'CONFIRM_OR_REPLACE') {
-    for (const candidate of candidates) {
-      const raw = candidate.claim?.value; const value = raw && typeof raw === 'object' ? `${raw.value}${raw.unit ? ` ${raw.unit}` : ''}` : String(raw ?? '');
-      addChoice(`Confirm ${value}`, { kind: 'SELECT_CANDIDATE', candidate_id: candidate.candidate_id }, sourceLabel(candidate.support_type));
-    }
-    addChoice('Enter correction', { kind: 'OTHER' });
+function renderReportReview(panel, task) {
+  panel.append(element('p', 'eyebrow', 'REPORT DRAFT'), element('h3', '', task.title));
+  panel.lastChild.id = 'active-task-title';
+  panel.append(element('p', 'task-note', 'Review the report below. Missing or conflicting details are shown where they belong.'));
+  if (state.addingDetail) {
+    const composer = renderReporterComposer(panel, {
+      inputId: 'workspace-missing-details', microphoneId: 'workspace-missing-details-microphone',
+      placeholder: 'Describe any missing details in one statement.',
+      submitLabel: 'Fill report', onSubmit: captureText,
+    });
+    composer.actions.append(button('Cancel', 'text-button', () => { state.addingDetail = false; state.interaction.statement = ''; renderWorkspace(); }));
+  } else {
+    panel.append(button('Fill missing details by voice or text', 'primary', () => { state.addingDetail = true; renderWorkspace(); }));
   }
-  if (choices.childElementCount) panel.append(choices); else submitOtherAnswer(panel, item);
-  if (state.transcript?.raw_text) {
-    const transcript = element('details', 'transcript-disclosure');
-    transcript.append(element('summary', '', 'Initial statement captured ✓ · View transcript'), element('p', '', state.transcript.raw_text));
-    panel.append(transcript);
-  }
-  if (item.reason) { const why = element('details', 'why-required'); why.append(element('summary', '', 'Why is this required?'), element('p', '', item.reason)); panel.append(why); }
   if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
 }
 
 function renderReview(panel) {
-  panel.append(element('p', 'eyebrow', 'REVIEW'), element('h3', '', 'Review exceptions and critical details')); panel.lastChild.id = 'active-task-title';
-  if (state.addingDetail) {
-    panel.append(element('p', 'task-note', 'Add a correction or another detail. It will be processed through the same evidence and validation workflow.'));
-    const composer = renderReporterComposer(panel, {
-      inputId: 'workspace-additional-detail', microphoneId: 'workspace-additional-microphone',
-      placeholder: 'Add another field-service detail.',
-      submitLabel: 'Continue review', onSubmit: captureText,
-    });
-    composer.actions.append(button('Cancel', 'text-button', () => { state.addingDetail = false; state.interaction.statement = ''; renderWorkspace(); }));
-    return;
-  }
-  panel.append(element('p', 'task-note', 'Normal fields are already supported. Check the highlighted sections, edited values, and completion details below.'));
-  panel.append(button('Finish review', 'primary', completeReview), button('Add more detail', 'secondary', () => { state.addingDetail = true; renderWorkspace(); }));
+  panel.append(element('p', 'eyebrow', 'REVIEW'), element('h3', '', 'Review the completed report')); panel.lastChild.id = 'active-task-title';
+  panel.append(element('p', 'task-note', 'Check the report fields and their sources. You can still edit any field below before submitting this exact version.'));
+  panel.append(button('Submit report', 'primary', submitReport));
 }
 
 function renderActiveTask(view) {
@@ -488,11 +521,11 @@ function renderActiveTask(view) {
   if (task.kind === 'CAPTURE') { renderCapture(panel, task); return; }
   if (task.kind === 'RECORDING') { renderRecording(panel, task); return; }
   if (task.kind === 'CORRECTION') { renderCorrection(panel, task); return; }
-  if (task.kind === 'RESOLUTION') { renderResolution(panel, task); return; }
+  if (task.kind === 'REPORT_REVIEW') { renderReportReview(panel, task); return; }
   if (task.kind === 'REVIEW') { renderReview(panel); return; }
   if (task.kind === 'READY') {
-    panel.append(element('p', 'eyebrow', 'READY'), element('h3', '', task.title), element('p', 'task-note', 'This action confirms the exact server-approved report version.'));
-    panel.children[1].id = 'active-task-title'; panel.append(button('Confirm report', 'primary', confirmReport)); return;
+    panel.append(element('p', 'eyebrow', 'READY'), element('h3', '', task.title), element('p', 'task-note', 'Submitting confirms the exact server-approved report version.'));
+    panel.children[1].id = 'active-task-title'; panel.append(button('Submit report', 'primary', submitReport)); return;
   }
   if (task.kind === 'CONFIRMED') {
     panel.append(element('p', 'success-kicker', '✓ Confirmed'), element('h3', '', task.title)); panel.lastChild.id = 'active-task-title'; panel.append(button('Export report', 'primary', exportReport));
@@ -521,10 +554,16 @@ function renderWorkspace() {
   $('report-complete-count').textContent = `${view.job_header.complete} / ${view.job_header.total} complete`;
   $('report-need-input').textContent = view.job_header.need_input ? `${view.job_header.need_input} need input` : state.session?.phase === 'READY' ? 'Ready to confirm' : state.session?.phase === 'CONFIRMED' ? 'Confirmed' : 'No blocking questions';
   renderActiveTask(view); renderReportSections(view);
-  $('workspace-full-report').textContent = state.session?.phase === 'REVIEW'
-    ? state.reviewFullReport ? 'Show review items' : 'View full report'
-    : 'Expand all';
+  $('workspace-full-report').textContent = view.report_sections.every((section) => section.expanded) ? 'Collapse all' : 'Expand all';
   $('workspace-progress-detail').replaceChildren(element('p', '', view.job_header.need_input ? `${view.job_header.need_input} unresolved ${view.job_header.need_input === 1 ? 'item' : 'items'} remain.` : 'No unresolved blocking items.'));
+  if (state.focusActiveTask) {
+    state.focusActiveTask = false;
+    requestAnimationFrame(() => {
+      const panel = $('workspace-active-task');
+      panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      panel.querySelector('button.primary')?.focus({ preventScroll: true });
+    });
+  }
 }
 
 async function openWorkspace(templateId) {
@@ -570,7 +609,8 @@ async function captureText() {
 
 async function enterReviewIfComplete(workspace = activeWorkspace()) {
   if (workspace?.session?.phase !== 'RESOLVE' || !workspace.agentState?.completeness.complete || workspace.agentState.resolution_queue.length) return;
-  const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/review`, { method: 'POST', body: { expected_revision: workspace.session.revision } }); workspace.session = result.session; workspace.agentState = result.agent_state;
+  const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/review`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
+  workspace.session = result.session; workspace.agentState = result.agent_state; workspace.focusActiveTask = true;
 }
 
 function handleMutationError(error, kind = 'NETWORK', fallback = 'Your saved work is still available.', workspace = activeWorkspace()) {
@@ -605,14 +645,16 @@ async function decideCorrection(reviewItemId, decision) {
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
-async function answerResolution(item, answer) {
-  if (answer.kind === 'OTHER') { submitOtherAnswer($('workspace-active-task'), item); return; }
-  if (answer.kind === 'SEMANTIC_OTHER') { submitOtherAnswer($('workspace-active-task'), item, answer.state); return; }
+async function selectFieldRepresentation(fieldId, selection) {
   const workspace = activeWorkspace();
   setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/resolution-items/${encodeURIComponent(item.resolution_id)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, answer, idempotency_key: crypto.randomUUID() } });
-    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.interaction.statement = ''; await refreshSession(workspace); await enterReviewIfComplete(workspace);
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/fields/${encodeURIComponent(fieldId)}/select`, {
+      method: 'POST',
+      body: { expected_revision: workspace.session.revision, selection, idempotency_key: crypto.randomUUID() },
+    });
+    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.editingField = null;
+    await refreshSession(workspace); await enterReviewIfComplete(workspace);
   } catch (error) { handleMutationError(error, mutationErrorKind(error), undefined, workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
@@ -622,8 +664,7 @@ async function saveField(fieldId, value) {
   try {
     const definition = workspace.activeTemplate.schema.fields.find((field) => field.id === fieldId);
     const parsed = parseTechnicianFieldAnswer({ definition, fieldId, text: value });
-    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/fields/${encodeURIComponent(fieldId)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, ...parsed } });
-    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.editingField = null; await refreshSession(workspace); await enterReviewIfComplete(workspace); renderWorkspaceIfActive(workspace);
+    await selectFieldRepresentation(fieldId, { kind: 'MANUAL', ...parsed });
   } catch (error) { handleMutationError(error, mutationErrorKind(error), undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
@@ -694,17 +735,17 @@ async function retryActiveTask() {
   if (activeWorkspace() === workspace && error.kind === 'STT' && !error.evidence_id && !workspace.recoverableError) $('workspace-audio-upload').click();
 }
 
-async function completeReview() {
+async function submitReport() {
   const workspace = activeWorkspace();
-  try { const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/review/complete`, { method: 'POST', body: { expected_revision: workspace.session.revision } }); workspace.session = result.session; workspace.agentState = result.agent_state; renderWorkspaceIfActive(workspace); }
-  catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
-}
-
-async function confirmReport() {
-  const workspace = activeWorkspace();
-  if (workspace.session.phase !== 'READY') return;
   setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
+    if (workspace.session.phase === 'REVIEW') {
+      const reviewed = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/review/complete`, {
+        method: 'POST', body: { expected_revision: workspace.session.revision },
+      });
+      workspace.session = reviewed.session; workspace.agentState = reviewed.agent_state;
+    }
+    if (workspace.session.phase !== 'READY') throw new Error('The server has not approved this report version for submission.');
     const confirmed = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/confirm`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
     workspace.confirmation = confirmed.confirmation; workspace.session = confirmed.session; workspace.agentState = confirmed.agent_state; rememberActiveSession(workspace);
   } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
@@ -772,7 +813,6 @@ $('template-search').addEventListener('input', (event) => renderCatalog(event.ta
 document.querySelectorAll('[data-template-category]').forEach((node) => node.addEventListener('click', () => { state.catalogCategory = node.dataset.templateCategory; document.querySelectorAll('[data-template-category]').forEach((candidate) => { const active = candidate === node; candidate.classList.toggle('active', active); candidate.setAttribute('aria-pressed', String(active)); }); renderCatalog(); }));
 $('workspace-progress').addEventListener('click', () => { const detail = $('workspace-progress-detail'); detail.hidden = !detail.hidden; $('workspace-progress').setAttribute('aria-expanded', String(!detail.hidden)); });
 $('workspace-full-report').addEventListener('click', () => {
-  if (state.session?.phase === 'REVIEW') { state.reviewFullReport = !state.reviewFullReport; renderWorkspace(); return; }
   const sections = [...document.querySelectorAll('.report-section-accordion')]; const expand = sections.some((section) => !section.open);
   sections.forEach((section) => { section.open = expand; }); $('workspace-full-report').textContent = expand ? 'Collapse all' : 'Expand all';
 });

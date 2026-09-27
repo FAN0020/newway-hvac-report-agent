@@ -53,9 +53,9 @@ Persistence is file-backed and content/hash checked. Session mutations are revis
 2. Text or audio is persisted as evidence. Audio bytes are stored before Whisper runs.
 3. Harmless normalization proceeds; only material transcript corrections interrupt the workflow.
 4. Server extraction creates evidence-bound FieldCandidates. Merge, conflict, validation, and completeness run deterministically.
-5. The UI presents one server-owned ResolutionItem at a time, safety first. Structured answers create new server-owned technician evidence/events and trigger re-merge/re-validation.
+5. The UI projects every server-owned ResolutionItem into the generated schema-ordered report at the affected field. Structured inline answers remain safety-prioritized by the server, while one global voice/text action can supply multiple missing facts without forcing a sequential wizard.
 6. With no blocking queue, the server enters REVIEW. Review acknowledgement creates READY plus a validation receipt for the exact revision and structured-state hash.
-7. `Confirm report` sends only session route identity and `expected_revision`. The server reloads and validates authoritative state, binds the server principal, and creates one immutable snapshot.
+7. One visible `Submit report` action requests review completion and then confirmation for the returned exact revision. The server performs both gates, reloads authoritative state, binds the server principal, and creates one immutable snapshot; the browser does not supply a final draft.
 8. Export renders from the snapshot. Export failure cannot invalidate or duplicate confirmation, and retry is idempotent.
 
 ## 4. ReportSession lifecycle and final gates
@@ -90,6 +90,7 @@ All mutation endpoints require bearer authorization, derive session identity fro
 | `POST .../transcript-reviews/:review/decide` | Record every material correction decision | complete ACCEPT/REJECT/NO_CHANGE set, expected revision | Review/session bound; raw transcript retained |
 | `POST .../resolution-items/:item/answer` | Resolve current issue(s) | structured answer, expected revision, idempotency key | Request-bound replay; stale writes rejected |
 | `POST .../fields/:field/answer` | Read-first edit/manual answer | value/unit, expected revision | Server creates manual evidence |
+| `POST .../fields/:field/select` | Select report draft, exact transcript words, prior edit, semantic state, or new manual value | selection kind plus server-owned candidate/span reference or manual value, expected revision, idempotency key | Server verifies same-session provenance, creates confirmation evidence/event, retains alternatives, and re-merges |
 | `POST .../candidates/:candidate/confirm` | Confirm eligible candidate | expected revision | Server creates confirmation support/event |
 | `POST .../attachments` | Preserve classified supporting evidence | bytes, filename, purpose, expected revision | Non-authoritative until a supported extractor exists |
 | `POST .../guidance/uploads` | Ingest session-scoped knowledge | bytes/filename, expected revision | Scope and uploader derived by server |
@@ -134,14 +135,14 @@ Active completeness and minimal-question checks show zero duplicate questions, n
 
 | Verification | Result |
 | --- | --- |
-| Full syntax + repository suite (`npm run check`) | **440/440 passed**, 0 failed, 0 skipped, 0 todo |
-| Agent/merge/conflict/validation/resolution/lifecycle focus | **16/16 passed** |
+| Full syntax plus repository suite (`npm run typecheck`; `npm test`) | **482/482 passed**, 0 failed, 0 skipped, 0 todo |
+| Changed authoritative workflow/server/UI focus | **88/88 passed** |
 | Capture/audio/evidence/guidance/restart focus | **29/29 passed** |
-| UI/component/accessibility contracts | **58/58 passed** |
+| Workspace view/UI/accessibility contracts | **62/62 passed** |
 | Teammate V2/RAG/extraction/report regression | **172/172 passed** |
 | Final confirmation/snapshot/export/adversarial/frozen set | **12/12 passed** |
 | SBS deterministic extraction evaluation | 7 cases, recall 1.0, false missing 0, false supported 0, value errors 0, decision `promote` |
-| Synthetic component evaluation | 38 RUN, 16 NOT_RUN, 6 NOT_SUPPORTED, 0 ERROR; provisional labels |
+| Synthetic component evaluation dry run | 23 RUN, 31 NOT_RUN, 6 NOT_SUPPORTED, 0 ERROR; provisional labels |
 | RAG/report Batch 3 | 20 RUN, 10 NOT_RUN, 0 errors, 0 scope/report hard-gate failures |
 | DeepEval semantic judge | NOT_RUN — repository `.venv`/DeepEval runtime is absent; deterministic gates are the P0 authority |
 | Server startup/health | PASS; loopback security headers, authenticated health, Whisper and Ollama ready |
@@ -162,7 +163,7 @@ Observed local timings (no formal targets were defined): initial load 15 ms; tex
 
 Actual rendered states were inspected at desktop and 390×844 mobile. Artifacts are under ignored `output/playwright/prompt7/`: capture, safety resolve, conflict, review, ready, confirmed, and recoverable error. Browser console: 0 errors, 0 warnings. Refresh during RESOLVE and REVIEW restored server state. The export download was inspected after the QA-discovered unit/duplicate-field fix; it now renders `Odometer: 51020 km`, preserves `None` and `NOT_READY`, and does not duplicate the odometer.
 
-Checks passed: one primary action; no manual Update Report; one question at a time; structured controls before text; transcript collapsed; read-first fields; on-demand provenance; no permanent RAG/debug/confidence/model/chunk/trace data; practical touch targets; long text wraps; visible keyboard semantics/focus rules; role-accessible names; microphone denial offers retry and text/upload alternatives while preserving saved work.
+Checks passed: one primary action; no manual Update Report; complete generated report as the correction surface; structured controls at unresolved fields; one optional global multi-field capture; reversible Report draft / Original words / My edit choices; transcript collapsed; read-first normal fields; on-demand provenance; no permanent RAG/debug/confidence/model/chunk/trace data; practical touch targets; long text wraps; visible keyboard semantics/focus rules; role-accessible names; microphone denial offers text/upload alternatives while preserving saved work.
 
 ## 13. Product source-of-truth matrix
 

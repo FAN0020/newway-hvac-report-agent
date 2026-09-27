@@ -58,10 +58,16 @@ test('shared legacy presentation helpers remain deterministic for non-workspace 
   assert.equal(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: [], needsConfirmation: [], complete: true }).stateLabel, 'Ready');
 });
 
-test('resolution UI prefers structured controls and never exposes developer metadata', async () => {
+test('generated report is the correction workspace and keeps structured field controls inline', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   for (const type of ['SELECT_OR_PROVIDE', 'SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'CONFIRM_OR_REPLACE']) assert.match(client, new RegExp(type));
-  assert.match(client, /Why is this required\?/);
+  assert.match(client, /function renderInlineResolution/);
+  assert.match(client, /Fill missing details/);
+  assert.match(client, /Report draft/);
+  assert.match(client, /Original words/);
+  assert.match(client, /My edit/);
+  assert.doesNotMatch(client, /function renderResolution/);
+  assert.doesNotMatch(client, /Why is this required\?/);
   assert.match(client, /function renderReporterComposer/);
   assert.match(client, /renderReporterComposer\(panel/);
   assert.doesNotMatch(client, /Enter \$\{item\.field_id\}/u);
@@ -81,9 +87,16 @@ test('responsive and accessibility rules provide focus and practical mobile targ
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.choice-button[^}]*min-height:\s*50px/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.capture-actions \.primary[^}]*min-height:\s*46px/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-field-actions \.text-button[^}]*min-height:\s*44px/s);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.why-required summary[^}]*min-height:\s*44px/s);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.inline-field-editor button[^}]*min-height:\s*44px/s);
   assert.match(css, /\.report-section-fields\s*\{[^}]*repeat\(2,/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-section-fields[^}]*grid-template-columns:\s*1fr/s);
+});
+
+test('entering review brings the single next action back into view after an inline field decision', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /focusActiveTask/);
+  assert.match(client, /scrollIntoView\(\{ block: 'start'/);
+  assert.match(client, /querySelector\('button\.primary'\)\?\.focus/);
 });
 
 test('recoverable capture failures preserve work and expose a non-voice alternative', async () => {
@@ -108,11 +121,11 @@ test('successful evidence attachment is visibly acknowledged without becoming a 
   assert.match(client, /workspace\.attachmentStatus = `Evidence attached:/);
 });
 
-test('human review can reopen the shared capture composer without bypassing review', async () => {
+test('one global missing-details composer can update several unresolved fields without a wizard', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /addingDetail/);
-  assert.match(client, /Add more detail/);
-  assert.match(client, /renderReporterComposer\(panel,[\s\S]*submitLabel: 'Continue review'/s);
+  assert.match(client, /Fill missing details/);
+  assert.match(client, /renderReporterComposer\(panel,[\s\S]*submitLabel: 'Fill report'/s);
   assert.match(client, /state\.addingDetail = false/);
   assert.match(client, /async function uploadAudio[\s\S]*workspace\.addingDetail = false/s);
   assert.match(client, /button\('Cancel', 'text-button'/);
@@ -138,5 +151,6 @@ test('local API client reacquires its ephemeral token once after a server restar
 test('inline field edit mode does not retain duplicate Source or Edit actions', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /const isEditing = state\.editingField === field\.field_id/);
-  assert.match(client, /if \(!isEditing\) \{[\s\S]*field\.has_provenance[\s\S]*phase === 'RESOLVE'/);
+  assert.match(client, /if \(!isEditing\) \{[\s\S]*field\.has_provenance[\s\S]*\['RESOLVE', 'REVIEW'\]/);
+  assert.doesNotMatch(client, /if \(isEditing\)[\s\S]*button\('Source'/);
 });

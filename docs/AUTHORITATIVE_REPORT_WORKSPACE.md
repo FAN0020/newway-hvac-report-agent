@@ -6,9 +6,11 @@
 
 The technician workspace is now a minimal client of the authoritative `ReportSession` workflow:
 
-`Capture → server extraction/completeness → one ResolutionItem at a time → focused review → server-gated confirmation → existing-format export`
+`Capture once → server extraction/completeness → schema-ordered report draft → inline correction/completion → review → one visible Submit → existing-format export`
 
 The browser no longer constructs facts, completeness, conflicts, validation, or confirmation eligibility. It renders the current session, Agent state, and queue returned by the server.
+
+The server still owns `ResolutionQueue`; the UI deliberately does not turn that queue into a normal sequential wizard. Each unresolved item is projected into the generated report beside its field, while one optional global voice/text composer can supply several missing facts in a single statement.
 
 ## Before / after architecture
 
@@ -32,11 +34,11 @@ AppShell
     │   └── actionable completeness
     ├── ActiveTaskPanel
     │   ├── CaptureComposer | ProcessingState | TranscriptCorrection
-    │   ├── ResolutionItem | Review | Ready | Confirmed
+    │   ├── ReportDraftTask | Review | Confirmed
     │   └── RecoverableError
     └── ReportSummary
         ├── ReportSectionAccordion[]
-        │   └── read-first ReportField[]
+        │   └── read-first ReportField[] + inline correction controls
         ├── ProvenanceDialog
         └── classified AttachmentDialog
 ```
@@ -49,7 +51,7 @@ Removed or consolidated:
 
 - Removed manual **Update report** and client-side analysis controls; submission automatically starts processing.
 - Removed the permanent editable form; fields are read-first and edit only on demand during resolution.
-- Removed the confirmation checkbox and duplicate confirmation controls; `Confirm report` exists only in server phase `READY`.
+- Removed the confirmation checkbox and duplicate confirmation controls; one visible `Submit report` action invokes the server review and confirmation gates for the exact current revision.
 - Removed permanent transcript, RAG/retrieval, confidence, trace, chunk, provider, and JSON panels.
 - Consolidated microphone, recording upload, and text into one capture composer.
 - Consolidated evidence uploads into one classified **Attach evidence** action.
@@ -66,9 +68,9 @@ Removed or consolidated:
 | capture recording | Recording… | Stop recording |
 | audio upload / `PROCESSING` | Transcribing / extracting / checking | none |
 | `CORRECTION_IF_NEEDED` | one material correction | Keep original or use correction |
-| `RESOLVE` + queue | first server `ResolutionItem` | structured answer / Continue |
-| `REVIEW` | edited, critical, and safety items only | Finish review |
-| `READY` | exact approved version | Confirm report |
+| `RESOLVE` + queue | complete schema-ordered report with unresolved controls at affected fields | inline structured answer, field edit, or one global multi-field capture |
+| `REVIEW` | complete report and source/edit controls | Submit report |
+| `READY` | exact reviewed version | Submit report |
 | `CONFIRMED` | confirmed package | Export report |
 | recoverable error | saved-work message | retry the failed operation |
 
@@ -85,7 +87,7 @@ Header progress is derived from `agent_state.completeness` and `resolution_queue
 | `CONFIRM_OR_REPLACE` | confirm candidate / Enter correction |
 | `VALUE` | compact input, with number/unit normalization where declared |
 
-After every answer, the UI accepts the returned revision and Agent state, refreshes the authoritative chain, and renders the newly rebuilt queue. A stale revision is never applied optimistically; the UI shows a reconcile action.
+These controls appear at the affected field rather than in a detached question wizard. Normal populated fields remain read-first. Edit mode exposes the server-derived report draft, exact original transcript words when available, previous technician edits, and a new manual edit. Every selection creates server-owned evidence/audit history and can be reversed without deleting earlier provenance. After every answer, the UI accepts the returned revision and Agent state, refreshes the authoritative chain, and renders the rebuilt report. A stale revision is never applied optimistically; the UI shows a reconcile action.
 
 ## Backend support added for the workspace
 
@@ -133,18 +135,18 @@ Actual results:
 
 | Verification | Result |
 |---|---|
-| Full deterministic repository suite | **428 passed, 0 failed** |
-| Focused workspace/server lifecycle suite | **67 passed, 0 failed** |
-| Workspace view/UI contract subset after visual fixes | **49 passed, 0 failed** |
+| Full deterministic repository suite | **482 passed, 0 failed, 0 skipped** |
+| Focused changed workflow/server/UI suite | **88 passed, 0 failed** |
+| Workspace view/UI contract subset after rendered fixes | **62 passed, 0 failed** |
 | Normal browser console | **0 errors, 0 warnings** |
 | Network recovery | expected browser network failure only; retry continued the same session and statement |
-| Confirm/export browser smoke | confirmed successfully; downloaded `bus-defect-rectification-corrective-maintenance.txt` |
+| Confirm/export browser smoke | confirmed successfully; downloaded `bus-defect-rectification-corrective-maintenance.pdf` |
 
 ## Real unified-backend journeys
 
 | Journey | Result and evidence |
 |---|---|
-| A — Mostly complete dictation/text | PASS — work-order identity prefilled, processing automatic, transcript collapsed, five true unresolved items queued, one-at-a-time answers reached Review → Ready → Confirmed → export. |
+| A — Mostly complete dictation/text | PASS — work-order identity prefilled, processing automatic, transcript collapsed, five true unresolved items appeared at their report fields, and one multi-field statement resolved three before explicit test/safety decisions reached Review → Confirmed → export. |
 | B — Explicit none | PASS — mixed statement with “door controller” plus “No parts were used” rendered Parts / materials = None and did not ask for a part. Regression test added. |
 | C — Conflict | PASS — `8300-354` work order vs `8300-345` statement produced `CONFLICT`; both values and sources were shown; source dialog retained both provenance chains; selection removed the conflict. |
 | D — Uncertain measurement | PASS — Agent integration tests keep `UNCERTAIN` distinct and emit one `CONFIRM_OR_REPLACE`; the UI state contract renders one focused structured confirmation and source remains attached. |
@@ -157,8 +159,8 @@ Actual results:
 
 - Replaced implementation-centred stages and panels with task-centred copy and transient processing.
 - Reduced initial page height by keeping report sections collapsed during capture.
-- Opened only the section containing the current resolution; other unresolved sections remain visually marked.
-- In Review, showed only technician-resolved and critical/safety values by default; **View full report** reveals everything.
+- Made the schema-ordered generated report the primary correction surface, with unresolved fields marked and editable in place.
+- Kept the full report visible during resolve/review so correction happens in report context, while capture remains compact.
 - Preserved exact source labels and verbatim evidence spans on demand.
 - Prevented conflicting values from appearing as accepted report values.
 - Preserved typed work through offline failure and made retry resume the failed capture.
@@ -170,12 +172,12 @@ Actual results:
 | Requirement | Classification | Observable evidence |
 |---|---|---|
 | Report-aware Capture | PASS | Exact published template and work-order context bind the session; known identity is prefilled; one text/mic composer submits through ReportSession capture APIs. |
-| Active Completeness | PASS | Header shows actionable completion; server queue drives one question at a time; technician never searches the form for the next missing field. |
+| Active Completeness | PASS | Header shows actionable completion; every server issue is placed at its report field and the global fill action can resolve several missing details at once. |
 | Evidence-grounded / Traceable | PASS | Read-first fields expose source on demand; conflict provenance shows both sources; attachments and answers become server-owned evidence/events. |
 | Existing-workflow Compatibility | PASS | Existing template sections remain; the confirmed server-approved draft exports through the existing report builder/exporter. |
 | Voice/Text → structured fields | PASS | Text browser journey and audio HTTP integration both enter the unified capture service and produce server candidates. |
 | Missing-field detection | PASS | Server completeness/validation queue is rendered directly; optional missing fields do not block. |
-| Agent follow-up questions | PASS | ResolutionPlanner order and answer contracts map to one focused task with structured controls. |
+| Agent follow-up questions | PASS | ResolutionPlanner issues map to structured inline controls in the generated report; global capture is available when one statement can answer several fields. |
 | Human confirmation | PASS | Correction decisions, resolution answers, review completion, and final confirmation are explicit server mutations with revision checks. |
 | Field provenance/evidence | PASS | Source dialog shows work-order records or exact transcript spans; resolution evidence survives conflict resolution. |
 | Existing template/report compatibility | PASS | SBS corrective-maintenance schema is rendered from the confirmed immutable snapshot through the unified export endpoint. |
