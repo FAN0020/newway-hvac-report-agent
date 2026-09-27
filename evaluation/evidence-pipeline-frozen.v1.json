@@ -152,6 +152,20 @@
       "relevant_retrieval_ids": []
     },
     {
+      "case_id": "BUS-ASR-GROUPED-ODOMETER",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "The odometer was 51,020 kilometers.",
+      "expected_fields": ["measurement.odometer_km"],
+      "forbidden_fields": [],
+      "expected_values": { "measurement.odometer_km": "51020" },
+      "fact_value_targets": [
+        { "kind": "number_unit", "field": "measurement.odometer_km", "value": "51020", "unit": "km" }
+      ],
+      "relevant_retrieval_ids": []
+    },
+    {
       "case_id": "RAIL-COMPLETE",
       "scope_id": "SBS_RAIL",
       "context_id": "SBS/RAIL",

@@ -68,6 +68,13 @@ test('resolution UI prefers structured controls and never exposes developer meta
   assert.doesNotMatch(client, /retrieval score|chunk id|AI confidence|trace id/iu);
 });
 
+test('resolution submission parses measurement text and distinguishes input failures from network failures', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /parseTechnicianFieldAnswer/);
+  assert.match(client, /mutationErrorKind/);
+  assert.match(client, /error\.status >= 500/);
+});
+
 test('responsive and accessibility rules provide focus and practical mobile targets', async () => {
   const css = await fs.readFile('web/styles.css', 'utf8');
   assert.match(css, /:focus-visible[^}]*outline:/s);

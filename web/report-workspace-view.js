@@ -90,7 +90,7 @@ function deriveActiveTask(input) {
     const labels = {
       RETRY_TRANSCRIPTION: 'Retry transcription', RETRY_ATTACHMENT: 'Try attachment again',
       RETRY_AUDIO_UPLOAD: 'Choose another recording',
-      RETRY_CONNECTION: 'Try again', REFRESH_SESSION: 'Refresh report',
+      RETRY_CONNECTION: 'Try again', RETRY_INPUT: 'Edit answer', REFRESH_SESSION: 'Refresh report',
     };
     return {
       kind: 'RECOVERABLE_ERROR', title: error.message || 'Something interrupted this step.',

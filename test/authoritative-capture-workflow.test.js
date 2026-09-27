@@ -120,6 +120,43 @@ test('technician text is persisted, report-bound, reviewed harmlessly, and conve
   ]);
 });
 
+test('transcript measurements become numeric server candidates while preserving exact units', async (t) => {
+  const { service } = await fixture(t, 'numeric-measurement');
+  const created = await busSession(service, 'MEASUREMENT');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'The odometer was 51020 km.',
+    language: 'en',
+    idempotency_key: 'measurement-capture-1',
+  });
+  const candidate = result.candidates.find((entry) => entry.field_id === 'measurement.odometer_km');
+  assert.deepEqual(candidate.claim.value, { value: 51020, unit: 'km' });
+  const field = result.agent_state.report_fields.find((entry) => entry.field_id === 'measurement.odometer_km');
+  assert.equal(field.state, 'KNOWN_VALUE');
+  assert.equal(result.agent_state.validation_issues.some((issue) => issue.field_id === 'measurement.odometer_km'), false);
+});
+
+test('ordinary text capture uses the selected fact-centric interpretation even without a correction screen', async (t) => {
+  const { service } = await fixture(t, 'fact-centric-no-review');
+  const created = await busSession(service, 'NO-REVIEW');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'The passenger door would not close. Inspection found a loose connector. No outstanding issues.',
+    language: 'en',
+    idempotency_key: 'fact-centric-no-review-1',
+  });
+  assert.equal(result.review, null);
+  assert.deepEqual(
+    result.candidates.filter((candidate) => candidate.field_id === 'inspection_findings').map((candidate) => candidate.claim.value),
+    ['Inspection found a loose connector'],
+  );
+  const outstanding = result.agent_state.report_fields.find((field) => field.field_id === 'completion.outstanding_issues');
+  assert.equal(outstanding.state, 'EXPLICIT_NONE');
+  assert.equal(result.agent_state.resolution_queue.some((item) => item.field_id === 'completion.outstanding_issues'), false);
+});
+
 test('audio bytes exist before Whisper and the transcript preserves provider timestamps and exact bindings', async (t) => {
   let persistedBytes = null;
   const whisper = {

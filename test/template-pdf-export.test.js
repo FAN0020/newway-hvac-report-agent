@@ -49,6 +49,27 @@ test('versioned PDF binding renders a template-specific table layout without col
   assert.doesNotMatch(html, /Unknown[^<]*OK/iu);
 });
 
+test('repeating measurement rows do not duplicate explicitly placed odometer fields or append wildcard Unknown', () => {
+  const template = templateFor('bus-defect-rectification-corrective-maintenance');
+  const defectReport = {
+    ...report,
+    template_id: template.templateId,
+    template_name: template.name,
+    sections: [
+      { title: 'Job identity', content: [
+        { field_id: 'measurement.odometer_km', label: 'Odometer', state: 'KNOWN_VALUE', value: 51020, unit: 'km' },
+      ] },
+      { title: 'Rectification', content: [
+        { field_id: 'measurement.*', label: 'Measurements', state: 'UNKNOWN', value: null, unit: null },
+      ] },
+    ],
+  };
+  const html = renderReportHtml({ report: defectReport, confirmation, template });
+  assert.equal((html.match(/51020 km/gu) || []).length, 1);
+  assert.doesNotMatch(html, /51020 km; Unknown/iu);
+  assert.match(html, /Measurements<\/td><td>Unknown<\/td>/u);
+});
+
 test('confirmed snapshot report renders to a real PDF when the local renderer is available', async (t) => {
   const template = templateFor(report.template_id);
   const rendered = await renderReportPdf({ report, confirmation, template });

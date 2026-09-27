@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 
 import { evaluateEvidencePipelines } from '../evaluation/evidence-pipeline-evaluation.js';
+import { interpretEvidence } from '../src/tools/interpret-evidence.js';
 
 const fixture = JSON.parse(await fs.readFile(new URL('../evaluation/evidence-pipeline-frozen.v1.json', import.meta.url), 'utf8'));
 
@@ -40,4 +41,31 @@ test('frozen evidence comparison covers grounding, conflicts, provenance, retrie
   assert.ok(result.summary.FACT_CENTRIC_HYBRID.extraction_recall >= result.summary.RAW_DIRECT.extraction_recall);
   assert.ok(result.summary.FACT_CENTRIC_HYBRID.extraction_precision >= result.summary.WHOLE_TRANSCRIPT_CORRECTION.extraction_precision);
   assert.equal(result.decision.selected, 'FACT_CENTRIC_HYBRID');
+});
+
+test('fact-centric interpretation prefers an explicit inspection statement over a complaint fallback', async () => {
+  const result = await interpretEvidence({
+    scope_id: 'SBS_BUS',
+    raw_text: 'The passenger door would not close. Inspection found a loose connector.',
+  });
+  assert.deepEqual(
+    result.facts.filter((fact) => fact.field === 'inspection_findings').map((fact) => fact.value),
+    ['Inspection found a loose connector'],
+  );
+});
+
+test('fact-centric interpretation retains explicit no-outstanding-issues semantics', async () => {
+  const result = await interpretEvidence({
+    scope_id: 'SBS_BUS',
+    raw_text: 'No outstanding issues.',
+  });
+  assert.deepEqual(result.facts.find((fact) => fact.field === 'completion.outstanding_issues'), {
+    field: 'completion.outstanding_issues',
+    value: null,
+    claim_kind: 'EXPLICIT_NONE',
+    support_status: 'DIRECT_TRANSCRIPT',
+    source: 'manual',
+    source_span: { start: 0, end: 21, text: 'No outstanding issues' },
+    critical: false,
+  });
 });

@@ -609,12 +609,15 @@ export class AuthoritativeCaptureService {
         quote: source.text,
         source_text: transcript.raw_text,
       });
+      const measuredValue = fact.unit !== undefined && /^[-+]?\d+(?:[.,]\d+)?$/u.test(String(fact.value))
+        ? Number(String(fact.value).replace(',', '.'))
+        : fact.value;
       const candidate = createFieldCandidate({
         session_id: session.session_id,
         field_id: fact.field,
         claim: fact.claim_kind === 'EXPLICIT_NONE'
           ? { kind: 'EXPLICIT_NONE' }
-          : { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: fact.value, unit: fact.unit } },
+          : { kind: 'VALUE', value: fact.unit === undefined ? fact.value : { value: measuredValue, unit: fact.unit } },
         unit: fact.unit,
         support_type: supportType,
         assessment: fact.support_status === 'UNCERTAIN' ? 'UNCERTAIN' : 'VALID',
@@ -1041,8 +1044,22 @@ export class AuthoritativeCaptureService {
         next_action: 'REVIEW_TRANSCRIPT',
       };
     }
-    const { spans, candidates, facts } = await this.extractCandidates({ session, transcript, supportType });
-    const guided = await this.retrieveGuidance({ session, transcript, facts });
+    const interpretation = CONTEXT_BY_SCOPE[session.context_binding.scope_id]
+      ? await interpretEvidence({
+        scope_id: session.context_binding.scope_id,
+        raw_text: transcript.raw_text,
+        approach: 'FACT_CENTRIC_HYBRID',
+        correction_items: [],
+        accepted_correction_ids: [],
+      })
+      : { facts: null, effective_text: transcript.raw_text };
+    const { spans, candidates, facts } = await this.extractCandidates({
+      session,
+      transcript,
+      supportType,
+      preExtractedFacts: interpretation.facts,
+    });
+    const guided = await this.retrieveGuidance({ session, transcript, facts, query: interpretation.effective_text });
     const completed = await this.sessionStore.transition({
       session_id: session.session_id,
       expected_revision: guided.session.revision,

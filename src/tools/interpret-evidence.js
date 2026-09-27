@@ -17,12 +17,18 @@ const SAFE_FIELDS_BY_CATEGORY = Object.freeze({
   CRITICAL_VALUE: Object.freeze(['measurements']),
 });
 
-function exactNoneFact(rawText) {
-  const match = /\bno parts (?:were )?(?:used|replaced)\b/iu.exec(rawText);
-  return match ? {
-    field: 'parts.part_number', value: null, claim_kind: 'EXPLICIT_NONE', support_status: 'DIRECT_TRANSCRIPT',
-    source: 'manual', source_span: { start: match.index, end: match.index + match[0].length, text: match[0] }, critical: false,
-  } : null;
+function exactNoneFacts(rawText) {
+  const patterns = [
+    ['parts.part_number', /\bno parts (?:were )?(?:used|replaced)\b/iu],
+    ['completion.outstanding_issues', /\bno (?:outstanding|remaining|unresolved) (?:issues?|faults?)\b/iu],
+  ];
+  return patterns.flatMap(([field, pattern]) => {
+    const match = pattern.exec(rawText);
+    return match ? [{
+      field, value: null, claim_kind: 'EXPLICIT_NONE', support_status: 'DIRECT_TRANSCRIPT',
+      source: 'manual', source_span: { start: match.index, end: match.index + match[0].length, text: match[0] }, critical: false,
+    }] : [];
+  });
 }
 
 function correctionsForScope(scopeId, rawText) {
@@ -88,6 +94,15 @@ function factKey(fact) {
   return `${fact.field}|${fact.claim_kind || 'VALUE'}|${JSON.stringify(fact.value)}`;
 }
 
+function preferExplicitInspectionFacts(facts) {
+  const inspection = facts.filter((fact) => fact.field === 'inspection_findings');
+  if (inspection.length < 2) return facts;
+  const explicit = inspection.filter((fact) => /检查发现|检查结果|经检查|检验发现|inspection\s+(?:found|showed|identified)|inspected|examined|found\s+(?:that\s+)?/iu.test(String(fact.value || '')));
+  if (!explicit.length) return facts;
+  const selected = new Set(explicit.map(factKey));
+  return facts.filter((fact) => fact.field !== 'inspection_findings' || selected.has(factKey(fact)));
+}
+
 function categoryAllows(field, corrections) {
   return corrections.some((correction) => (SAFE_FIELDS_BY_CATEGORY[correction.category] || []).some((prefix) => field === prefix || field.startsWith(prefix)));
 }
@@ -114,7 +129,7 @@ export async function interpretEvidence({
     ? review.items
     : review.items.filter((item) => new Set(acceptedCorrectionIds || []).has(item.correction_id));
   const projection = correctionProjection(text, accepted);
-  const none = exactNoneFact(text);
+  const noneFacts = exactNoneFacts(text);
   let facts;
   if (approach === 'RAW_DIRECT') {
     facts = await extract(scopeId, text);
@@ -141,8 +156,9 @@ export async function interpretEvidence({
         existing.add(factKey(projected));
       }
     }
+    facts = preferExplicitInspectionFacts(facts);
   }
-  if (none) {
+  for (const none of noneFacts) {
     facts = facts.filter((fact) => fact.field !== none.field);
     facts.push(none);
   }

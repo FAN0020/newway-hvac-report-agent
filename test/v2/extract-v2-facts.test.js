@@ -340,6 +340,28 @@ test('Rail and Bus door-not-closing observations become findings and completed r
   assert.ok(hasField(bus.facts, 'work_performed'));
 });
 
+test('Bus dictation recognizes odometer and a completed door-cycle test with exact units', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'The odometer was 51020 km. I reseated the connector. I completed five door cycles and operation was normal.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'measurement.odometer_km'), '51020');
+  assert.equal(facts.find((fact) => fact.field === 'measurement.odometer_km')?.unit, 'km');
+  assert.match(valueOf(facts, 'work_performed'), /reseated the connector/iu);
+  assert.match(valueOf(facts, 'test.result'), /five door cycles/iu);
+});
+
+test('Bus ASR output accepts a thousands-grouped odometer without changing its value or unit', async () => {
+  const { facts } = await extractV2Facts({
+    contextId: 'SBS/BUS',
+    rawText: 'The odometer was 51,020 kilometers.',
+    registry,
+  });
+  assert.equal(valueOf(facts, 'measurement.odometer_km'), '51020');
+  assert.equal(facts.find((fact) => fact.field === 'measurement.odometer_km')?.unit, 'km');
+});
+
 test('OILFIELD text extracts source-grounded pipeline inspection facts', async () => {
   const { facts } = await extractV2Facts({
     contextId: 'OILFIELD',

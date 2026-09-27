@@ -11,10 +11,12 @@ test('visible technician journey is Choose Report → authoritative workspace �
   assert.match(workspace, /data-workspace-area="ACTIVE_TASK_PANEL"/);
   assert.match(workspace, /data-workspace-area="REPORT_SUMMARY"/);
   assert.match(client, /workspace\.session\.phase !== 'READY'/);
+  assert.match(client, /window\.scrollTo\(\{ top: 0, left: 0, behavior: 'instant' \}\)/u);
   assert.match(client, /\/review\/complete/);
   assert.match(client, /\/confirm/);
   assert.match(client, /\/export/);
   assert.doesNotMatch(workspace, /Update report|workspace-confirm-check|workspace-fields/iu);
+  assert.match(workspace, /class="back-link" data-template-nav="reports">← Reports<\/button>/u);
   assert.match(html, /class="app-shell" hidden inert/);
 });
 
@@ -32,6 +34,11 @@ test('workspace uses authoritative ReportSession routes and never submits browse
   assert.match(client, /savedActiveSession/);
   assert.doesNotMatch(client, /\/api\/template-reports\/build|\/api\/v2\/reports\/(?:confirm|export)/);
   assert.doesNotMatch(client, /facts:\s*factsFromStructuredState|evaluateCompleteness|mapFactsToStructuredState|knowledge_hits/);
+});
+
+test('browser helper modules imported by the workspace are served explicitly', async () => {
+  const server = await fs.readFile('src/server.js', 'utf8');
+  assert.match(server, /\['\/report-input\.js', \['report-input\.js', 'text\/javascript; charset=utf-8'\]\]/u);
 });
 
 test('capture and report display are progressive, read-first, and source-aware', async () => {

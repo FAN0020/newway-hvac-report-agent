@@ -1063,6 +1063,7 @@ const staticFiles = new Map([
   ['/template-selection.js', ['template-selection.js', 'text/javascript; charset=utf-8']],
   ['/template-workspace.js', ['template-workspace.js', 'text/javascript; charset=utf-8']],
   ['/report-workspace-view.js', ['report-workspace-view.js', 'text/javascript; charset=utf-8']],
+  ['/report-input.js', ['report-input.js', 'text/javascript; charset=utf-8']],
   ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],

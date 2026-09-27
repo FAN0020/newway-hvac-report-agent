@@ -1,4 +1,5 @@
 import { PcmWavRecorder } from './audio-recorder.js';
+import { parseTechnicianFieldAnswer } from './report-input.js';
 import { deriveWorkspaceView } from './report-workspace-view.js';
 import { createReportWorkspaceRegistry, registerRuntimeTemplate } from './report-runtime.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
@@ -155,6 +156,7 @@ function setView(name) {
   if (name === 'reports') renderReports();
   if (name === 'choose') renderCatalog();
   syncMobileNavigation(false);
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   return true;
 }
 
@@ -418,9 +420,8 @@ function submitOtherAnswer(panel, item, semantic = null) {
     placeholder: semantic === 'SUSPECTED' ? 'Describe the suspected cause.' : `Answer for ${label.toLowerCase()}.`,
     submitLabel: 'Continue', onSubmit: (text) => {
     const definition = state.activeTemplate.schema.fields.find((field) => field.id === item.field_id);
-    const value = definition?.type === 'number' ? Number(text) : text;
-    const unit = item.field_id.endsWith('_km') ? 'km' : undefined;
-    answerResolution(item, semantic ? { kind: 'SEMANTIC_STATE', state: semantic, value: text } : { kind: 'VALUE', value, ...(unit ? { unit } : {}) });
+    const parsed = parseTechnicianFieldAnswer({ definition, fieldId: item.field_id, text });
+    answerResolution(item, semantic ? { kind: 'SEMANTIC_STATE', state: semantic, value: text } : { kind: 'VALUE', ...parsed });
     },
   });
   panel.append(answer); answer.querySelector('textarea').focus();
@@ -568,8 +569,13 @@ function handleMutationError(error, kind = 'NETWORK', fallback = 'Your saved wor
     message,
     retry_action: kind === 'UPLOAD' ? 'RETRY_ATTACHMENT'
       : kind === 'AUDIO_UPLOAD' ? 'RETRY_AUDIO_UPLOAD'
-        : kind === 'STT' ? 'RETRY_TRANSCRIPTION' : 'RETRY_CONNECTION',
+        : kind === 'STT' ? 'RETRY_TRANSCRIPTION'
+          : kind === 'INPUT' ? 'RETRY_INPUT' : 'RETRY_CONNECTION',
   };
+}
+
+function mutationErrorKind(error, networkKind = 'NETWORK') {
+  return !Number.isInteger(error?.status) || error.status >= 500 ? networkKind : 'INPUT';
 }
 
 async function decideCorrection(reviewItemId, decision) {
@@ -582,7 +588,7 @@ async function decideCorrection(reviewItemId, decision) {
     const decisions = review.items.map((item) => ({ review_item_id: item.review_item_id, decision: workspace.correctionDecisions.get(item.review_item_id) }));
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcript-reviews/${encodeURIComponent(review.review_id)}/decide`, { method: 'POST', body: { expected_revision: workspace.session.revision, decisions } });
     workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcriptReview = result.review; workspace.correctionDecisions.clear(); await refreshSession(workspace); await enterReviewIfComplete(workspace);
-  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
+  } catch (error) { handleMutationError(error, mutationErrorKind(error), undefined, workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
@@ -594,7 +600,7 @@ async function answerResolution(item, answer) {
   try {
     const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/resolution-items/${encodeURIComponent(item.resolution_id)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, answer, idempotency_key: crypto.randomUUID() } });
     workspace.session = result.session; workspace.agentState = result.agent_state; workspace.interaction.statement = ''; await refreshSession(workspace); await enterReviewIfComplete(workspace);
-  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
+  } catch (error) { handleMutationError(error, mutationErrorKind(error), undefined, workspace); }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
@@ -602,11 +608,10 @@ async function saveField(fieldId, value) {
   const workspace = activeWorkspace();
   try {
     const definition = workspace.activeTemplate.schema.fields.find((field) => field.id === fieldId);
-    const normalized = definition?.type === 'number' && value !== '' ? Number(value) : value;
-    const unit = fieldId.endsWith('_km') ? 'km' : undefined;
-    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/fields/${encodeURIComponent(fieldId)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, value: normalized, ...(unit ? { unit } : {}) } });
+    const parsed = parseTechnicianFieldAnswer({ definition, fieldId, text: value });
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/fields/${encodeURIComponent(fieldId)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, ...parsed } });
     workspace.session = result.session; workspace.agentState = result.agent_state; workspace.editingField = null; await refreshSession(workspace); await enterReviewIfComplete(workspace); renderWorkspaceIfActive(workspace);
-  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
+  } catch (error) { handleMutationError(error, mutationErrorKind(error), undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
 function formatElapsed() { const seconds = Math.floor((Date.now() - recordingStartedAt) / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }

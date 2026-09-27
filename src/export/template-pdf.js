@@ -64,17 +64,23 @@ function reportFieldMap(report) {
   return new Map((report.sections || []).flatMap((section) => section.content || []).map((item) => [item.field_id, item]));
 }
 
-function valuesForDefinition(definition, fields) {
+function valuesForDefinition(definition, fields, definitions) {
+  const explicitlyPlaced = new Set(definitions.filter((item) => !item.id.endsWith('.*')).map((item) => item.id));
+  const repeated = definition.id.endsWith('.*')
+    ? [...fields.entries()].filter(([id]) => id !== definition.id
+      && id.startsWith(definition.id.slice(0, -1))
+      && !explicitlyPlaced.has(id)).map(([, item]) => printableValue(item))
+    : [];
   const values = definition.id.endsWith('.*')
-    ? [...fields.entries()].filter(([id]) => id.startsWith(definition.id.slice(0, -1))).map(([, item]) => printableValue(item))
+    ? repeated.length ? repeated : [printableValue(fields.get(definition.id) || { state: 'UNKNOWN' })]
     : [printableValue(fields.get(definition.id) || { state: 'UNKNOWN' })];
   return values.join('; ');
 }
 
-function renderStandardTable(title, definitions, fields) {
+function renderStandardTable(title, definitions, fields, allDefinitions = definitions) {
   if (!definitions.length) return '';
   const rows = definitions.map((definition) => `
-      <tr><td class="label">${escapeHtml(definition.label)}</td><td>${escapeHtml(valuesForDefinition(definition, fields))}</td><td class="required">${definition.required ? 'Yes' : 'Optional'}</td></tr>`).join('');
+      <tr><td class="label">${escapeHtml(definition.label)}</td><td>${escapeHtml(valuesForDefinition(definition, fields, allDefinitions))}</td><td class="required">${definition.required ? 'Yes' : 'Optional'}</td></tr>`).join('');
   return `<section><h2>${escapeHtml(title)}</h2><table class="template-table cols-3"><thead><tr><th>Field</th><th>Value</th><th>Required</th></tr></thead><tbody>${rows}</tbody></table></section>`;
 }
 
@@ -111,6 +117,7 @@ function renderTemplateSections(report, template) {
     title,
     definitions.filter((definition) => sectionNames.includes(definition.section) && !definition.id.startsWith('check.')),
     fields,
+    definitions,
   ));
   const checklists = (CHECKLIST_LAYOUTS[template.templateId] || []).map((group) => renderChecklist(group, template, fields));
   if (!checklists.length) return standard.join('');

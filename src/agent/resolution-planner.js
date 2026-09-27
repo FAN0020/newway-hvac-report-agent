@@ -12,10 +12,10 @@ function priorityFor(issues, definition, fieldId) {
 }
 
 function typeFor(issues, definition, fieldId) {
-  if (isSafetyField(fieldId, definition) || issues.some((issue) => issue.issue_type === 'SAFETY_CONFIRMATION')) return 'SAFETY_CONFIRMATION';
   if (issues.some((issue) => issue.issue_type === 'CONFLICT')) return 'CONFLICT';
-  if (issues.some((issue) => issue.issue_type === 'MISSING')) return 'MISSING';
   if (issues.some((issue) => issue.issue_type === 'CONDITIONAL_REQUIREMENT')) return 'CONDITIONAL_REQUIREMENT';
+  if (issues.some((issue) => issue.issue_type === 'MISSING')) return 'MISSING';
+  if (isSafetyField(fieldId, definition) || issues.some((issue) => issue.issue_type === 'SAFETY_CONFIRMATION')) return 'SAFETY_CONFIRMATION';
   if (issues.some((issue) => issue.issue_type === 'INVALID')) return 'INVALID';
   return 'UNCERTAIN';
 }
@@ -93,4 +93,3 @@ export function planResolutions({ definitions, report_fields: reportFields, vali
   }
   return Object.freeze(queue.sort((a, b) => a.priority - b.priority || a.field_id.localeCompare(b.field_id)));
 }
-
