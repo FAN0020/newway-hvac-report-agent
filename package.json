@@ -25,6 +25,7 @@
     "eval:batch3": "node scripts/evaluate-batch3.js",
     "eval:deepeval:adapter": "DEEPEVAL_TELEMETRY_OPT_OUT=1 .venv/bin/python evaluation/deepeval_adapter.py --adapter-only",
     "eval:deepeval:smoke": "DEEPEVAL_TELEMETRY_OPT_OUT=1 .venv/bin/python evaluation/deepeval_adapter.py --smoke",
+    "eval:gold:validate": "node scripts/validate-frozen-gold.js",
     "eval:summary": "node scripts/summarize-evaluation.js",
     "eval:annotation-package": "node scripts/build-blind-annotation-package.js"
   }
