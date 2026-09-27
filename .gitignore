@@ -12,6 +12,8 @@ data/reports/*
 !data/validations/.gitkeep
 !data/confirmations/.gitkeep
 !data/reports/.gitkeep
+# Server-owned ReportSession records, indexes, audit events, and exports are runtime data.
+data/report-session-authority/
 data/v2-uploads/*
 !data/v2-uploads/.gitkeep
 data/templates/*
