@@ -676,3 +676,58 @@ export function createSessionRuntime() {
     accepts(token) { return Boolean(token) && token.sessionId === activeSessionId && token.generation === generation && latestRequests.get(`${token.sessionId}:${token.scope}`) === token.requestId; },
   };
 }
+
+export function createReportWorkspaceRegistry() {
+  const workspaces = new Map();
+  const latestRequests = new Map();
+  let activeKey = null;
+  let requestSequence = 0;
+
+  return {
+    register(key, workspace) {
+      if (!key) throw new Error('A report workspace key is required.');
+      workspaces.set(key, workspace);
+      if (!activeKey) activeKey = key;
+      return workspace;
+    },
+    rekey(previousKey, nextKey) {
+      if (!workspaces.has(previousKey)) throw new Error(`Unknown report workspace: ${previousKey}`);
+      const workspace = workspaces.get(previousKey);
+      workspaces.delete(previousKey);
+      workspaces.set(nextKey, workspace);
+      if (activeKey === previousKey) activeKey = nextKey;
+      return workspace;
+    },
+    activate(key) {
+      if (!workspaces.has(key)) throw new Error(`Unknown report workspace: ${key}`);
+      activeKey = key;
+      return workspaces.get(key);
+    },
+    active() { return activeKey ? workspaces.get(activeKey) || null : null; },
+    activeKey() { return activeKey; },
+    isActive(key) { return activeKey === key; },
+    get(key) { return workspaces.get(key) || null; },
+    list() { return [...workspaces.entries()].map(([key, workspace]) => ({ key, workspace })); },
+    update(key, patch) {
+      const workspace = workspaces.get(key);
+      if (!workspace) return null;
+      Object.assign(workspace, patch);
+      return workspace;
+    },
+    begin(key, scope = 'default') {
+      if (!workspaces.has(key)) throw new Error(`Unknown report workspace: ${key}`);
+      requestSequence += 1;
+      const token = { key, scope, requestId: requestSequence };
+      latestRequests.set(`${key}:${scope}`, requestSequence);
+      return token;
+    },
+    apply(token, patch) {
+      if (!token || latestRequests.get(`${token.key}:${token.scope}`) !== token.requestId) return false;
+      const workspace = workspaces.get(token.key);
+      if (!workspace) return false;
+      if (typeof patch === 'function') patch(workspace);
+      else Object.assign(workspace, patch);
+      return true;
+    },
+  };
+}

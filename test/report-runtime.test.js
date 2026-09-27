@@ -388,6 +388,42 @@ test('session runtime rejects an older request in the same session and scope', (
   assert.equal(controller.accepts(newer), true);
 });
 
+test('report workspace registry isolates recording and async results across three reports', () => {
+  assert.equal(typeof runtime.createReportWorkspaceRegistry, 'function');
+  const registry = runtime.createReportWorkspaceRegistry();
+  registry.register('report-a', { processing: null, transcript: null, statement: 'A draft' });
+  registry.register('report-b', { processing: null, transcript: null, statement: 'B draft' });
+  registry.register('report-c', { processing: null, transcript: null, statement: 'C draft' });
+
+  registry.activate('report-a');
+  registry.update('report-a', { processing: 'RECORDING' });
+  const capture = registry.begin('report-a', 'audio-capture');
+
+  registry.activate('report-b');
+  assert.deepEqual(registry.active(), { processing: null, transcript: null, statement: 'B draft' });
+  registry.activate('report-c');
+  assert.deepEqual(registry.active(), { processing: null, transcript: null, statement: 'C draft' });
+
+  assert.equal(registry.apply(capture, { processing: null, transcript: { raw_text: 'Report A only' } }), true);
+  assert.deepEqual(registry.get('report-a'), { processing: null, transcript: { raw_text: 'Report A only' }, statement: 'A draft' });
+  assert.deepEqual(registry.get('report-b'), { processing: null, transcript: null, statement: 'B draft' });
+  assert.deepEqual(registry.get('report-c'), { processing: null, transcript: null, statement: 'C draft' });
+});
+
+test('report workspace registry rejects stale callbacks without depending on the active report', () => {
+  const registry = runtime.createReportWorkspaceRegistry();
+  registry.register('report-a', { processing: 'UPLOADING_AUDIO', transcript: null });
+  registry.register('report-b', { processing: null, transcript: null });
+  const stale = registry.begin('report-a', 'audio-capture');
+  const current = registry.begin('report-a', 'audio-capture');
+  registry.activate('report-b');
+
+  assert.equal(registry.apply(stale, { transcript: { raw_text: 'stale' } }), false);
+  assert.equal(registry.apply(current, { processing: null, transcript: { raw_text: 'current' } }), true);
+  assert.equal(registry.get('report-a').transcript.raw_text, 'current');
+  assert.equal(registry.get('report-b').transcript, null);
+});
+
 test('an unchanged confirmed report stays confirmed while a material change makes it stale', () => {
   assert.equal(typeof runtime.bindSessionConfirmation, 'function');
   assert.equal(typeof runtime.hasMaterialReportChange, 'function');

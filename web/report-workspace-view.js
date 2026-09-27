@@ -98,9 +98,10 @@ function deriveActiveTask(input) {
       primary_action: action(error.retry_action, labels[error.retry_action] || 'Try again'),
     };
   }
-  if (processing && PROCESSING_COPY[processing]) {
+  const processingBelongsToSession = !input.processing_session_id || input.processing_session_id === session.session_id;
+  if (processing && processingBelongsToSession && PROCESSING_COPY[processing]) {
     const [kind, title, primary] = PROCESSING_COPY[processing];
-    return { kind, title, primary_action: action(primary, primary === 'STOP_RECORDING' ? 'Stop recording' : null) };
+    return { kind, title, primary_action: action(primary, primary === 'STOP_RECORDING' ? 'Stop & fill report' : null) };
   }
   if (session.phase === 'CONTEXT') {
     return {

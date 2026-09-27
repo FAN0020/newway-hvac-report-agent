@@ -1,8 +1,8 @@
 import { ALLOWED_FACT_FIELDS, MANUAL_ONLY_FIELDS, sanitizeValue } from './hvac-schema.js';
 import { boundedString, stableId, toolEnvelope } from './tool-envelope.js';
 
-const NEGATED_ACTION = /(?:没有|没|并未|尚未|未曾|未|无)\s*(?:实际)?\s*(?:进行|完成|做|作)?\s*(?:任何)?\s*(?:更换|换上|使用|安装|清洗|清理|维修|加注|处理|完成)/u;
-const RECOMMENDED_ACTION = /(?:建议|后续|下次|应当|可考虑)[^\n。！？；;]*(?:更换|换上|使用|安装|清洗|清理|维修|加注|处理|完成)/u;
+const NEGATED_ACTION = /(?:没有|没|并未|尚未|未曾|未|无)\s*(?:实际)?\s*(?:进行|完成|做|作)?\s*(?:任何)?\s*(?:更换|换上|使用|安装|清洗|清理|维修|加注|处理|完成)|\b(?:did\s+not|didn't|was\s+not|wasn't|were\s+not|weren't|never)\s+(?:actually\s+)?(?:replace|use|install|clean|clear|repair|recharge|service|complete|perform|test)\w*\b/iu;
+const RECOMMENDED_ACTION = /(?:建议|后续|下次|应当|可考虑)[^\n。！？；;]*(?:更换|换上|使用|安装|清洗|清理|维修|加注|处理|完成)|\b(?:recommend(?:ed|ing)?|suggest(?:ed|ing)?|plan(?:ned)?\s+to|will|next\s+visit)[^.!?;\n]{0,120}\b(?:replace|use|install|clean|clear|repair|recharge|service|complete|perform|test)\w*\b/iu;
 
 const CHINESE_QUANTITY = Object.freeze({ 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 });
 
@@ -69,7 +69,13 @@ function heuristicFacts(rawText, confirmedCorrections = []) {
     if (complaint) add('customer_complaint', complaint.replace(/[\n。！？；;]+$/u, ''));
     const finding = text.match(/(?:检查(?:发现|结果)?|现场发现|发现)[：:,，\s]*(.+)/u)?.[1];
     if (finding) add('inspection_findings', finding.replace(/[\n。！？；;]+$/u, ''));
+    if (/\b(?:I|we)\s+(?:found|observed)\b|\binspection\s+(?:found|showed|revealed)\b/iu.test(text)) {
+      add('inspection_findings', text.replace(/[\n。！？；;]+$/u, ''));
+    }
     if (!NEGATED_ACTION.test(text) && !RECOMMENDED_ACTION.test(text) && /(?:已(?:更换|清洗|清理|维修|疏通|紧固|完成)|完成了|进行了|更换|换了|换上|清洗|清理|维修|疏通|紧固)/u.test(text)) {
+      add('work_performed', text.replace(/[\n。！？；;]+$/u, ''));
+    }
+    if (!NEGATED_ACTION.test(text) && !RECOMMENDED_ACTION.test(text) && /\b(?:I|we)\s+(?:actually\s+)?(?:replaced|installed|cleaned|cleared|repaired|recharged|serviced|tightened|reset|unblocked|completed|performed)\b/iu.test(text)) {
       add('work_performed', text.replace(/[\n。！？；;]+$/u, ''));
     }
     const part = inferredPart(text, span, confirmedCorrections);
@@ -81,7 +87,13 @@ function heuristicFacts(rawText, confirmedCorrections = []) {
     if (/(?:测试|试机|测量|运行)[^\n。！？；;]*(?:正常|异常|通过|失败|可以|不能|温度|压力|电流)/u.test(text)) {
       add('test_results', text.replace(/[\n。！？；;]+$/u, ''));
     }
+    if (/\b(?:test(?:ed|ing)?|ran\s+(?:an?\s+)?[\w-]+\s+test|performed\s+(?:an?\s+)?[\w-]+\s+test)\b[^.!?;\n]{0,160}\b(?:normal|passed|failed|acceptable|within\s+(?:range|limits)|abnormal)\b/iu.test(text)) {
+      add('test_results', text.replace(/[\n。！？；;]+$/u, ''));
+    }
     if (/(?:问题|故障)(?:已解决|未解决|部分解决)|(?:已完成|未完成|需继续处理)/u.test(text)) {
+      add('completion_status', text.replace(/[\n。！？；;]+$/u, ''));
+    }
+    if (/\b(?:job|work|service)\s+(?:is|was)\s+(?:now\s+)?(?:complete|completed)\b/iu.test(text)) {
       add('completion_status', text.replace(/[\n。！？；;]+$/u, ''));
     }
     const unresolved = text.match(/(?:未解决|尚未解决|遗留问题)[：:,，\s]*(.+)/u)?.[1];

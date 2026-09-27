@@ -30,6 +30,19 @@ test('complete HVAC narration produces a source-bound draft that passes', async 
   assert.match(result.generated.data.draft.facts_hash, /^sha256:[a-f0-9]{64}$/);
 });
 
+test('verified English HVAC audio transcript deterministically extracts report fields', async () => {
+  const rawText = 'At fictional unit AC-104, I found the drain line blocked, I cleared the drain line and ran a cooling test, cooling was normal, the job is complete.';
+  const result = await extractServiceFacts({ transcript: { artifact_id: 'HVAC-NORMAL-001', raw_text: rawText }, traceId: 'trace_hvac_english' });
+  const byField = new Map(result.data.facts.map((fact) => [fact.field, fact]));
+
+  for (const field of ['inspection_findings', 'work_performed', 'test_results', 'completion_status']) {
+    assert.ok(byField.has(field), `${field} should be extracted from the verified transcript`);
+    const fact = byField.get(field);
+    assert.equal(rawText.slice(fact.source_span.start, fact.source_span.end), fact.source_span.text);
+    assert.ok(fact.source_refs.some((reference) => reference.startsWith('transcript:')));
+  }
+});
+
 test('HVAC validator rejects a draft whose schema/state binding was tampered', async () => {
   const result = await makeDraft('客户反映不制冷。检查发现运行电容损坏。更换了一个35微法电容。试机运行正常。问题已解决。');
   const tampered = structuredClone(result.generated.data.draft);
@@ -49,7 +62,10 @@ test('parts-only narration stays incomplete and does not invent tests', async ()
 });
 
 test('negated replacement is not extracted as performed work or a used part', async () => {
-  for (const raw_text of ['检查了电容，没有更换电容。', '并未进行更换电容。', '尚未实际更换电容。']) {
+  for (const raw_text of [
+    '检查了电容，没有更换电容。', '并未进行更换电容。', '尚未实际更换电容。',
+    'I did not replace the actuator.', 'I recommend replacing the actuator next visit.', 'I will replace the actuator tomorrow.',
+  ]) {
     const extracted = await extractServiceFacts({ transcript: { artifact_id: 't_neg', raw_text }, traceId: 'trace_neg' });
     assert.equal(extracted.data.facts.some((fact) => ['work_performed', 'parts_used'].includes(fact.field)), false);
   }

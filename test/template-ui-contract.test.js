@@ -10,7 +10,7 @@ test('visible technician journey is Choose Report â†’ authoritative workspace â†
   assert.match(workspace, /data-workspace-area="JOB_HEADER"/);
   assert.match(workspace, /data-workspace-area="ACTIVE_TASK_PANEL"/);
   assert.match(workspace, /data-workspace-area="REPORT_SUMMARY"/);
-  assert.match(client, /state\.session\.phase !== 'READY'/);
+  assert.match(client, /workspace\.session\.phase !== 'READY'/);
   assert.match(client, /\/review\/complete/);
   assert.match(client, /\/confirm/);
   assert.match(client, /\/export/);

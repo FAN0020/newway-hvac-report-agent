@@ -32,6 +32,16 @@ test('workspace has one capture primary, one embedded microphone, and two second
   assert.doesNotMatch(client, /Update report|workspace-analyze|workspace-confirm-check/);
 });
 
+test('active recording keeps one stop-and-fill action while report navigation remains available', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /function renderRecording\([\s\S]*task\.primary_action\.label[\s\S]*stopRecording/s);
+  assert.match(client, /task\.kind === 'RECORDING'\) \{ renderRecording\(panel, task\); return; \}/);
+  assert.match(client, /createReportWorkspaceRegistry/);
+  assert.match(client, /recorderWorkspace/);
+  assert.match(client, /function syncCaptureNavigation\([\s\S]*node\.disabled = false/s);
+  assert.match(client, /processing_session_id: state\.processingSessionId/);
+});
+
 test('shared legacy presentation helpers remain deterministic for non-workspace consumers', () => {
   const groups = groupTemplateFields([
     { id: 'work.date', label: 'Date', section: 'Job identity', displayOrder: 2, type: 'string' },
@@ -70,5 +80,5 @@ test('recoverable capture failures preserve work and expose a non-voice alternat
   assert.match(client, /Recording saved, but transcription could not finish/);
   assert.match(client, /Type a statement or upload a recording/);
   assert.match(client, /STALE_REVISION/);
-  assert.match(client, /refreshSession\(\)/);
+  assert.match(client, /refreshSession\(workspace\)/);
 });

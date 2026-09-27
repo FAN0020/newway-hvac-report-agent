@@ -1,24 +1,70 @@
 import { PcmWavRecorder } from './audio-recorder.js';
 import { deriveWorkspaceView } from './report-workspace-view.js';
-import { registerRuntimeTemplate } from './report-runtime.js';
+import { createReportWorkspaceRegistry, registerRuntimeTemplate } from './report-runtime.js';
 import { recentTechnicianTemplates, selectTechnicianTemplates } from './template-selection.js';
 
 const $ = (id) => document.getElementById(id);
 const RECENT_TEMPLATES_KEY = 'field-report.recent-template-ids';
 const ACTIVE_SESSION_KEY = 'field-report.active-authoritative-session';
 const mobileNavigation = window.matchMedia('(max-width: 760px)');
+const workspaceRegistry = createReportWorkspaceRegistry();
 const state = {
-  token: '', templates: [], activeTemplate: null, catalogCategory: 'All', templatesLoading: true,
-  templatesError: null, recentTemplateIds: [], session: null, agentState: null, chain: null,
-  transcript: null, transcriptReview: null, processing: null, recoverableError: null,
-  interaction: { statement: '', microphone_available: Boolean(navigator.mediaDevices?.getUserMedia) },
-  correctionDecisions: new Map(), confirmation: null, editingField: null,
-  reviewFullReport: false,
+  token: '', templates: [], catalogCategory: 'All', templatesLoading: true,
+  templatesError: null, recentTemplateIds: [],
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
 };
 let recorder = null;
+let recorderWorkspace = null;
 let recordingStartedAt = 0;
 let recordingTimer = null;
+
+function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
+  return {
+    key,
+    activeTemplate: template,
+    session: null,
+    agentState: null,
+    chain: null,
+    transcript: null,
+    transcriptReview: null,
+    processing: null,
+    processingSessionId: null,
+    recoverableError: null,
+    interaction: { statement: '', microphone_available: Boolean(navigator.mediaDevices?.getUserMedia) },
+    correctionDecisions: new Map(),
+    confirmation: null,
+    editingField: null,
+    reviewFullReport: false,
+  };
+}
+
+function activeWorkspace() { return workspaceRegistry.active(); }
+
+for (const property of [
+  'activeTemplate', 'session', 'agentState', 'chain', 'transcript', 'transcriptReview', 'processing',
+  'processingSessionId', 'recoverableError', 'interaction', 'correctionDecisions', 'confirmation',
+  'editingField', 'reviewFullReport',
+]) {
+  Object.defineProperty(state, property, {
+    get() { return activeWorkspace()?.[property] ?? null; },
+    set(value) {
+      const workspace = activeWorkspace();
+      if (!workspace) throw new Error(`Cannot set ${property} without an active report workspace.`);
+      workspace[property] = value;
+    },
+  });
+}
+
+function activateWorkspace(workspace) {
+  workspaceRegistry.activate(workspace.key);
+  $('template-reports-nav').hidden = false;
+  setView('workspace');
+  renderWorkspace();
+}
+
+function renderWorkspaceIfActive(workspace) {
+  if (activeWorkspace() === workspace) renderWorkspace();
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -37,12 +83,12 @@ function recordRecentTemplate(templateId) {
   try { sessionStorage.setItem(RECENT_TEMPLATES_KEY, JSON.stringify(state.recentTemplateIds)); } catch { /* memory fallback */ }
 }
 
-function rememberActiveSession() {
-  if (!state.session || !state.activeTemplate) return;
+function rememberActiveSession(workspace = activeWorkspace()) {
+  if (!workspace?.session || !workspace.activeTemplate) return;
   try {
     sessionStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify({
-      session_id: state.session.session_id,
-      template_id: state.activeTemplate.templateId,
+      session_id: workspace.session.session_id,
+      template_id: workspace.activeTemplate.templateId,
     }));
   } catch { /* memory fallback */ }
 }
@@ -78,6 +124,13 @@ function syncMobileNavigation(open = document.querySelector('.template-sidebar')
   $('template-mobile-menu').setAttribute('aria-expanded', String(!mobileNavigation.matches || open));
 }
 
+function syncCaptureNavigation() {
+  document.querySelectorAll('[data-template-nav]').forEach((node) => {
+    node.disabled = false;
+    node.title = '';
+  });
+}
+
 function setView(name) {
   const views = { reports: 'template-reports', choose: 'template-choose', workspace: 'template-workspace', templates: 'template-manager', setup: 'template-setup' };
   for (const [key, id] of Object.entries(views)) { $(id).hidden = key !== name; $(id).classList.toggle('active', key === name); }
@@ -87,6 +140,7 @@ function setView(name) {
   if (name === 'reports') renderReports();
   if (name === 'choose') renderCatalog();
   syncMobileNavigation(false);
+  return true;
 }
 
 function catalogButton(template) {
@@ -131,34 +185,42 @@ function renderManager() {
 
 function renderReports() {
   const list = $('template-report-list'); list.replaceChildren();
-  if (!state.session || !state.activeTemplate) {
+  const workspaces = workspaceRegistry.list().filter(({ workspace }) => workspace.session || workspace.activeTemplate);
+  if (!workspaces.length) {
     const empty = element('div', 'report-list-empty'); empty.append(element('strong', '', 'No report in this browser session'), element('p', '', 'Start a new report to begin.')); list.append(empty); return;
   }
-  const row = element('article', 'manager-row'); const identity = element('div');
-  const complete = state.agentState?.completeness?.complete_fields?.length || 0;
-  identity.append(element('strong', '', state.activeTemplate.name), element('p', '', `${complete} fields complete`));
-  row.append(identity, element('span', '', state.session.phase.replaceAll('_', ' ')));
-  const open = element('button', 'secondary', 'Open'); open.addEventListener('click', () => setView('workspace')); row.append(open); list.append(row);
+  for (const { workspace } of workspaces) {
+    const row = element('article', 'manager-row'); const identity = element('div');
+    const complete = workspace.agentState?.completeness?.complete_fields?.length || 0;
+    const runtimeStatus = workspace === recorderWorkspace ? 'RECORDING' : workspace.processing || workspace.session?.phase || 'LOADING';
+    identity.append(element('strong', '', workspace.activeTemplate.name), element('p', '', `${complete} fields complete`));
+    row.append(identity, element('span', '', runtimeStatus.replaceAll('_', ' ')));
+    const open = element('button', 'secondary', 'Open'); open.addEventListener('click', () => activateWorkspace(workspace)); row.append(open); list.append(row);
+  }
 }
 
 function workspaceInput() {
   return {
     template: state.activeTemplate, session: state.session, agent_state: state.agentState,
     transcript: state.transcript, transcript_review: state.transcriptReview, processing: state.processing,
+    processing_session_id: state.processingSessionId,
     recoverable_error: state.recoverableError, interaction: state.interaction, confirmation: state.confirmation,
   };
 }
 
 function currentView() { return deriveWorkspaceView(workspaceInput()); }
 
-async function refreshSession() {
-  if (!state.session) return;
-  const chain = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}`);
-  state.chain = chain; state.session = chain.session; state.agentState = chain.agent_state;
-  state.transcript = chain.transcripts.at(-1) || state.transcript;
-  state.transcriptReview = chain.transcript_reviews.at(-1) || null;
-  state.confirmation = chain.confirmation || state.confirmation;
-  rememberActiveSession();
+async function refreshSession(workspace = activeWorkspace()) {
+  if (!workspace?.session) return;
+  const sessionId = workspace.session.session_id;
+  const chain = await api(`/api/report-sessions/${encodeURIComponent(sessionId)}`);
+  if (workspace.session?.session_id !== sessionId) return;
+  if ((workspace.session.revision || 0) > (chain.session.revision || 0)) return;
+  workspace.chain = chain; workspace.session = chain.session; workspace.agentState = chain.agent_state;
+  workspace.transcript = chain.transcripts.at(-1) || workspace.transcript;
+  workspace.transcriptReview = chain.transcript_reviews.at(-1) || null;
+  workspace.confirmation = chain.confirmation || workspace.confirmation;
+  rememberActiveSession(workspace);
 }
 
 function button(label, className, handler) {
@@ -233,20 +295,33 @@ function renderReportSections(view) {
 }
 
 function renderCapture(panel, task) {
+  const workspace = activeWorkspace();
+  const microphoneInUseElsewhere = Boolean(recorder && recorderWorkspace !== workspace);
   panel.append(element('h3', '', task.title)); panel.lastChild.id = 'active-task-title';
   const composer = element('div', 'workspace-composer'); const textarea = element('textarea'); textarea.id = 'workspace-statement'; textarea.rows = 4;
   textarea.placeholder = 'Describe the issue, findings, work performed, tests, and handover.'; textarea.value = state.interaction.statement;
   textarea.addEventListener('input', () => { state.interaction.statement = textarea.value; submit.disabled = !textarea.value.trim(); });
   textarea.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && textarea.value.trim()) captureText(); });
-  const mic = button(recorder ? '■ Stop' : '● Record', `composer-microphone${recorder ? ' recording' : ''}`, () => recorder ? stopRecording() : startRecording());
-  mic.id = 'workspace-microphone'; mic.setAttribute('aria-label', recorder ? 'Stop recording' : 'Start recording'); mic.setAttribute('aria-pressed', String(Boolean(recorder)));
-  mic.disabled = !state.interaction.microphone_available; composer.append(textarea, mic); panel.append(composer);
+  const mic = button('● Record', 'composer-microphone', startRecording);
+  mic.id = 'workspace-microphone'; mic.setAttribute('aria-label', microphoneInUseElsewhere ? 'Microphone in use by another report' : 'Start recording'); mic.setAttribute('aria-pressed', 'false');
+  mic.disabled = !state.interaction.microphone_available || microphoneInUseElsewhere; composer.append(textarea, mic); panel.append(composer);
   const actions = element('div', 'capture-actions');
   const submit = button('Continue', 'primary', captureText); submit.id = 'workspace-capture-submit'; submit.disabled = !textarea.value.trim();
   const upload = button('Upload recording', 'secondary', () => $('workspace-audio-upload').click());
   const attach = button('Attach evidence', 'text-button', () => $('workspace-attachment-dialog').showModal());
   actions.append(submit, upload, attach); panel.append(actions);
   if (!state.interaction.microphone_available) panel.append(element('p', 'task-note', 'Microphone unavailable. Type a statement or upload a recording.'));
+  else if (microphoneInUseElsewhere) panel.append(element('p', 'task-note', 'The microphone is recording another report. You can continue with text here or return to that report to stop it.'));
+}
+
+function renderRecording(panel, task) {
+  panel.append(element('p', 'task-counter', 'LIVE RECORDING'), element('h3', '', `Recording ${formatElapsed()}`));
+  panel.children[1].id = 'active-task-title';
+  panel.append(element('p', 'task-note', 'When you finish, stop the recording to transcribe it and fill this report automatically.'));
+  const stop = button(task.primary_action.label, 'primary', stopRecording);
+  stop.id = 'workspace-stop-recording';
+  stop.setAttribute('aria-label', 'Stop recording and fill report');
+  panel.append(stop);
 }
 
 function processingTitle(kind) {
@@ -326,6 +401,7 @@ function renderActiveTask(view) {
   const panel = $('workspace-active-task'); panel.className = `active-task-panel task-${view.active_task.kind.toLowerCase()}`; panel.replaceChildren(); const task = view.active_task;
   if (task.kind === 'LOADING_CONTEXT') { const heading = element('h3', 'task-loading', 'Loading job…'); heading.id = 'active-task-title'; panel.append(heading); return; }
   if (task.kind === 'CAPTURE') { renderCapture(panel, task); return; }
+  if (task.kind === 'RECORDING') { renderRecording(panel, task); return; }
   if (task.kind === 'CORRECTION') { renderCorrection(panel, task); return; }
   if (task.kind === 'RESOLUTION') { renderResolution(panel, task); return; }
   if (task.kind === 'REVIEW') { renderReview(panel); return; }
@@ -351,6 +427,7 @@ function renderActiveTask(view) {
 
 function renderWorkspace() {
   if (!state.activeTemplate) return;
+  syncCaptureNavigation();
   const view = currentView(); $('workspace-title').textContent = view.job_header.title;
   $('workspace-company').textContent = state.activeTemplate.domain === 'HVAC' ? 'NEWWAY' : state.activeTemplate.domain.startsWith('SBS_') ? 'SBS TRANSIT' : 'REPORT WORKSPACE';
   $('workspace-identity').textContent = view.job_header.identity_line || 'Preparing work-order details…';
@@ -365,140 +442,184 @@ function renderWorkspace() {
 
 async function openWorkspace(templateId) {
   const template = state.templates.find((item) => item.templateId === templateId && item.status === 'PUBLISHED' && item.presentation?.technicianVisible !== false); if (!template) return;
-  recordRecentTemplate(templateId); state.activeTemplate = template; state.session = null; state.agentState = null; state.chain = null; state.transcript = null; state.transcriptReview = null; state.confirmation = null; state.recoverableError = null; state.interaction.statement = '';
-  state.reviewFullReport = false;
-  $('template-reports-nav').hidden = false; setView('workspace'); renderWorkspace();
+  recordRecentTemplate(templateId);
+  const workspace = createWorkspace(template);
+  workspaceRegistry.register(workspace.key, workspace);
+  activateWorkspace(workspace);
   try {
     const jobRef = template.templateId === 'bus-defect-rectification-corrective-maintenance' ? 'work-order:WO-111-1222' : `new-report:${crypto.randomUUID()}`;
     const created = await api('/api/report-sessions', { method: 'POST', body: { template_id: template.templateId, template_version: template.templateVersion, job_context_ref: jobRef } });
-    state.session = created.session; state.agentState = created.agent_state; rememberActiveSession(); await refreshSession(); renderWorkspace();
-  } catch (error) { state.recoverableError = { kind: 'NETWORK', message: `Could not start this report. ${error.message}`, retry_action: 'RETRY_CONNECTION' }; renderWorkspace(); }
+    const previousKey = workspace.key;
+    workspace.session = created.session; workspace.agentState = created.agent_state; workspace.key = created.session.session_id;
+    workspaceRegistry.rekey(previousKey, workspace.key);
+    rememberActiveSession(workspace); await refreshSession(workspace); renderWorkspaceIfActive(workspace);
+  } catch (error) { workspace.recoverableError = { kind: 'NETWORK', message: `Could not start this report. ${error.message}`, retry_action: 'RETRY_CONNECTION' }; renderWorkspaceIfActive(workspace); }
 }
 
-function setProcessing(value) { state.processing = value; renderWorkspace(); }
+function setProcessing(value, workspace = activeWorkspace()) {
+  if (!workspace) return;
+  workspace.processing = value;
+  workspace.processingSessionId = value ? workspace.session?.session_id || workspace.key : null;
+  renderWorkspaceIfActive(workspace);
+}
+
+function clearProcessing(workspace = activeWorkspace()) {
+  if (!workspace) return;
+  workspace.processing = null;
+  workspace.processingSessionId = null;
+}
 
 async function captureText() {
-  const text = state.interaction.statement.trim(); if (!text || !state.session) return;
-  setProcessing('EXTRACTING');
+  const workspace = activeWorkspace();
+  const text = workspace?.interaction.statement.trim(); if (!text || !workspace.session) return;
+  setProcessing('EXTRACTING', workspace);
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/capture/text`, { method: 'POST', body: { expected_revision: state.session.revision, text, language: 'auto', idempotency_key: crypto.randomUUID() } });
-    state.session = result.session; state.agentState = result.agent_state || state.agentState; state.transcript = result.transcript || null; state.transcriptReview = result.review || null; state.interaction.statement = ''; setProcessing('CHECKING_COMPLETENESS');
-    await refreshSession(); await enterReviewIfComplete();
-  } catch (error) { handleMutationError(error, 'NETWORK', 'Your statement is still in the text box.'); }
-  finally { state.processing = null; renderWorkspace(); }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/text`, { method: 'POST', body: { expected_revision: workspace.session.revision, text, language: 'auto', idempotency_key: crypto.randomUUID() } });
+    workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript || null; workspace.transcriptReview = result.review || null; workspace.interaction.statement = ''; setProcessing('CHECKING_COMPLETENESS', workspace);
+    await refreshSession(workspace); await enterReviewIfComplete(workspace);
+  } catch (error) { handleMutationError(error, 'NETWORK', 'Your statement is still in the text box.', workspace); }
+  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
-async function enterReviewIfComplete() {
-  if (state.session?.phase !== 'RESOLVE' || !state.agentState?.completeness.complete || state.agentState.resolution_queue.length) return;
-  const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/review`, { method: 'POST', body: { expected_revision: state.session.revision } }); state.session = result.session; state.agentState = result.agent_state;
+async function enterReviewIfComplete(workspace = activeWorkspace()) {
+  if (workspace?.session?.phase !== 'RESOLVE' || !workspace.agentState?.completeness.complete || workspace.agentState.resolution_queue.length) return;
+  const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/review`, { method: 'POST', body: { expected_revision: workspace.session.revision } }); workspace.session = result.session; workspace.agentState = result.agent_state;
 }
 
-function handleMutationError(error, kind = 'NETWORK', fallback = 'Your saved work is still available.') {
-  if (error.code === 'STALE_REVISION') { state.recoverableError = { kind: 'STALE_REVISION', message: 'This report changed elsewhere. Refresh to continue.', retry_action: 'REFRESH_SESSION' }; return; }
+function handleMutationError(error, kind = 'NETWORK', fallback = 'Your saved work is still available.', workspace = activeWorkspace()) {
+  if (!workspace) return;
+  if (error.code === 'STALE_REVISION') { workspace.recoverableError = { kind: 'STALE_REVISION', message: 'This report changed elsewhere. Refresh to continue.', retry_action: 'REFRESH_SESSION' }; return; }
   const message = kind === 'NETWORK' ? 'Connection interrupted. Try again when your connection returns.' : error.message || fallback;
-  state.recoverableError = { kind, message, retry_action: kind === 'UPLOAD' ? 'RETRY_ATTACHMENT' : kind === 'STT' ? 'RETRY_TRANSCRIPTION' : 'RETRY_CONNECTION' };
+  workspace.recoverableError = { kind, message, retry_action: kind === 'UPLOAD' ? 'RETRY_ATTACHMENT' : kind === 'STT' ? 'RETRY_TRANSCRIPTION' : 'RETRY_CONNECTION' };
 }
 
 async function decideCorrection(reviewItemId, decision) {
-  state.correctionDecisions.set(reviewItemId, decision); const review = state.transcriptReview;
-  const pending = review.items.filter((item) => !state.correctionDecisions.has(item.review_item_id));
-  if (pending.length) { renderWorkspace(); return; }
-  setProcessing('EXTRACTING');
+  const workspace = activeWorkspace();
+  workspace.correctionDecisions.set(reviewItemId, decision); const review = workspace.transcriptReview;
+  const pending = review.items.filter((item) => !workspace.correctionDecisions.has(item.review_item_id));
+  if (pending.length) { renderWorkspaceIfActive(workspace); return; }
+  setProcessing('EXTRACTING', workspace);
   try {
-    const decisions = review.items.map((item) => ({ review_item_id: item.review_item_id, decision: state.correctionDecisions.get(item.review_item_id) }));
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/transcript-reviews/${encodeURIComponent(review.review_id)}/decide`, { method: 'POST', body: { expected_revision: state.session.revision, decisions } });
-    state.session = result.session; state.agentState = result.agent_state; state.transcriptReview = result.review; state.correctionDecisions.clear(); await refreshSession(); await enterReviewIfComplete();
-  } catch (error) { handleMutationError(error); }
-  finally { state.processing = null; renderWorkspace(); }
+    const decisions = review.items.map((item) => ({ review_item_id: item.review_item_id, decision: workspace.correctionDecisions.get(item.review_item_id) }));
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcript-reviews/${encodeURIComponent(review.review_id)}/decide`, { method: 'POST', body: { expected_revision: workspace.session.revision, decisions } });
+    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcriptReview = result.review; workspace.correctionDecisions.clear(); await refreshSession(workspace); await enterReviewIfComplete(workspace);
+  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
+  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function answerResolution(item, answer) {
   if (answer.kind === 'OTHER') { submitOtherAnswer($('workspace-active-task'), item); return; }
   if (answer.kind === 'SEMANTIC_OTHER') { submitOtherAnswer($('workspace-active-task'), item, answer.state); return; }
-  setProcessing('CHECKING_COMPLETENESS');
+  const workspace = activeWorkspace();
+  setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/resolution-items/${encodeURIComponent(item.resolution_id)}/answer`, { method: 'POST', body: { expected_revision: state.session.revision, answer, idempotency_key: crypto.randomUUID() } });
-    state.session = result.session; state.agentState = result.agent_state; await refreshSession(); await enterReviewIfComplete();
-  } catch (error) { handleMutationError(error); }
-  finally { state.processing = null; renderWorkspace(); }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/resolution-items/${encodeURIComponent(item.resolution_id)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, answer, idempotency_key: crypto.randomUUID() } });
+    workspace.session = result.session; workspace.agentState = result.agent_state; await refreshSession(workspace); await enterReviewIfComplete(workspace);
+  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
+  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function saveField(fieldId, value) {
+  const workspace = activeWorkspace();
   try {
-    const definition = state.activeTemplate.schema.fields.find((field) => field.id === fieldId);
+    const definition = workspace.activeTemplate.schema.fields.find((field) => field.id === fieldId);
     const normalized = definition?.type === 'number' && value !== '' ? Number(value) : value;
     const unit = fieldId.endsWith('_km') ? 'km' : undefined;
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/fields/${encodeURIComponent(fieldId)}/answer`, { method: 'POST', body: { expected_revision: state.session.revision, value: normalized, ...(unit ? { unit } : {}) } });
-    state.session = result.session; state.agentState = result.agent_state; state.editingField = null; await refreshSession(); await enterReviewIfComplete(); renderWorkspace();
-  } catch (error) { handleMutationError(error); renderWorkspace(); }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/fields/${encodeURIComponent(fieldId)}/answer`, { method: 'POST', body: { expected_revision: workspace.session.revision, value: normalized, ...(unit ? { unit } : {}) } });
+    workspace.session = result.session; workspace.agentState = result.agent_state; workspace.editingField = null; await refreshSession(workspace); await enterReviewIfComplete(workspace); renderWorkspaceIfActive(workspace);
+  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
 function formatElapsed() { const seconds = Math.floor((Date.now() - recordingStartedAt) / 1000); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; }
 
 async function startRecording() {
-  if (!state.interaction.microphone_available || recorder) return;
-  try { recorder = new PcmWavRecorder(); await recorder.start(); recordingStartedAt = Date.now(); setProcessing('RECORDING'); recordingTimer = setInterval(() => { const title = $('active-task-title'); if (title) title.textContent = `Recording ${formatElapsed()}`; }, 1000); }
-  catch (error) { recorder = null; state.interaction.microphone_available = false; state.processing = null; state.recoverableError = { kind: 'MICROPHONE', message: 'Microphone permission is unavailable. Type a statement or upload a recording.', retry_action: 'RETRY_CONNECTION' }; renderWorkspace(); }
+  const workspace = activeWorkspace();
+  if (!workspace?.interaction.microphone_available || recorder) return;
+  recorder = new PcmWavRecorder(); recorderWorkspace = workspace;
+  try {
+    await recorder.start(); recordingStartedAt = Date.now(); setProcessing('RECORDING', workspace);
+    recordingTimer = setInterval(() => {
+      if (activeWorkspace() !== workspace) return;
+      const title = $('active-task-title'); if (title) title.textContent = `Recording ${formatElapsed()}`;
+    }, 1000);
+  }
+  catch (error) {
+    recorder = null; recorderWorkspace = null; workspace.interaction.microphone_available = false; clearProcessing(workspace);
+    workspace.recoverableError = { kind: 'MICROPHONE', message: 'Microphone permission is unavailable. Type a statement or upload a recording.', retry_action: 'RETRY_CONNECTION' };
+    renderWorkspaceIfActive(workspace);
+  }
 }
 
 async function stopRecording() {
-  if (!recorder) return; clearInterval(recordingTimer); const owned = recorder; recorder = null; setProcessing('PREPARING_AUDIO');
-  try { const wav = await owned.stop(); await uploadAudio(wav); } catch (error) { await owned.release(); handleMutationError(error, 'STT'); }
-  finally { state.processing = null; renderWorkspace(); }
+  if (!recorder || !recorderWorkspace) return;
+  clearInterval(recordingTimer); const owned = recorder; const workspace = recorderWorkspace; setProcessing('PREPARING_AUDIO', workspace);
+  try {
+    const wav = await owned.stop(); recorder = null; recorderWorkspace = null; await uploadAudio(wav, workspace);
+  } catch (error) {
+    await owned.release(); recorder = null; recorderWorkspace = null; handleMutationError(error, 'STT', undefined, workspace);
+  }
+  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
-async function uploadAudio(blob) {
-  setProcessing('UPLOADING_AUDIO');
+async function uploadAudio(blob, workspace = activeWorkspace()) {
+  if (!workspace?.session) return;
+  setProcessing('UPLOADING_AUDIO', workspace);
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/capture/audio`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-expected-revision': String(state.session.revision), 'idempotency-key': crypto.randomUUID(), 'x-stt-language': 'auto' }, body: blob });
-    state.session = result.session; state.agentState = result.agent_state || state.agentState; state.transcript = result.transcript; state.transcriptReview = result.review;
-    if (result.failure) state.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.', retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence.evidence_id };
-    else { await refreshSession(); await enterReviewIfComplete(); }
-  } catch (error) { handleMutationError(error, 'STT'); }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/audio`, { method: 'POST', headers: { 'content-type': 'audio/wav', 'x-expected-revision': String(workspace.session.revision), 'idempotency-key': crypto.randomUUID(), 'x-stt-language': 'auto' }, body: blob });
+    workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
+    if (result.failure) workspace.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.', retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence.evidence_id };
+    else { setProcessing('CHECKING_COMPLETENESS', workspace); await refreshSession(workspace); await enterReviewIfComplete(workspace); }
+  } catch (error) { handleMutationError(error, 'STT', undefined, workspace); }
+  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function retryActiveTask() {
-  const error = state.recoverableError; state.recoverableError = null;
+  const workspace = activeWorkspace();
+  const error = workspace.recoverableError; workspace.recoverableError = null;
   try {
-    if (error.kind === 'NETWORK' && state.interaction.statement.trim()) { await captureText(); return; }
-    if (error.kind === 'STALE_REVISION' || error.kind === 'NETWORK' || error.kind === 'MICROPHONE') await refreshSession();
+    if (error.kind === 'NETWORK' && workspace.interaction.statement.trim()) { await captureText(); return; }
+    if (error.kind === 'STALE_REVISION' || error.kind === 'NETWORK' || error.kind === 'MICROPHONE') await refreshSession(workspace);
     else if (error.kind === 'STT' && error.evidence_id) {
-      const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/transcription/retry`, { method: 'POST', body: { expected_revision: state.session.revision, evidence_id: error.evidence_id } }); state.session = result.session; state.agentState = result.agent_state; state.transcript = result.transcript; state.transcriptReview = result.review;
+      const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcription/retry`, { method: 'POST', body: { expected_revision: workspace.session.revision, evidence_id: error.evidence_id } }); workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     }
-  } catch (retryError) { handleMutationError(retryError, error.kind); }
-  renderWorkspace();
-  if (error.kind === 'UPLOAD' && !state.recoverableError) $('workspace-attachment-dialog').showModal();
-  if (error.kind === 'STT' && !error.evidence_id && !state.recoverableError) $('workspace-audio-upload').click();
+  } catch (retryError) { handleMutationError(retryError, error.kind, undefined, workspace); }
+  renderWorkspaceIfActive(workspace);
+  if (activeWorkspace() === workspace && error.kind === 'UPLOAD' && !workspace.recoverableError) $('workspace-attachment-dialog').showModal();
+  if (activeWorkspace() === workspace && error.kind === 'STT' && !error.evidence_id && !workspace.recoverableError) $('workspace-audio-upload').click();
 }
 
 async function completeReview() {
-  try { const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/review/complete`, { method: 'POST', body: { expected_revision: state.session.revision } }); state.session = result.session; state.agentState = result.agent_state; renderWorkspace(); }
-  catch (error) { handleMutationError(error); renderWorkspace(); }
+  const workspace = activeWorkspace();
+  try { const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/review/complete`, { method: 'POST', body: { expected_revision: workspace.session.revision } }); workspace.session = result.session; workspace.agentState = result.agent_state; renderWorkspaceIfActive(workspace); }
+  catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function confirmReport() {
-  if (state.session.phase !== 'READY') return;
-  setProcessing('CHECKING_COMPLETENESS');
+  const workspace = activeWorkspace();
+  if (workspace.session.phase !== 'READY') return;
+  setProcessing('CHECKING_COMPLETENESS', workspace);
   try {
-    const confirmed = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/confirm`, { method: 'POST', body: { expected_revision: state.session.revision } });
-    state.confirmation = confirmed.confirmation; state.session = confirmed.session; state.agentState = confirmed.agent_state; rememberActiveSession();
-  } catch (error) { handleMutationError(error); }
-  finally { state.processing = null; renderWorkspace(); }
+    const confirmed = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/confirm`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
+    workspace.confirmation = confirmed.confirmation; workspace.session = confirmed.session; workspace.agentState = confirmed.agent_state; rememberActiveSession(workspace);
+  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); }
+  finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function exportReport() {
-  if (state.session?.phase !== 'CONFIRMED') { state.recoverableError = { kind: 'NETWORK', message: 'Reopen the confirmed report package before exporting.', retry_action: 'REFRESH_SESSION' }; renderWorkspace(); return; }
+  const workspace = activeWorkspace();
+  if (workspace.session?.phase !== 'CONFIRMED') { workspace.recoverableError = { kind: 'NETWORK', message: 'Reopen the confirmed report package before exporting.', retry_action: 'REFRESH_SESSION' }; renderWorkspaceIfActive(workspace); return; }
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/export`, { method: 'POST', body: { expected_revision: state.session.revision } });
-    const text = result.export_text || result.text || JSON.stringify(result, null, 2); const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = element('a'); link.href = url; link.download = `${state.activeTemplate.templateId}.txt`; link.click(); URL.revokeObjectURL(url);
-  } catch (error) { handleMutationError(error); renderWorkspace(); }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/export`, { method: 'POST', body: { expected_revision: workspace.session.revision } });
+    const text = result.export_text || result.text || JSON.stringify(result, null, 2); const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); const link = element('a'); link.href = url; link.download = `${workspace.activeTemplate.templateId}.txt`; link.click(); URL.revokeObjectURL(url);
+  } catch (error) { handleMutationError(error, 'NETWORK', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function attachEvidence(file, purpose) {
+  const workspace = activeWorkspace();
   try {
-    const result = await api(`/api/report-sessions/${encodeURIComponent(state.session.session_id)}/attachments`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name, 'x-attachment-purpose': purpose, 'x-expected-revision': String(state.session.revision) }, body: file });
-    state.session = result.session; state.agentState = result.agent_state; await refreshSession(); renderWorkspace();
-  } catch (error) { handleMutationError(error, 'UPLOAD'); renderWorkspace(); }
+    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/attachments`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name, 'x-attachment-purpose': purpose, 'x-expected-revision': String(workspace.session.revision) }, body: file });
+    workspace.session = result.session; workspace.agentState = result.agent_state; await refreshSession(workspace); renderWorkspaceIfActive(workspace);
+  } catch (error) { handleMutationError(error, 'UPLOAD', undefined, workspace); renderWorkspaceIfActive(workspace); }
 }
 
 function setSetupStep(index) { [...$('setup-steps').children].forEach((item, position) => { item.classList.toggle('done', position < index); item.classList.toggle('active', position === index); }); }
@@ -526,9 +647,11 @@ async function init() {
     const saved = savedActiveSession();
     const template = saved && state.templates.find((item) => item.templateId === saved.template_id);
     if (saved && template) {
-      state.activeTemplate = template; state.session = { session_id: saved.session_id }; $('template-reports-nav').hidden = false;
-      try { await refreshSession(); setView('workspace'); renderWorkspace(); }
-      catch { sessionStorage.removeItem(ACTIVE_SESSION_KEY); state.session = null; state.activeTemplate = null; }
+      const workspace = createWorkspace(template, saved.session_id);
+      workspace.session = { session_id: saved.session_id };
+      workspaceRegistry.register(workspace.key, workspace); workspaceRegistry.activate(workspace.key); $('template-reports-nav').hidden = false;
+      try { await refreshSession(workspace); setView('workspace'); renderWorkspace(); }
+      catch { sessionStorage.removeItem(ACTIVE_SESSION_KEY); }
     }
   }
   catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; renderCatalog(); }
@@ -548,6 +671,6 @@ $('workspace-full-report').addEventListener('click', () => {
 $('workspace-evidence-close').addEventListener('click', () => $('workspace-evidence-dialog').close());
 $('workspace-attachment-choose').addEventListener('click', (event) => { event.preventDefault(); $('workspace-attachment-dialog').close(); $('workspace-evidence-upload').click(); });
 $('workspace-evidence-upload').addEventListener('change', async (event) => { const file = event.target.files[0]; if (file) await attachEvidence(file, $('workspace-attachment-purpose').value); event.target.value = ''; });
-$('workspace-audio-upload').addEventListener('change', async (event) => { const file = event.target.files[0]; if (file) await uploadAudio(file); event.target.value = ''; state.processing = null; renderWorkspace(); });
+$('workspace-audio-upload').addEventListener('change', async (event) => { const workspace = activeWorkspace(); const file = event.target.files[0]; if (file) await uploadAudio(file, workspace); event.target.value = ''; renderWorkspaceIfActive(workspace); });
 $('setup-add-field').addEventListener('click', () => addSetupField()); $('setup-upload').addEventListener('click', uploadTemplateSource); $('setup-save-schema').addEventListener('click', saveSetupSchema); $('setup-context-upload').addEventListener('click', uploadSetupContext); $('setup-test').addEventListener('click', testSetup); $('setup-publish').addEventListener('click', publishSetup);
 syncMobileNavigation(false); init();

@@ -145,6 +145,30 @@ for (const [name, overrides, expectedKind, primaryId] of stateCases) {
   });
 }
 
+test('recording exposes one explicit stop-and-fill action', () => {
+  const result = view({ processing: 'RECORDING' });
+  assert.deepEqual(result.active_task.primary_action, {
+    id: 'STOP_RECORDING',
+    label: 'Stop & fill report',
+  });
+});
+
+test('recording state belongs only to the ReportSession that started it', () => {
+  const owner = view({
+    processing: 'RECORDING',
+    processing_session_id: 'session_ui_1',
+  });
+  assert.equal(owner.active_task.kind, 'RECORDING');
+
+  const anotherReport = view({
+    session: { ...session('CONTEXT'), session_id: 'session_ui_2' },
+    processing: 'RECORDING',
+    processing_session_id: 'session_ui_1',
+  });
+  assert.equal(anotherReport.active_task.kind, 'CAPTURE');
+  assert.equal(anotherReport.active_task.primary_action.id, 'CAPTURE_STATEMENT');
+});
+
 test('header and report summary use only authoritative Agent state and prioritize unresolved sections', () => {
   const result = view({
     agent_state: agent({
