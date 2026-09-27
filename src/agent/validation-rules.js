@@ -21,13 +21,17 @@ export function candidateRuleViolations(candidate, definition = {}) {
   const push = (code, reason) => violations.push({ code, reason });
   const semantic = candidate.semantic;
   if (semantic?.semantic_type) {
+    if (candidate.claim?.kind === 'EXPLICIT_NONE' && !['PART_USED', 'FOLLOW_UP'].includes(semantic.semantic_type)) {
+      push('EXPLICIT_NONE_SEMANTIC_MISMATCH', `${semantic.semantic_type} cannot establish explicit none.`);
+    }
     if (Array.isArray(definition.semanticRoles) && !definition.semanticRoles.includes(semantic.semantic_type)) {
       push('SEMANTIC_FIELD_MISMATCH', `${semantic.semantic_type} is not compatible with ${definition.id || candidate.field_id}.`);
     }
-    if (semantic.source_role === 'CUSTOMER' && semantic.semantic_type !== 'CUSTOMER_OBSERVATION') {
-      push('SEMANTIC_SOURCE_MISMATCH', 'A customer report cannot establish technician-observed or performed work.');
+    if (['CUSTOMER', 'CLIENT', 'DRIVER', 'OPERATOR'].includes(semantic.source_role)
+      && !['CUSTOMER_OBSERVATION', 'CUSTOMER_COMPLAINT'].includes(semantic.semantic_type)) {
+      push('SEMANTIC_SOURCE_MISMATCH', 'A reported issue cannot establish technician-observed or performed work.');
     }
-    if (['COMPLETED_ACTION', 'PART_USED', 'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE'].includes(semantic.semantic_type)
+    if (['COMPLETED_ACTION', 'PART_USED', 'TEST_ACTION', 'TEST_OUTCOME', 'TEST_OBSERVATION', 'COMPLETION_STATE'].includes(semantic.semantic_type)
       && ['FUTURE', 'NEGATED', 'RECOMMENDED'].includes(semantic.temporality)) {
       push('SEMANTIC_TEMPORALITY_MISMATCH', 'Future, recommended, or negated work cannot establish a completed job fact.');
     }

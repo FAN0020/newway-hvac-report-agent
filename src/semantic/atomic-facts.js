@@ -4,15 +4,23 @@ import { identifierIsCertain } from './identifier-certainty.js';
 export const SEMANTIC_TYPES = Object.freeze([
   'WORK_ORDER',
   'EQUIPMENT_OR_ASSET',
+  'ASSET_IDENTITY',
+  'ROUTE_IDENTITY',
+  'LOCATION',
   'TECHNICIAN_IDENTITY',
   'CUSTOMER_OBSERVATION',
+  'CUSTOMER_COMPLAINT',
   'INSPECTION_FINDING',
+  'ROOT_CAUSE',
   'COMPLETED_ACTION',
   'PART_USED',
   'PART_REFERENCE',
   'MEASUREMENT',
   'TEST_ACTION',
+  'TEST_MEASUREMENT',
   'TEST_OUTCOME',
+  'TEST_OBSERVATION',
+  'TEMPORAL_REFERENCE',
   'COMPLETION_STATE',
   'RECOMMENDATION',
   'FOLLOW_UP',
@@ -196,7 +204,9 @@ export async function extractAtomicFacts({ scope_id: scopeId, raw_text: rawText,
     if (match && !customerSpeech) add({ semanticType: 'INSPECTION_FINDING', value: normalize(match[0]), match, sentence });
     if (!found && !customerSpeech) {
       match = /\b(?:I|we)\s+(?:inspected|checked)\s+(.+?)(?=\s*[,;]|\s+and\s+(?:I|we)?\s*(?:replaced|installed|repaired|reseated|secured|cleared|tested|ran)\b|[.!?]|$)/iu.exec(body);
-      if (match) add({ semanticType: 'INSPECTION_FINDING', value: trimCaptured(match[1]), match, sentence });
+      if (match && !/^(?:bus\s+)?(?:line|route)\s+\d+\b/iu.test(trimCaptured(match[1]))) {
+        add({ semanticType: 'INSPECTION_FINDING', value: trimCaptured(match[1]), match, sentence });
+      }
     }
 
     match = /\b(?:recommend(?:ed)?|suggest(?:ed)?|should)\s+(?:to\s+)?(.+?)(?=[.;!?]|$)/iu.exec(body);

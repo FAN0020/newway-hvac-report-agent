@@ -276,6 +276,13 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
+  const semanticTraceMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/semantic-trace$/u);
+  if (request.method === 'GET' && semanticTraceMatch) {
+    const result = await captureService.getSemanticTrace(decodeURIComponent(semanticTraceMatch[1]));
+    writeJson(response, 200, toolEnvelope('get_semantic_trace', traceId, 'PASS', result));
+    return;
+  }
+
   const agentStateMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/agent-state$/u);
   if (request.method === 'GET' && agentStateMatch) {
     const result = await captureService.getAgentState(decodeURIComponent(agentStateMatch[1]));

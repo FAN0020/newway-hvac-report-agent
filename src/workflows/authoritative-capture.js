@@ -18,8 +18,12 @@ import { renderReportPdf } from '../export/template-pdf.js';
 import { formatReportName, reportCreationDate } from '../report-naming.js';
 import { reportToText } from '../tools/report-integrity.js';
 import { extractAtomicFacts } from '../semantic/atomic-facts.js';
+import { extractConversationalFacts, CONVERSATIONAL_FACTS_VERSION } from '../semantic/conversational-facts.js';
+import { segmentAssertions, ASSERTION_SEGMENTER_VERSION } from '../semantic/assertion-segmentation.js';
+import { evaluateAssertionCoverage, unresolvedSemanticWindows, ASSERTION_COVERAGE_VERSION } from '../semantic/assertion-coverage.js';
+import { SemanticExtractor, SEMANTIC_EXTRACTOR_VERSION } from '../semantic/semantic-extractor.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
-import { extractCuedFieldAssignments, proposeStructuredAtomicFacts } from '../semantic/structured-proposals.js';
+import { extractCuedFieldAssignments } from '../semantic/structured-proposals.js';
 import { normalizeContextualTranscript } from '../semantic/transcript-normalization.js';
 import { deriveCaptureTimeAssignments } from '../semantic/temporal-fields.js';
 import { buildTranscriptCorrectionCandidates } from '../tools/hvac-knowledge.js';
@@ -479,11 +483,16 @@ export class AuthoritativeCaptureService {
 
   async persistAgentState(session) {
     const chain = await this.sessionStore.loadChain(session.session_id);
+    const latestTraceId = [...chain.audit_events].reverse()
+      .map((event) => event.payload?.semantic_trace_id).find(Boolean);
+    const semanticTrace = latestTraceId
+      ? await this.sessionStore.readRecord('semantic-traces', latestTraceId) : null;
     const agentState = runAuthoritativeAgent({
       session,
       template: await this.resolveTemplate(session.template_binding.template_id),
       candidates: chain.field_candidates,
       guidance_contexts: chain.guidance_contexts,
+      semantic_trace: semanticTrace,
       created_at: this.clock(),
     });
     const run = createAgentRun({
@@ -505,6 +514,51 @@ export class AuthoritativeCaptureService {
       return { session: chain.session, agent_state: chain.agent_state };
     }
     return this.persistAgentState(chain.session);
+  }
+
+  async getSemanticTrace(sessionId) {
+    const chain = await this.sessionStore.loadChain(sessionId);
+    const traceId = [...chain.audit_events].reverse()
+      .map((event) => event.payload?.semantic_trace_id).find(Boolean);
+    if (!traceId) return { session_id: chain.session.session_id, semantic_trace: null };
+    const semanticTrace = await this.sessionStore.readRecord('semantic-traces', traceId);
+    if (semanticTrace.session_id !== chain.session.session_id) {
+      throw workflowError('Semantic trace belongs to another ReportSession.', 'SEMANTIC_TRACE_BINDING_MISMATCH', 409);
+    }
+    return { session_id: chain.session.session_id, semantic_trace: semanticTrace };
+  }
+
+  async replaySemanticTrace({ session_id: sessionId, transcript_id: transcriptId } = {}) {
+    const chain = await this.sessionStore.loadChain(sessionId);
+    const transcript = chain.transcripts.find((item) => item.transcript_id === transcriptId);
+    if (!transcript) throw workflowError('Transcript does not belong to this ReportSession.', 'TRANSCRIPT_BINDING_MISMATCH', 404);
+    const review = chain.transcript_reviews.find((item) => item.transcript_id === transcriptId && item.decisions?.length);
+    const projection = transcriptProjection(transcript, review?.items || [], review?.decisions || []);
+    const traceSink = {};
+    await this.extractFacts({ session: chain.session, transcript, extractionText: projection.effectiveText, traceSink });
+    const priorEvent = [...chain.audit_events].reverse().find((event) =>
+      event.payload?.transcript_id === transcriptId && event.payload?.semantic_trace_id);
+    const previous = priorEvent
+      ? await this.sessionStore.readRecord('semantic-traces', priorEvent.payload.semantic_trace_id) : null;
+    const current = traceSink.value;
+    const factKeys = (trace) => new Set((trace?.canonical_facts || []).map((fact) =>
+      JSON.stringify([fact.semantic_type, fact.value, fact.char_start, fact.char_end, fact.source_role, fact.temporality])));
+    const before = factKeys(previous);
+    const after = factKeys(current);
+    return {
+      session_id: sessionId, transcript_id: transcriptId,
+      previous_trace_id: previous?.trace_id || null, replayed_trace: current,
+      comparison: {
+        facts_added: [...after].filter((key) => !before.has(key)),
+        facts_removed: [...before].filter((key) => !after.has(key)),
+        previous_rejections: previous?.model.rejections || [],
+        replayed_rejections: current.model.rejections,
+        previous_field_assignments: previous?.field_assignments || [],
+        replayed_field_assignments: current.field_assignments,
+        previous_missing_information: previous?.missing_information || [],
+        replayed_missing_information: current.missing_information,
+      },
+    };
   }
 
   async listReportHistory() {
@@ -821,38 +875,96 @@ export class AuthoritativeCaptureService {
     return { session: computed.session, evidence, agent_state: computed.agent_state };
   }
 
-  async extractFacts({ session, transcript, extractionText = transcript.normalized_text ?? transcript.raw_text }) {
+  async extractFacts({ session, transcript, extractionText = transcript.normalized_text ?? transcript.raw_text, traceSink = null }) {
     const template = await this.resolveTemplate(session.template_binding.template_id);
+    const assertions = segmentAssertions({ text: extractionText, transcript_id: transcript.transcript_id });
     const deterministic = await extractAtomicFacts({
       scope_id: session.context_binding.scope_id,
       raw_text: extractionText,
       transcript_id: transcript.transcript_id,
       capture_context: transcript.capture_context,
     });
-    const proposed = await proposeStructuredAtomicFacts({
-      provider: this.semanticProvider,
-      model: this.semanticModel,
+    const conversational = extractConversationalFacts({
+      scope_id: session.context_binding.scope_id,
+      raw_text: extractionText,
+      transcript_id: transcript.transcript_id,
+      capture_context: transcript.capture_context,
+    });
+    const overlaps = (a, b) => a.char_start < b.char_end && b.char_start < a.char_end;
+    const deterministicFacts = [
+      ...deterministic.filter((fact) => !conversational.some((supplement) => (
+        (supplement.semantic_type === 'COMPLETED_ACTION' && fact.semantic_type === 'COMPLETED_ACTION'
+          && overlaps(supplement, fact) && /\b(?:re[- ]?test|test(?:ed|ing)?)\b/iu.test(fact.value))
+        || (supplement.semantic_type === 'ASSET_IDENTITY' && fact.semantic_type === 'EQUIPMENT_OR_ASSET'
+          && overlaps(supplement, fact) && supplement.value === fact.value)
+        || (supplement.semantic_type === 'TEST_ACTION' && fact.semantic_type === 'TEST_ACTION'
+          && overlaps(supplement, fact) && supplement.value === fact.value)
+      ))),
+      ...conversational.filter((fact) => !deterministic.some((prior) => (
+        (fact.semantic_type !== 'TEST_ACTION' && prior.semantic_type === fact.semantic_type
+          && overlaps(prior, fact) && prior.value === fact.value)
+        || (fact.semantic_type === 'CUSTOMER_COMPLAINT' && fact.source_role === 'CUSTOMER'
+          && prior.semantic_type === 'CUSTOMER_OBSERVATION' && overlaps(prior, fact))
+      ))),
+    ].sort((a, b) => a.char_start - b.char_start || a.semantic_type.localeCompare(b.semantic_type));
+    const firstPassCoverage = evaluateAssertionCoverage({ assertions, facts: deterministicFacts, text: extractionText });
+    const semanticWindows = unresolvedSemanticWindows(firstPassCoverage).map((window) => {
+      const index = assertions.findIndex((assertion) => assertion.assertion_id === window.assertion_id);
+      return {
+        assertion_id: window.assertion_id, text: window.text, start: window.start, end: window.end,
+        uncovered_spans: window.uncovered_spans,
+        previous: assertions[index - 1]?.text || null,
+        next: assertions[index + 1]?.text || null,
+      };
+    });
+    const proposed = await new SemanticExtractor({ provider: this.semanticProvider, model: this.semanticModel }).extract({
       scope_id: session.context_binding.scope_id,
       transcript_id: transcript.transcript_id,
       raw_text: extractionText,
       capture_context: transcript.capture_context,
-      template,
+      semantic_windows: semanticWindows,
+      established_facts: deterministicFacts,
     });
-    const protectedTypes = new Set(['WORK_ORDER', 'EQUIPMENT_OR_ASSET', 'MEASUREMENT', 'TEST_OUTCOME', 'COMPLETION_STATE']);
-    const overlaps = (a, b) => a.char_start < b.char_end && b.char_start < a.char_end;
     const modelFacts = proposed.facts
-      .filter((fact) => !protectedTypes.has(fact.semantic_type)
-        || !deterministic.some((fallback) => fallback.semantic_type === fact.semantic_type && overlaps(fact, fallback)))
+      .filter((fact) => !deterministicFacts.some((established) => established.semantic_type === fact.semantic_type
+        && established.value === fact.value && established.claim_kind === fact.claim_kind
+        && established.source_role === fact.source_role && overlaps(established, fact)))
       .map((fact) => ({ ...fact, extraction_method: 'structured-semantic-proposal' }));
     const atomicFacts = [
       ...modelFacts,
-      ...deterministic.filter((fact) => !modelFacts.some((proposal) => proposal.semantic_type === fact.semantic_type && overlaps(proposal, fact))),
+      ...deterministicFacts,
     ].sort((a, b) => a.char_start - b.char_start || a.semantic_type.localeCompare(b.semantic_type));
-    const routed = routeAtomicFacts({
+    const relationships = atomicFacts.filter((fact) => fact.semantic_type === 'TEST_OBSERVATION'
+      && fact.attributes?.observed_change === 'ABSENT').flatMap((observation) => {
+      const complaint = [...atomicFacts].reverse().find((fact) => ['CUSTOMER_COMPLAINT', 'CUSTOMER_OBSERVATION'].includes(fact.semantic_type)
+        && fact.char_end < observation.char_start
+        && String(fact.value || '').toLocaleLowerCase().match(/[\p{L}]{4,}/gu)
+          ?.some((word) => new RegExp(`\\b${word}\\b`, 'iu').test(observation.value)));
+      if (!complaint) return [];
+      return [{ relationship_type: 'SYMPTOM_RESOLUTION', complaint_fact_id: complaint.fact_id,
+        observation_fact_id: observation.fact_id, test_fact_id: observation.attributes.related_test_fact_id }];
+    });
+    const routing = routeAtomicFacts({
       facts: atomicFacts,
       template,
       capture_context: transcript.capture_context,
-    }).assignments;
+    });
+    const routed = routing.assignments.filter((assignment) => assignment.semantic_type !== 'TEST_ACTION'
+      || !routing.assignments.some((other) => other.field_id === assignment.field_id
+        && ['TEST_MEASUREMENT', 'TEST_OBSERVATION', 'TEST_OUTCOME'].includes(other.semantic_type)))
+      .map((assignment) => {
+      if (assignment.semantic_type !== 'TEST_OBSERVATION') return assignment;
+      const action = atomicFacts.find((fact) => fact.fact_id === assignment.fact.attributes?.related_test_fact_id);
+      if (!action) return assignment;
+      return {
+        ...assignment,
+        value: `${action.value}; ${assignment.value}`,
+        source_spans: [action, assignment.fact].map((fact) => ({
+          start: fact.char_start, end: fact.char_end, text: fact.evidence_quote,
+        })),
+        fact_ids: [action.fact_id, assignment.fact.fact_id],
+      };
+    });
     const usedFields = new Set(routed.map((assignment) => assignment.field_id));
     const modelFields = (proposed.field_assignments || []).filter((assignment) => {
       if (usedFields.has(assignment.field_id)) return false;
@@ -872,8 +984,75 @@ export class AuthoritativeCaptureService {
       raw_text: extractionText, template, captured_at: evidence?.created_at || transcript.created_at,
       time_zone: this.reportTimeZone,
     }).filter((assignment) => !usedFields.has(assignment.field_id));
-    return [...routed, ...modelFields, ...cuedFields, ...dateFields]
+    const assignments = [...routed, ...modelFields, ...cuedFields, ...dateFields]
       .map((assignment) => ({ ...assignment, field: assignment.field_id }));
+    if (traceSink) {
+      const assigned = new Set(assignments.map((assignment) => assignment.field_id));
+      const byField = new Map();
+      for (const assignment of assignments) {
+        if (!byField.has(assignment.field_id)) byField.set(assignment.field_id, []);
+        byField.get(assignment.field_id).push(assignment);
+      }
+      const conflicts = [...byField].flatMap(([fieldId, items]) => {
+        if (items.every((item) => ['COMPLETED_ACTION', 'PART_USED'].includes(item.semantic_type))) return [];
+        const values = [...new Set(items.map((item) => JSON.stringify([item.claim_kind, item.value ?? null])))];
+        return values.length > 1 ? [{ field_id: fieldId, values: items.map((item) => item.value ?? null),
+          fact_ids: items.flatMap((item) => item.fact_ids || (item.fact ? [item.fact.fact_id] : [])) }] : [];
+      });
+      const conflictFields = new Set(conflicts.map((item) => item.field_id));
+      const unresolvedDefect = semanticWindows.some((window) =>
+        /\b(?:crack|loose|leak|fault|broken|damage|worn|failed|defect)\b/iu.test(window.text));
+      const missing = (template?.schema?.fields || []).filter((field) =>
+        !field.id.includes('*') && (!assigned.has(field.id) || conflictFields.has(field.id)))
+        .map((field) => ({
+          field_id: field.id,
+          reason: conflictFields.has(field.id) ? 'CONFLICTING'
+            : proposed.provider_error && field.id === 'inspection_findings' && unresolvedDefect
+              ? 'EXTRACTION_FAILED'
+              : field.id === 'work.date_time' && atomicFacts.some((fact) => fact.semantic_type === 'TEMPORAL_REFERENCE')
+            ? 'MENTIONED_BUT_INVALID'
+            : field.id === 'diagnosis.root_cause' && atomicFacts.some((fact) => fact.semantic_type === 'INSPECTION_FINDING')
+              ? 'AMBIGUOUS' : 'NOT_MENTIONED',
+        }));
+      const conflictedFactIds = new Set(conflicts.flatMap((item) => item.fact_ids));
+      const finalCoverage = evaluateAssertionCoverage({ assertions, facts: atomicFacts, text: extractionText })
+        .map((assertion) => assertion.fact_ids.some((id) => conflictedFactIds.has(id))
+          ? { ...assertion, status: 'AMBIGUOUS' } : assertion);
+      traceSink.value = {
+        trace_id: `trace_${digest(JSON.stringify({ transcript_id: transcript.transcript_id, extractionText,
+          versions: [EXTRACTION_VERSION, ASSERTION_SEGMENTER_VERSION, CONVERSATIONAL_FACTS_VERSION] }))}`,
+        session_id: session.session_id,
+        transcript_id: transcript.transcript_id,
+        input_text_sha256: `sha256:${digest(extractionText)}`,
+        pipeline_versions: {
+          ontology: 'canonical-report-facts.v1', segmenter: ASSERTION_SEGMENTER_VERSION,
+          coverage: ASSERTION_COVERAGE_VERSION, deterministic: CONVERSATIONAL_FACTS_VERSION,
+          extractor: SEMANTIC_EXTRACTOR_VERSION, verifier: 'structured-proposal-verifier.v1',
+          field_mapping: EXTRACTION_VERSION,
+        },
+        assertions: finalCoverage,
+        unresolved_semantic_windows: semanticWindows,
+        first_pass_coverage: firstPassCoverage.map(({ assertion_id, status, uncovered_spans: uncoveredSpans }) => ({
+          assertion_id, status, uncovered_spans: uncoveredSpans,
+        })),
+        canonical_facts: atomicFacts,
+        relationships,
+        deterministic_proposals: deterministicFacts.map((fact) => fact.fact_id),
+        semantic_proposals: proposed.proposals || [],
+        accepted_semantic_fact_ids: modelFacts.map((fact) => fact.fact_id),
+        model: { provider: proposed.provider || null, model: proposed.model || null,
+          skipped: proposed.skipped || null, error: proposed.provider_error || null, rejections: proposed.rejections || [] },
+        field_assignments: assignments.map((assignment) => ({
+          field_id: assignment.field_id, semantic_type: assignment.semantic_type,
+          fact_ids: assignment.fact_ids || (assignment.fact ? [assignment.fact.fact_id] : []),
+          value: assignment.value ?? null, claim_kind: assignment.claim_kind,
+        })),
+        unassigned_facts: routing.unassigned.map(({ fact, reason }) => ({ fact_id: fact.fact_id, reason })),
+        conflicts,
+        missing_information: missing,
+      };
+    }
+    return assignments;
   }
 
   async extractCandidates({
@@ -887,12 +1066,14 @@ export class AuthoritativeCaptureService {
     confirmationRequirements = [],
     preExtractedFacts = null,
   }) {
+    const traceSink = {};
     const extractedFacts = await this.extractFacts({
       session,
       transcript,
       extractionText,
       confirmedCorrections,
       preExtractedFacts,
+      traceSink,
     });
     const facts = coalesceAdditiveAssignments(extractedFacts);
     const spans = [];
@@ -984,7 +1165,14 @@ export class AuthoritativeCaptureService {
     };
     const artifactId = `extraction_${digest(JSON.stringify(artifact))}`;
     await this.sessionStore.putRecord('semantic-extractions', artifactId, { artifact_id: artifactId, ...artifact });
-    return { spans, candidates, facts };
+    const semanticTrace = traceSink.value;
+    if (semanticTrace) {
+      for (const fact of semanticTrace.canonical_facts) {
+        await this.sessionStore.putRecord('canonical-facts', fact.fact_id, fact);
+      }
+      await this.sessionStore.putRecord('semantic-traces', semanticTrace.trace_id, semanticTrace);
+    }
+    return { spans, candidates, facts, semantic_trace: semanticTrace };
   }
 
   async retrieveGuidance({ session, transcript, facts, query = transcript.normalized_text ?? transcript.raw_text }) {
@@ -1612,7 +1800,7 @@ export class AuthoritativeCaptureService {
       };
     }
     const projection = transcriptProjection(transcript);
-    const { spans, candidates, facts } = await this.extractCandidates({
+    const { spans, candidates, facts, semantic_trace: semanticTrace } = await this.extractCandidates({
       session,
       transcript,
       supportType,
@@ -1629,6 +1817,7 @@ export class AuthoritativeCaptureService {
       occurred_at: this.clock(),
       details: {
         transcript_id: transcript.transcript_id,
+        semantic_trace_id: semanticTrace?.trace_id || null,
         field_candidate_ids: candidates.map((candidate) => candidate.candidate_id),
       },
       additions: {
@@ -1660,6 +1849,7 @@ export class AuthoritativeCaptureService {
       review: null,
       spans,
       candidates,
+      semantic_trace: semanticTrace,
       guidance_context: guided.guidanceContext,
       reused: false,
       next_action: 'RESOLVE_REPORT_FIELDS',

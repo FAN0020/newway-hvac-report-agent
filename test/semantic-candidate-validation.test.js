@@ -32,7 +32,7 @@ test('semantic compatibility is checked for explicit-none claims too', () => {
   const violations = candidateRuleViolations(candidate('test.result', 'TEST_ACTION', {
     claim: { kind: 'EXPLICIT_NONE' },
   }), definition('test.result'));
-  assert.equal(violations.some((item) => item.code === 'SEMANTIC_FIELD_MISMATCH'), true);
+  assert.equal(violations.some((item) => item.code === 'EXPLICIT_NONE_SEMANTIC_MISMATCH'), true);
 });
 
 test('a current technician work claim passes semantic ownership checks', () => {

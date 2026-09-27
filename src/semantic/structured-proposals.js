@@ -5,7 +5,7 @@ import { identifierIsCertain } from './identifier-certainty.js';
 const TYPE_SET = new Set(SEMANTIC_TYPES);
 const TECHNICIAN_ONLY_TYPES = new Set([
   'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
-  'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP',
+  'TEST_ACTION', 'TEST_OUTCOME', 'TEST_OBSERVATION', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP', 'ROOT_CAUSE',
 ]);
 
 function stableId(value) {
@@ -33,19 +33,28 @@ function evidenceRole(text, start, end) {
   const prior = text.slice(0, start);
   const boundary = Math.max(prior.lastIndexOf('.'), prior.lastIndexOf('!'), prior.lastIndexOf('?'), prior.lastIndexOf('\n'));
   const context = text.slice(boundary + 1, end);
-  const markers = /\b(?:the\s+)?customer\s+(?:reported|complained|said|had)\b|\b(?:I|we)\s+(?:found|observed|inspected|checked|replaced|installed|repaired|reseated|tested|verified|did)\b/giu;
+  const markers = /\b(?:the\s+)?(?:customer|client|driver|operator)\s+(?:reported|complained|said|had)\b|\b(?:I|we)\s+(?:found|observed|inspected|checked|replaced|installed|repaired|reseated|tested|verified|did)\b/giu;
   let role = 'TECHNICIAN';
   for (const marker of context.matchAll(markers)) {
-    role = /^(?:the\s+)?customer\b/iu.test(marker[0]) ? 'CUSTOMER' : 'TECHNICIAN';
+    role = /^(?:the\s+)?(?:customer|client|driver|operator)\b/iu.test(marker[0])
+      ? marker[0].match(/\b(customer|client|driver|operator)\b/iu)[1].toLocaleUpperCase() : 'TECHNICIAN';
   }
   if (/\b(?:the\s+)?customer\s+(?:said|reported|complained)\s*$/iu.test(context)) role = 'CUSTOMER';
   return role;
 }
 
 function evidenceTemporality(quote) {
-  if (/\b(?:recommend(?:ed|ing)?|suggest(?:ed|ing)?|should|will|planned?\s+to|next\s+(?:visit|service)|later|in\s+future)\b/iu.test(quote)) return 'FUTURE';
-  if (/\b(?:not|never|didn['’]?t|wasn['’]?t|weren['’]?t)\s+(?:(?:actually|yet|fully|today)\s+){0,2}(?:replac\w*|install\w*|us(?:e|ed|ing)|chang\w*|repair\w*|perform\w*|complet\w*|fit(?:ted)?|test\w*)\b/iu.test(quote)) return 'NEGATED';
+  if (/\b(?:recommend(?:ed|ing)?|suggest(?:ed|ing)?|should|will|would|planned?\s+to|needs?\s+to|is\s+needed|tomorrow|next\s+(?:visit|service)|later|in\s+future)\b/iu.test(quote)) return 'FUTURE';
+  if (/\b(?:not|never|didn['’]?t|wasn['’]?t|weren['’]?t)\s+(?:(?:actually|yet|fully|today)\s+){0,2}(?:replac\w*|install\w*|us(?:e|ed|ing)|chang\w*|repair\w*|perform\w*|complet\w*|fit(?:ted)?|test\w*|tighten\w*|secur\w*|return\w*)\b/iu.test(quote)) return 'NEGATED';
   return 'CURRENT';
+}
+
+function semanticallyGroundedValue(type, value, quote) {
+  if (lexicallyGrounded(value, quote)) return true;
+  if (type === 'COMPLETION_STATE' && /^(?:ready|returned_to_service)$/iu.test(value)) {
+    return /\b(?:returned?\s+.+?\s+to\s+service|back\s+in\s+service|handed\s+over\s+.+?\s+for\s+service)\b/iu.test(quote);
+  }
+  return false;
 }
 
 function nonAtomicEvidence(quote) {
@@ -101,6 +110,7 @@ export function verifyStructuredFactProposals({
   raw_text: rawText,
   proposals = [],
   capture_context: captureContext = null,
+  allowed_spans: allowedSpans = null,
 } = {}) {
   const text = String(rawText || '');
   const facts = [];
@@ -130,7 +140,7 @@ export function verifyStructuredFactProposals({
       continue;
     }
     const normalizedValue = claimKind === 'VALUE' ? value.trim() : null;
-    if (claimKind === 'VALUE' && !lexicallyGrounded(normalizedValue, quote)) {
+    if (claimKind === 'VALUE' && !semanticallyGroundedValue(semanticType, normalizedValue, quote)) {
       rejections.push({ index, reason: 'UNSUPPORTED_VALUE' });
       continue;
     }
@@ -138,7 +148,7 @@ export function verifyStructuredFactProposals({
       rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
       continue;
     }
-    if (['WORK_ORDER', 'EQUIPMENT_OR_ASSET'].includes(semanticType)
+    if (['WORK_ORDER', 'EQUIPMENT_OR_ASSET', 'ASSET_IDENTITY'].includes(semanticType)
       && !identifierIsCertain(text, start, end)) {
       rejections.push({ index, reason: 'UNCERTAIN_IDENTIFIER' });
       continue;
@@ -154,21 +164,58 @@ export function verifyStructuredFactProposals({
       rejections.push({ index, reason: 'NON_ATOMIC_EVIDENCE' });
       continue;
     }
+    if (Array.isArray(allowedSpans) && !allowedSpans.some((span) => start < span.end && span.start < end)) {
+      rejections.push({ index, reason: 'OUTSIDE_UNRESOLVED_SPAN' });
+      continue;
+    }
     const sourceRole = evidenceRole(text, start, end);
     if ((proposal.source_role && proposal.source_role !== sourceRole)
-      || (semanticType === 'CUSTOMER_OBSERVATION' && sourceRole !== 'CUSTOMER')
-      || (TECHNICIAN_ONLY_TYPES.has(semanticType) && sourceRole === 'CUSTOMER')) {
+      || (['CUSTOMER_OBSERVATION', 'CUSTOMER_COMPLAINT'].includes(semanticType)
+        && !['CUSTOMER', 'CLIENT', 'DRIVER', 'OPERATOR'].includes(sourceRole))
+      || (TECHNICIAN_ONLY_TYPES.has(semanticType) && sourceRole !== 'TECHNICIAN')) {
       rejections.push({ index, reason: 'SOURCE_ROLE_MISMATCH' });
       continue;
     }
     const temporality = evidenceTemporality(quote);
     if ((proposal.temporality && proposal.temporality !== temporality)
-      || (['COMPLETED_ACTION', 'PART_USED'].includes(semanticType) && temporality !== 'CURRENT')) {
+      || (['COMPLETED_ACTION', 'PART_USED', 'TEST_ACTION', 'TEST_OBSERVATION', 'COMPLETION_STATE'].includes(semanticType)
+        && temporality !== 'CURRENT')) {
       rejections.push({ index, reason: 'TEMPORALITY_MISMATCH' });
       continue;
     }
+    if (semanticType === 'TECHNICIAN_IDENTITY'
+      && !/\b(?:technician\s+(?:is\s+)?|I\s+am\s+|I['’]m\s+)[\p{L}'-]+/iu.test(quote)) {
+      rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
+      continue;
+    }
+    if (semanticType === 'LOCATION' && !/\b(?:at|in|depot|location|workshop|station|airport)\b/iu.test(quote)) {
+      rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
+      continue;
+    }
+    if (semanticType === 'ASSET_IDENTITY' && !/\b(?:bus|vehicle|fleet|asset|unit|registration)\b/iu.test(quote)) {
+      rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
+      continue;
+    }
+    if (semanticType === 'ROUTE_IDENTITY' && !/\b(?:line|route|service)\s+[\p{L}\p{N}-]+\b/iu.test(quote)) {
+      rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
+      continue;
+    }
+    if (semanticType === 'ROOT_CAUSE' && !/\b(?:caus(?:e|ed|ing)|due\s+to|because\s+of|root\s+cause)\b/iu.test(quote)) {
+      rejections.push({ index, reason: 'UNSUPPORTED_CAUSALITY' });
+      continue;
+    }
+    if (semanticType === 'TEST_OBSERVATION' && (!/\b(?:after(?:wards)?|following|post[- ]?test|retest|tested)\b/iu.test(quote)
+      || !/\b(?:gone|absent|present|remained|resolved|returned|observed|noticed|measured)\b/iu.test(quote))) {
+      rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
+      continue;
+    }
+    if (semanticType === 'TEST_MEASUREMENT' && (!/\b\d+(?:[.,]\d+)?\s*(?:psi|kpa|bar|pa|v|a|mm|°c|celsius)\b/iu.test(quote)
+      || !hasTestContext(text, start, end, captureContext))) {
+      rejections.push({ index, reason: 'SEMANTIC_TYPE_MISMATCH' });
+      continue;
+    }
     if (semanticType === 'COMPLETION_STATE'
-      && !/\b(?:completion\s+status|final\s+condition|return\s+to\s+service|handover\s+status|ready\s+(?:for|to)\s+service)\b/iu.test(quote)) {
+      && !/\b(?:completion\s+status|final\s+condition|return(?:ed)?\s+.+?\s+to\s+service|back\s+in\s+service|handover\s+status|ready\s+(?:for|to)\s+service)\b/iu.test(quote)) {
       rejections.push({ index, reason: 'COMPLETION_STATUS_NOT_STATED' });
       continue;
     }
@@ -435,6 +482,21 @@ const FACT_OUTPUT_SCHEMA = Object.freeze({
   required: ['facts', 'field_values'],
 });
 
+const CANONICAL_FACT_OUTPUT_SCHEMA = Object.freeze({
+  type: 'object',
+  properties: { facts: FACT_OUTPUT_SCHEMA.properties.facts },
+  required: ['facts'],
+});
+
+const CANONICAL_EXTRACTION_SYSTEM = [
+  'Extract additional canonical technician-reporting facts from unresolved assertion spans. Return a JSON object with facts, or an empty facts array.',
+  'Use the nearby assertions and established facts only to interpret the target span. Every evidence_quote must be a short exact substring of raw_text and support the value and semantic_type.',
+  'Keep repair actions, test actions, observations, formal test outcomes, findings, causal claims, identities, locations, complaints, and completion separate.',
+  'Represent driver, operator, customer, or client complaints with their source_role. First-person self-identification can identify the technician; a mentioned person cannot.',
+  'Do not infer a formal PASS from symptom absence. Do not infer ROOT_CAUSE from a finding or subsequent successful work. Reject future and negated actions as completed facts.',
+  'Do not repeat established facts. Do not use schema field names or knowledge context as evidence. Abstain when unsupported.',
+].join(' ');
+
 export async function proposeStructuredAtomicFacts({
   provider,
   model,
@@ -443,18 +505,32 @@ export async function proposeStructuredAtomicFacts({
   raw_text: rawText,
   capture_context: captureContext = null,
   template = null,
+  semantic_windows: semanticWindows = null,
+  established_facts: establishedFacts = [],
   signal,
 } = {}) {
   if (!provider?.generateJson || !model || !String(rawText || '').trim()) {
     return { facts: [], rejections: [], provider: null, skipped: 'NO_PROVIDER_MODEL_OR_TEXT' };
   }
+  const canonicalOnly = Array.isArray(semanticWindows);
+  if (canonicalOnly && semanticWindows.length === 0) {
+    return { facts: [], rejections: [], provider: null, skipped: 'NO_UNRESOLVED_ASSERTIONS' };
+  }
   let response;
   try {
     response = await provider.generateJson({
       model,
-      system: EXTRACTION_SYSTEM,
-      formatSchema: FACT_OUTPUT_SCHEMA,
-      prompt: JSON.stringify({
+      system: canonicalOnly ? CANONICAL_EXTRACTION_SYSTEM : EXTRACTION_SYSTEM,
+      formatSchema: canonicalOnly ? CANONICAL_FACT_OUTPUT_SCHEMA : FACT_OUTPUT_SCHEMA,
+      prompt: JSON.stringify(canonicalOnly ? {
+        raw_text: rawText,
+        semantic_windows: semanticWindows,
+        established_facts: establishedFacts.map((fact) => ({ semantic_type: fact.semantic_type,
+          value: fact.value, source_role: fact.source_role, temporality: fact.temporality,
+          char_start: fact.char_start, char_end: fact.char_end })),
+        output_keys: ['facts'],
+        required_fact_keys: ['semantic_type', 'value', 'claim_kind', 'evidence_quote'],
+      } : {
         raw_text: rawText,
         capture_context: captureContext,
         template_fields: (template?.schema?.fields || []).filter((field) => !field.id.includes('*'))
@@ -478,12 +554,14 @@ export async function proposeStructuredAtomicFacts({
   const verifiedFacts = verifyStructuredFactProposals({
       scope_id: scopeId, transcript_id: transcriptId, raw_text: rawText,
       proposals, capture_context: captureContext,
+      allowed_spans: canonicalOnly ? semanticWindows.flatMap((window) => window.uncovered_spans || [{ start: window.start, end: window.end }]) : null,
     });
-  const verifiedFields = verifySchemaFieldProposals({
+  const verifiedFields = canonicalOnly ? { assignments: [], rejections: [] } : verifySchemaFieldProposals({
     template, raw_text: rawText, proposals: fieldProposals, capture_context: captureContext,
   });
   return {
     facts: verifiedFacts.facts,
+    proposals,
     field_assignments: verifiedFields.assignments,
     rejections: [...verifiedFacts.rejections, ...verifiedFields.rejections.map((item) => ({ ...item, kind: 'FIELD_VALUE' }))],
     provider: response?.provider || null,

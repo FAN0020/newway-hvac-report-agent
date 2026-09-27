@@ -4,7 +4,8 @@ import { planResolutions } from './resolution-planner.js';
 
 export const AGENT_PROCESSING_VERSION = 'authoritative-report-agent.v1';
 
-export function runAuthoritativeAgent({ session, template, candidates = [], guidance_contexts: guidanceContexts = [], created_at: createdAt } = {}) {
+export function runAuthoritativeAgent({ session, template, candidates = [], guidance_contexts: guidanceContexts = [],
+  semantic_trace: semanticTrace = null, created_at: createdAt } = {}) {
   const merged = mergeFieldCandidates({ session, template, candidates });
   const validationIssues = validateReportFields({
     session, template, definitions: merged.definitions, report_fields: merged.report_fields, guidance_contexts: guidanceContexts,
@@ -12,8 +13,18 @@ export function runAuthoritativeAgent({ session, template, candidates = [], guid
   const completeness = evaluateActiveCompleteness({
     definitions: merged.definitions, report_fields: merged.report_fields, validation_issues: validationIssues,
   });
+  const priorReasons = new Map((semanticTrace?.missing_information || []).map((item) => [item.field_id, item.reason]));
+  const unresolvedInformation = merged.report_fields.filter((field) => !['KNOWN_VALUE', 'EXPLICIT_NONE', 'NOT_APPLICABLE'].includes(field.state))
+    .map((field) => ({
+      field_id: field.field_id,
+      reason: field.state === 'CONFLICT' ? 'CONFLICTING'
+        : field.state === 'INVALID' ? 'MENTIONED_BUT_INVALID'
+          : priorReasons.get(field.field_id) || 'NOT_MENTIONED',
+      required: Boolean(merged.definitions.find((definition) => definition.id === field.field_id)?.required),
+    }));
   const resolutionQueue = planResolutions({
     definitions: merged.definitions, report_fields: merged.report_fields, validation_issues: validationIssues,
+    unresolved_information: unresolvedInformation,
   });
   return Object.freeze({
     contract: 'AuthoritativeAgentState',
@@ -27,6 +38,7 @@ export function runAuthoritativeAgent({ session, template, candidates = [], guid
     conflicts: merged.conflicts,
     validation_issues: validationIssues,
     completeness,
+    unresolved_information: unresolvedInformation,
     resolution_queue: resolutionQueue,
   });
 }
@@ -55,4 +67,3 @@ export function officialFactsFromAgentState(agentState) {
     }];
   });
 }
-

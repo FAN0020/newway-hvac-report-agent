@@ -30,14 +30,19 @@ const HISTORY_SUMMARY_BINDINGS = Object.freeze({
 
 function inferredSemanticRoles(id) {
   if (['work_order', 'work.work_order_id', 'work.order_id'].includes(id)) return ['WORK_ORDER'];
-  if (id === 'equipment' || id.startsWith('asset.')) return ['EQUIPMENT_OR_ASSET'];
+  if (id === 'equipment' || id.startsWith('asset.')) {
+    if (['asset.depot', 'asset.location', 'asset.station_section'].includes(id)) return ['LOCATION'];
+    if (id === 'asset.line') return ['ROUTE_IDENTITY', 'EQUIPMENT_OR_ASSET'];
+    return ['ASSET_IDENTITY', 'EQUIPMENT_OR_ASSET'];
+  }
   if (id === 'technician.name') return ['TECHNICIAN_IDENTITY'];
-  if (['customer_complaint', 'work.trigger', 'work.description'].includes(id)) return ['CUSTOMER_OBSERVATION'];
-  if (id === 'inspection_findings' || id === 'diagnosis.root_cause' || /^check\..+\.observation$/u.test(id)) return ['INSPECTION_FINDING'];
+  if (['customer_complaint', 'work.trigger', 'work.description'].includes(id)) return ['CUSTOMER_OBSERVATION', 'CUSTOMER_COMPLAINT'];
+  if (id === 'diagnosis.root_cause') return ['ROOT_CAUSE'];
+  if (id === 'inspection_findings' || /^check\..+\.observation$/u.test(id)) return ['INSPECTION_FINDING'];
   if (id === 'work_performed' || /^check\..+\.action$/u.test(id)) return ['COMPLETED_ACTION'];
   if (['parts.part_number', 'parts_used'].includes(id)) return ['PART_USED'];
   if (id === 'measurement.*' || id.startsWith('measurement.')) return ['MEASUREMENT'];
-  if (['test_results', 'test.result'].includes(id)) return ['TEST_OUTCOME'];
+  if (['test_results', 'test.result'].includes(id)) return ['TEST_MEASUREMENT', 'TEST_OUTCOME', 'TEST_OBSERVATION'];
   if (['completion_status', 'completion.state'].includes(id)) return ['COMPLETION_STATE'];
   if (id === 'completion.follow_up') return ['RECOMMENDATION', 'FOLLOW_UP'];
   if (id === 'completion.outstanding_issues') return ['FOLLOW_UP'];
@@ -76,7 +81,9 @@ function identity(domain, labels = {}) {
       ['access.approval', 'PTW / Access Reference', true, 'string', true], ['technician.name', 'Technician / Team', true],
     ];
   return values.map(([id, label, required, type = 'string', critical = false], index) =>
-    field(id, label, 'Job identity', index + 1, { required, type, critical, renderer: type === 'number' ? 'measurement-control' : 'text-control' }));
+    field(id, label, 'Job identity', index + 1, { required, type, critical,
+      ...(id === 'work.date_time' ? { precisionRequirement: 'MINUTE' } : {}),
+      renderer: type === 'number' ? 'measurement-control' : 'text-control' }));
 }
 
 function checklist(rows, start = 20) {
@@ -98,6 +105,8 @@ function completion(domain, fields) {
   return fields.map(([id, label, required = true, critical = false, type = 'text', allowedValues], index) =>
     field(id, label, 'Completion and handover', 80 + index, {
       required, critical, type, allowedValues,
+      ...(label === 'Post-work test'
+        ? { semanticRoles: ['TEST_ACTION', 'TEST_MEASUREMENT', 'TEST_OBSERVATION', 'TEST_OUTCOME'] } : {}),
       renderer: type === 'status' ? 'status-control' : 'evidence-text-control',
       requiresTechnicianConfirmation: critical,
     }));

@@ -1,0 +1,13 @@
+{
+  "schema_version": "conversational-reporting-baseline.v1",
+  "source": "Persisted Report 7 extraction_6843289b3207011963a4db4e9649c55e54bf3553e7575797c71aa0437e096c47.json from 2026-09-28; captured before this pipeline change",
+  "case_id": "real-bus-defect-report-7",
+  "fields": {
+    "work.work_order_id": "ABCD-1334",
+    "inspection_findings": "the left mounting bracket loose",
+    "work_performed": "tightened the bracket and re-tested",
+    "completion.outstanding_issues": null
+  },
+  "model_contributed": false,
+  "clarification_count": 11
+}

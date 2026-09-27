@@ -1,13 +1,21 @@
 const FIELD_COMPATIBILITY = Object.freeze({
   WORK_ORDER: ['work_order', 'work.work_order_id', 'work.order_id'],
   EQUIPMENT_OR_ASSET: ['equipment', 'asset.internal_fleet_no', 'asset.registration_no', 'asset.bus_model', 'asset.line', 'asset.station_section', 'asset.location'],
+  ASSET_IDENTITY: ['equipment', 'asset.internal_fleet_no', 'asset.registration_no', 'asset.bus_model'],
+  ROUTE_IDENTITY: ['asset.line'],
+  LOCATION: ['asset.depot', 'asset.location', 'asset.station_section'],
   TECHNICIAN_IDENTITY: ['technician.name'],
   CUSTOMER_OBSERVATION: ['customer_complaint', 'work.trigger', 'work.description'],
-  INSPECTION_FINDING: ['inspection_findings', 'diagnosis.root_cause', 'check.*.observation'],
+  CUSTOMER_COMPLAINT: ['customer_complaint', 'work.trigger', 'work.description'],
+  INSPECTION_FINDING: ['inspection_findings', 'check.*.observation'],
+  ROOT_CAUSE: ['diagnosis.root_cause'],
   COMPLETED_ACTION: ['work_performed', 'check.*.action'],
   PART_USED: ['parts.part_number', 'parts_used'],
   MEASUREMENT: ['measurement.*', 'measurements'],
   TEST_OUTCOME: ['test_results', 'test.result'],
+  TEST_ACTION: ['test.result'],
+  TEST_MEASUREMENT: ['test_results', 'test.result'],
+  TEST_OBSERVATION: ['test.result', 'test_results'],
   COMPLETION_STATE: ['completion_status', 'completion.state'],
   RECOMMENDATION: ['completion.follow_up'],
   FOLLOW_UP: ['completion.follow_up', 'completion.outstanding_issues'],
@@ -29,11 +37,11 @@ function compatiblePatterns(field, semanticType) {
 
 const TECHNICIAN_OWNED_FACTS = new Set([
   'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
-  'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP',
+  'TEST_ACTION', 'TEST_MEASUREMENT', 'TEST_OUTCOME', 'TEST_OBSERVATION', 'COMPLETION_STATE', 'RECOMMENDATION', 'FOLLOW_UP', 'ROOT_CAUSE',
 ]);
 const COMPLETED_OR_OBSERVED_FACTS = new Set([
   'INSPECTION_FINDING', 'COMPLETED_ACTION', 'PART_USED', 'MEASUREMENT',
-  'TEST_ACTION', 'TEST_OUTCOME', 'COMPLETION_STATE',
+  'TEST_ACTION', 'TEST_MEASUREMENT', 'TEST_OUTCOME', 'TEST_OBSERVATION', 'COMPLETION_STATE', 'ROOT_CAUSE',
 ]);
 
 function hasCompatibleContext(fact) {
@@ -75,7 +83,7 @@ function schemaValue(field, fact) {
   if (fact.semantic_type !== 'COMPLETION_STATE' || !Array.isArray(field.allowedValues)) return fact.value;
   const allowed = new Map(field.allowedValues.map((value) => [String(value).toLocaleUpperCase(), value]));
   const normalized = String(fact.value || '').trim().toLocaleLowerCase();
-  if (['done', 'complete', 'completed', 'ready', 'ready for service'].includes(normalized) && allowed.has('READY')) {
+  if (['done', 'complete', 'completed', 'ready', 'ready for service', 'returned_to_service'].includes(normalized) && allowed.has('READY')) {
     return allowed.get('READY');
   }
   if (['not ready', 'incomplete'].includes(normalized) && allowed.has('NOT_READY')) return allowed.get('NOT_READY');
@@ -101,7 +109,7 @@ function chooseField(fields, fact, captureContext) {
     return fields.find((field) => field.id === (fact.semantic_type === 'INSPECTION_FINDING'
       ? 'inspection_findings' : 'work_performed')) || null;
   }
-  if (fact.semantic_type === 'EQUIPMENT_OR_ASSET') {
+  if (['EQUIPMENT_OR_ASSET', 'ASSET_IDENTITY'].includes(fact.semantic_type)) {
     const kind = fact.attributes?.identifier_kind;
     const preferred = kind === 'FLEET' ? 'asset.internal_fleet_no'
       : kind === 'EQUIPMENT' ? 'equipment'
@@ -151,7 +159,14 @@ export function routeAtomicFacts({ facts = [], template, capture_context: captur
       critical: Boolean(selected.critical || selected.requiresTechnicianConfirmation || fact.attributes?.critical),
     });
   }
-  return { assignments, unassigned };
+  const finalAssignments = assignments.filter((assignment) => {
+    if (assignment.semantic_type !== 'TEST_ACTION') return true;
+    const resultPresent = assignments.some((other) => other.field_id === assignment.field_id
+      && ['TEST_MEASUREMENT', 'TEST_OBSERVATION', 'TEST_OUTCOME'].includes(other.semantic_type));
+    if (resultPresent) unassigned.push({ fact: assignment.fact, reason: 'SUPERSEDED_BY_TEST_RESULT' });
+    return !resultPresent;
+  });
+  return { assignments: finalAssignments, unassigned };
 }
 
 export function semanticCompatibilityForField(fieldId) {

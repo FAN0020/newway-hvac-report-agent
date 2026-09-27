@@ -1,0 +1,93 @@
+{
+  "schema_version": "conversational-reporting-evaluation.v1",
+  "provenance": "Report 7 technician transcript and independent natural-language paraphrases",
+  "cases": [
+    {
+      "id": "real-bus-defect-report-7",
+      "split": "protected",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "text": "Hi, this was work order ABCD-1334. I worked on bus 204 this morning at Changi Airport. I am Alex. The driver complained about the vibration. I checked it and found the left mounting bracket loose. Tightened the bracket and re-tested. Vibration was gone afterwards. No outstanding issues and I returned the bus to service.",
+      "expected_fields": {
+        "work.work_order_id": "ABCD-1334",
+        "asset.internal_fleet_no": "204",
+        "asset.depot": "Changi Airport",
+        "technician.name": "Alex",
+        "work.trigger": "vibration",
+        "inspection_findings": "the left mounting bracket loose",
+        "work_performed": "tightened the bracket",
+        "test.result": "re-tested; vibration was gone afterwards",
+        "completion.outstanding_issues": null,
+        "completion.state": "READY"
+      },
+      "expected_unknown": ["asset.registration_no", "asset.bus_model", "measurement.odometer_km", "diagnosis.root_cause", "work.date_time"],
+      "expected_facts": [
+        ["WORK_ORDER", "ABCD-1334"], ["ASSET_IDENTITY", "204"], ["LOCATION", "Changi Airport"],
+        ["TEMPORAL_REFERENCE", "this morning"], ["TECHNICIAN_IDENTITY", "Alex"],
+        ["CUSTOMER_COMPLAINT", "vibration"], ["INSPECTION_FINDING", "the left mounting bracket loose"],
+        ["COMPLETED_ACTION", "tightened the bracket"], ["TEST_ACTION", "re-tested"],
+        ["TEST_OBSERVATION", "vibration was gone afterwards"], ["FOLLOW_UP", null], ["COMPLETION_STATE", "ready"]
+      ],
+      "expected_assertions": ["I worked on bus 204", "this morning", "at Changi Airport.", "Tightened the bracket", "re-tested.", "Vibration was gone afterwards.", "I returned the bus to service."],
+      "expected_semantics": [
+        { "type": "CUSTOMER_COMPLAINT", "value": "vibration", "actor": "DRIVER", "temporality": "PAST" },
+        { "type": "COMPLETED_ACTION", "value": "tightened the bracket", "actor": "TECHNICIAN", "temporality": "COMPLETED" },
+        { "type": "TEST_ACTION", "value": "re-tested", "actor": "TECHNICIAN", "temporality": "COMPLETED" },
+        { "type": "COMPLETION_STATE", "value": "ready", "actor": "TECHNICIAN", "temporality": "COMPLETED" }
+      ],
+      "max_clarifications": 6,
+      "forbidden": ["formal test pass inferred", "root cause inferred", "retest classified as repair", "exact clock time invented"]
+    },
+    {
+      "id": "paraphrase-pump-repair",
+      "split": "development",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "text": "Work order QP-882. On bus 512 at Tuas Depot this afternoon, I'm Priya. The operator reported a rattle. I found a loose fastener, secured it, then ran a retest. The rattle was absent afterwards. No outstanding defects. I returned the vehicle to service.",
+      "expected_fields": {
+        "work.work_order_id": "QP-882",
+        "asset.internal_fleet_no": "512",
+        "asset.depot": "Tuas Depot",
+        "technician.name": "Priya",
+        "work.trigger": "rattle",
+        "inspection_findings": "a loose fastener",
+        "work_performed": "secured the fastener",
+        "test.result": "ran a retest; the rattle was absent afterwards",
+        "completion.outstanding_issues": null,
+        "completion.state": "READY"
+      },
+      "expected_unknown": ["diagnosis.root_cause", "asset.registration_no", "asset.bus_model", "measurement.odometer_km", "work.date_time"],
+      "expected_facts": [
+        ["WORK_ORDER", "QP-882"], ["ASSET_IDENTITY", "512"], ["LOCATION", "Tuas Depot"],
+        ["TEMPORAL_REFERENCE", "this afternoon"], ["TECHNICIAN_IDENTITY", "Priya"],
+        ["CUSTOMER_COMPLAINT", "rattle"], ["INSPECTION_FINDING", "a loose fastener"],
+        ["COMPLETED_ACTION", "secured the fastener"], ["TEST_ACTION", "ran a retest"],
+        ["TEST_OBSERVATION", "the rattle was absent afterwards"], ["FOLLOW_UP", null], ["COMPLETION_STATE", "ready"]
+      ],
+      "expected_assertions": ["On bus 512", "at Tuas Depot", "The operator reported a rattle.", "No outstanding defects.", "I returned the vehicle to service."],
+      "expected_semantics": [
+        { "type": "CUSTOMER_COMPLAINT", "value": "rattle", "actor": "OPERATOR", "temporality": "PAST" },
+        { "type": "TEST_OBSERVATION", "value": "the rattle was absent afterwards", "actor": "TECHNICIAN", "temporality": "COMPLETED" }
+      ],
+      "max_clarifications": 6,
+      "forbidden": ["rattle absence promoted to formal PASS", "root cause inferred"]
+    },
+    {
+      "id": "contrast-route-and-future",
+      "split": "protected",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "text": "Work order XY-44. I checked bus line 99 at the terminal. Customer Alex said the door vibrated. I spoke to Maria. The bracket was not tightened. A retest is needed tomorrow, then we should return the bus to service.",
+      "expected_fields": { "work.work_order_id": "XY-44", "work.trigger": "the door vibrated" },
+      "expected_unknown": ["asset.internal_fleet_no", "technician.name", "work_performed", "test.result", "completion.state"],
+      "expected_facts": [
+        ["WORK_ORDER", "XY-44"], ["ROUTE_IDENTITY", "99"],
+        ["CUSTOMER_COMPLAINT", "the door vibrated"], ["RECOMMENDATION", "return the bus to service"]
+      ],
+      "expected_assertions": ["I spoke to Maria.", "The bracket was not tightened.", "A retest is needed tomorrow"],
+      "expected_semantics": [
+        { "type": "CUSTOMER_COMPLAINT", "value": "the door vibrated", "actor": "CUSTOMER", "temporality": "PAST" },
+        { "type": "RECOMMENDATION", "value": "return the bus to service", "actor": "TECHNICIAN", "temporality": "FUTURE" }
+      ],
+      "max_clarifications": 11,
+      "forbidden": ["line 99 becomes fleet ID", "Alex or Maria becomes technician", "future retest becomes completed", "future handover becomes READY"]
+    }
+  ]
+}

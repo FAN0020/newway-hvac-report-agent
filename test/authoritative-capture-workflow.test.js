@@ -474,7 +474,7 @@ test('capture saves an evidence-backed report-field JSON artifact, omitting unsu
   }
 });
 
-test('completion today uses capture time and schema-matched trigger and depot phrases fill their blanks', async (t) => {
+test('completion today keeps minute-precision time unresolved while cue-backed trigger and depot fill', async (t) => {
   const input = 'It is finished today. This is triggered by a faulty door sensor. Depot is Ang Mo Kio.';
   const semanticProvider = { generateJson: async () => ({ data: {
     facts: [{ semantic_type: 'COMPLETION_STATE', value: 'finished today', claim_kind: 'VALUE', evidence_quote: 'It is finished today' }],
@@ -493,26 +493,23 @@ test('completion today uses capture time and schema-matched trigger and depot ph
     text: input, language: 'en', idempotency_key: 'schema-aware-natural-blanks-1',
   });
   const byField = Object.fromEntries(captured.candidates.map((candidate) => [candidate.field_id, candidate]));
-  assert.equal(byField['work.date_time']?.claim.value, '2026-09-27 14:23');
-  assert.equal(byField['work.date_time']?.support_type, 'AI_INFERENCE');
-  assert.equal(captured.agent_state.report_fields.find((field) => field.field_id === 'work.date_time')?.state, 'INFERRED');
-  assert.equal(captured.agent_state.report_fields.find((field) => field.field_id === 'work.date_time')?.value, '2026-09-27 14:23');
+  assert.equal(byField['work.date_time'], undefined);
+  assert.equal(captured.agent_state.report_fields.find((field) => field.field_id === 'work.date_time')?.state, 'UNKNOWN');
   assert.equal(byField['work.trigger']?.claim.value, 'a faulty door sensor');
   assert.equal(byField['asset.depot']?.claim.value, 'Ang Mo Kio');
   assert.equal(byField['completion.state'], undefined, 'finished maintenance does not prove safe return to service');
   const expectedQuotes = {
-    'work.date_time': 'It is finished today',
-    'work.trigger': 'This is triggered by a faulty door sensor',
+    'work.trigger': 'triggered by a faulty door sensor',
     'asset.depot': 'Depot is Ang Mo Kio',
   };
-  for (const fieldId of ['work.date_time', 'work.trigger', 'asset.depot']) {
+  for (const fieldId of ['work.trigger', 'asset.depot']) {
     const span = await service.sessionStore.readRecord('evidence-spans', byField[fieldId].evidence_refs[0].span_id);
     assert.equal(input.slice(span.start_offset, span.end_offset), expectedQuotes[fieldId]);
   }
   const files = await fs.readdir(path.join(root, 'authority', 'records', 'semantic-extractions'));
   assert.equal(files.length, 1);
   const artifact = JSON.parse(await fs.readFile(path.join(root, 'authority', 'records', 'semantic-extractions', files[0]), 'utf8'));
-  assert.equal(artifact.fields.find((field) => field.field_id === 'work.date_time')?.value, '2026-09-27 14:23');
+  assert.equal(artifact.fields.some((field) => field.field_id === 'work.date_time'), false);
 });
 
 test('future or negated completion never derives a current date/time', async (t) => {
@@ -529,7 +526,7 @@ test('future or negated completion never derives a current date/time', async (t)
   }
 });
 
-test('natural completion paraphrases derive the capture timestamp for review', async (t) => {
+test('natural completion paraphrases do not invent an exact time', async (t) => {
   const { service } = await fixture(t, 'completion-time-paraphrases', {
     clock: () => '2026-09-27T06:23:00.000Z', reportTimeZone: 'Asia/Shanghai',
   });
@@ -540,8 +537,8 @@ test('natural completion paraphrases derive the capture timestamp for review', a
       text: statement, language: 'en', idempotency_key: `date-paraphrase-${index}`,
     });
     const field = captured.agent_state.report_fields.find((item) => item.field_id === 'work.date_time');
-    assert.equal(field?.state, 'INFERRED', statement);
-    assert.equal(field?.value, '2026-09-27 14:23', statement);
+    assert.equal(field?.state, 'UNKNOWN', statement);
+    assert.equal(field?.value, null, statement);
     assert.equal(captured.agent_state.report_fields.find((item) => item.field_id === 'completion.state')?.state, 'UNKNOWN', statement);
   }
 });
@@ -702,7 +699,7 @@ test('coalesced work retains separate original-word spans instead of swallowing 
   assert.deepEqual(quotes, ['I replaced the valve', 'I tightened the contactor']);
 });
 
-test('test action without an outcome leaves test result unknown', async (t) => {
+test('broad Post-work test accepts an action without claiming a pass or fail', async (t) => {
   const { service } = await fixture(t, 'semantic-test-abstention');
   const created = await busSession(service, 'SEMANTIC-TEST-ABSTENTION');
   const result = await service.captureText({
@@ -713,8 +710,10 @@ test('test action without an outcome leaves test result unknown', async (t) => {
     idempotency_key: 'semantic-test-abstention-1',
   });
 
-  assert.equal(result.candidates.some((candidate) => candidate.field_id === 'test.result'), false);
-  assert.equal(result.agent_state.report_fields.find((field) => field.field_id === 'test.result').state, 'UNKNOWN');
+  const candidate = result.candidates.find((item) => item.field_id === 'test.result');
+  assert.equal(candidate?.semantic?.semantic_type, 'TEST_ACTION');
+  assert.equal(candidate?.claim.value, 'tested the front door opening and closing');
+  assert.equal(result.agent_state.report_fields.find((field) => field.field_id === 'test.result').state, 'KNOWN_VALUE');
 });
 
 test('recommended and negated replacement does not become work performed or a part used', async (t) => {

@@ -51,17 +51,28 @@ function answerSpec(type, field, definition) {
   return { answer_type: 'VALUE', options: [], allow_other: true };
 }
 
-function promptFor(type, field, definition, issues) {
+function promptFor(type, field, definition, issues, missingReason = null) {
   const label = fieldLabel(field.field_id, definition);
   if (type === 'CONFLICT') return `Which supported value is correct for ${label}?`;
   if (type === 'SAFETY_CONFIRMATION') return `Confirm the observed ${label}.`;
   if (type === 'CONDITIONAL_REQUIREMENT') return issues.find((issue) => issue.code === 'GUIDANCE_FOLLOW_UP')?.reason || `Provide ${label} because it is now required.`;
   if (type === 'INVALID') return `Correct ${label}; the current value violates a deterministic rule.`;
   if (type === 'UNCERTAIN') return `Confirm or correct the observed ${label}.`;
+  if (type === 'MISSING' && missingReason === 'AMBIGUOUS' && field.field_id === 'diagnosis.root_cause') {
+    return 'Was the observed defect the confirmed root cause, or is the root cause not established?';
+  }
+  if (type === 'MISSING' && missingReason === 'MENTIONED_BUT_INVALID' && field.field_id === 'work.date_time') {
+    return 'You mentioned an approximate time. What was the exact date and time of the work?';
+  }
+  if (type === 'MISSING' && missingReason === 'EXTRACTION_FAILED') {
+    return `I could not interpret the mention of ${label}. Please clarify it.`;
+  }
   return `Provide the required ${label}.`;
 }
 
-export function planResolutions({ definitions, report_fields: reportFields, validation_issues: issues } = {}) {
+export function planResolutions({ definitions, report_fields: reportFields, validation_issues: issues,
+  unresolved_information: unresolvedInformation = [] } = {}) {
+  const missingReasons = new Map(unresolvedInformation.map((item) => [item.field_id, item.reason]));
   const byField = new Map();
   for (const issue of issues) {
     if (!issue.field_id) continue;
@@ -81,7 +92,7 @@ export function planResolutions({ definitions, report_fields: reportFields, vali
       type,
       field_id: fieldId,
       candidate_ids: [...new Set(fieldIssues.flatMap((issue) => issue.candidate_ids))],
-      prompt: promptFor(type, field, definition, fieldIssues),
+      prompt: promptFor(type, field, definition, fieldIssues, missingReasons.get(fieldId)),
       reason: fieldIssues.map((issue) => issue.reason).join(' '),
       priority: priority.rank,
       priority_class: priority.name,
