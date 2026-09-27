@@ -62,6 +62,8 @@ On another device connected to the same trusted Wi-Fi, open `http://<this-comput
 
 Do not expose this server to the public internet. It is plain HTTP with a temporary shared token, not production identity, TLS, rate limiting, or a hardened deployment. If a custom local hostname is needed, add its exact value through `HVAC_ALLOWED_HOSTS`; private LAN IP addresses are accepted automatically.
 
+For Netlify frontend build settings and the backend work required for a working deployment, see [Netlify deployment](docs/NETLIFY_DEPLOYMENT.md).
+
 Phone and other-device browsers normally block microphone access on plain LAN HTTP. For tomorrow's reliable demo, record in the host browser at `http://127.0.0.1:4310` while other devices watch, or use manual text on the other device. Mobile/remote microphone capture has not been validated.
 
 The shortest presenter checklist is [docs/DEMO_CARD.md](docs/DEMO_CARD.md). The longer setup and troubleshooting guide is [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).

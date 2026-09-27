@@ -30,6 +30,7 @@ output/
 outputs/qiongwen-ground-truth-blind-package-*/
 outputs/qiongwen-ground-truth-blind-package-*.zip
 node_modules/
+dist/
 .venv/
 venv/
 .env

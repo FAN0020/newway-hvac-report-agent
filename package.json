@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "build:netlify": "node scripts/build-netlify.js",
     "start": "node src/server.js",
     "start:local-ai": "HVAC_OLLAMA_MODEL=qwen3.5:9b node src/server.js",
     "demo": "node scripts/start-demo.js",
