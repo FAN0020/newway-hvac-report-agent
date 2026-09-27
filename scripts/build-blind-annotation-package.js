@@ -128,6 +128,7 @@ async function main() {
   const manifestPath = path.join(ROOT, 'evaluation', 'synthetic-cases.v1.json');
   const manifestBuffer = await fs.readFile(manifestPath);
   const manifest = JSON.parse(manifestBuffer);
+  const manifestHash = sha256(manifestBuffer);
   const audioMetadata = JSON.parse(await fs.readFile(path.join(options.audio, 'metadata.json'), 'utf8'));
   const audioByCase = new Map(audioMetadata.cases.map((item) => [item.case_id, item]));
   if (manifest.cases.length !== 15 || audioByCase.size !== manifest.cases.length) {
@@ -147,10 +148,10 @@ async function main() {
     if (actualHash !== audio.sha256) throw new Error(`Audio checksum mismatch for ${item.case_id}`);
     await fs.copyFile(source, path.join(options.output, 'audio', audio.file));
     blindCases.push({ case_id: item.case_id, scope: item.scope, scenario: item.scenario, synthetic: true, audio_file: `audio/${audio.file}`, audio_file_sha256: actualHash });
-    const blank = blankAnnotation(item, actualHash, sha256(manifestBuffer));
+    const blank = blankAnnotation(item, actualHash, manifestHash);
     await fs.writeFile(path.join(options.output, 'annotations', `${item.case_id}.json`), `${JSON.stringify(blank, null, 2)}\n`);
   }
-  await fs.writeFile(path.join(options.output, 'blind-cases.json'), `${JSON.stringify({ schema_version: 'blind-case-list.v1', label: 'SYNTHETIC', cases: blindCases }, null, 2)}\n`);
+  await fs.writeFile(path.join(options.output, 'blind-cases.json'), `${JSON.stringify({ schema_version: 'blind-case-list.v1', label: 'SYNTHETIC', source_manifest_sha256: manifestHash, cases: blindCases }, null, 2)}\n`);
   await fs.writeFile(path.join(options.output, 'knowledge-catalog.json'), `${JSON.stringify(await knowledgeCatalog(), null, 2)}\n`);
   await fs.writeFile(path.join(options.output, 'README-FIRST.md'), readme(blindCases.length));
   await assertBlind(options.output, manifest);

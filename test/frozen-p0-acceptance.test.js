@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const EXPECTED_CASES = [
   'mostly_complete_sbs_bus',
@@ -40,5 +44,9 @@ test('the frozen P0 ReportSession dataset has complete acceptance and anti-hallu
     assert.ok(scenario.expected_properties.length > 0, `${scenario.id} defines expected behavior`);
     assert.ok(scenario.forbidden_behavior.length > 0, `${scenario.id} defines forbidden authority behavior`);
     assert.ok(scenario.automated_evidence.length > 0, `${scenario.id} maps to automated evidence`);
+    for (const relativePath of scenario.automated_evidence) {
+      assert.match(relativePath, /^test\/.+\.test\.js$/u, `${scenario.id} evidence uses an exact repository-relative test path`);
+      await fs.access(path.join(root, relativePath));
+    }
   }
 });
