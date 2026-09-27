@@ -141,7 +141,10 @@ function makeTemplate({ templateId, name, domain, provenance, fields, contextSou
       jobFactPolicy: 'CONTEXT_MUST_NOT_ASSERT_JOB_FACTS',
       sources: Object.freeze(contextSources || []),
     }),
-    rendererMapping: Object.freeze({ id: 'maintenance-workspace', version: '1.0.0', export: 'maintenance-report-document' }),
+    rendererMapping: Object.freeze({
+      id: 'maintenance-workspace', version: '1.0.0', export: 'template-table-pdf',
+      pdfLayout: `${templateId}.prototype.v1`,
+    }),
     adapter: Object.freeze({ id: domain === 'HVAC' ? 'hvac-v1' : domain === 'SBS_BUS' ? 'sbs-bus-v1' : 'sbs-rail-v1', version: '1.0.0' }),
     historySummary: HISTORY_SUMMARY_BINDINGS[domain],
   });

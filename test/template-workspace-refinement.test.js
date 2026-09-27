@@ -28,7 +28,8 @@ test('workspace has one capture primary, one embedded microphone, and two second
   assert.match(client, /workspace-microphone/);
   assert.match(client, /Upload recording/);
   assert.match(client, /Attach evidence/);
-  assert.match(client, /const submit = button\('Continue', 'primary'/);
+  assert.match(client, /submitLabel: 'Continue'/);
+  assert.match(client, /const submit = button\(submitLabel, 'primary'/);
   assert.doesNotMatch(client, /Update report|workspace-analyze|workspace-confirm-check/);
 });
 
@@ -57,11 +58,49 @@ test('shared legacy presentation helpers remain deterministic for non-workspace 
   assert.equal(reportStatusSummary({ requiredFields: ['a'], missingFields: [], conflicts: [], needsConfirmation: [], complete: true }).stateLabel, 'Ready');
 });
 
-test('resolution UI prefers structured controls and never exposes developer metadata', async () => {
+test('generated report is the correction workspace and keeps structured field controls inline', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   for (const type of ['SELECT_OR_PROVIDE', 'SINGLE_SELECT', 'SEMANTIC_STATE', 'NONE_OR_VALUE', 'CONFIRM_OR_REPLACE']) assert.match(client, new RegExp(type));
-  assert.match(client, /Why is this required\?/);
+  assert.match(client, /function renderInlineResolution/);
+  assert.match(client, /Fill missing details/);
+  assert.match(client, /Report draft/);
+  assert.match(client, /Original words/);
+  assert.match(client, /My edit/);
+  assert.doesNotMatch(client, /function renderResolution/);
+  assert.doesNotMatch(client, /Why is this required\?/);
+  assert.match(client, /function renderReporterComposer/);
+  assert.match(client, /renderReporterComposer\(panel/);
+  assert.doesNotMatch(client, /Enter \$\{item\.field_id\}/u);
   assert.doesNotMatch(client, /retrieval score|chunk id|AI confidence|trace id/iu);
+});
+
+test('inline field editing offers report-owned dictation and exposes one stop action', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /recordingFieldId: null/);
+  assert.match(client, /function renderFieldDictationAction/);
+  assert.match(client, /Dictate edit/);
+  assert.match(client, /startRecording\(field\.field_id\)/);
+  assert.match(client, /Stop & fill report/);
+  assert.match(client, /workspace\.recordingFieldId = fieldId/);
+  assert.match(client, /workspace\.recordingFieldId === field\.field_id/);
+  assert.match(client, /renderRecording\([\s\S]*state\.recordingFieldId[\s\S]*return/s);
+});
+
+test('reversible representation controls expose the currently selected source accessibly', async () => {
+  const [client, css] = await Promise.all([
+    fs.readFile('web/template-app.js', 'utf8'),
+    fs.readFile('web/styles.css', 'utf8'),
+  ]);
+  assert.match(client, /aria-pressed/);
+  assert.match(client, /option\.selected/);
+  assert.match(css, /\.representation-choice\.selected/);
+});
+
+test('resolution submission parses measurement text and distinguishes input failures from network failures', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /parseTechnicianFieldAnswer/);
+  assert.match(client, /mutationErrorKind/);
+  assert.match(client, /error\.status >= 500/);
 });
 
 test('responsive and accessibility rules provide focus and practical mobile targets', async () => {
@@ -70,10 +109,17 @@ test('responsive and accessibility rules provide focus and practical mobile targ
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.choice-button[^}]*min-height:\s*50px/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.capture-actions \.primary[^}]*min-height:\s*46px/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-field-actions \.text-button[^}]*min-height:\s*44px/s);
-  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.why-required summary[^}]*min-height:\s*44px/s);
+  assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.inline-field-editor button[^}]*min-height:\s*44px/s);
   assert.match(css, /\.report-section-fields\s*\{[^}]*repeat\(2,/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-section-fields[^}]*grid-template-columns:\s*1fr/s);
   assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.report-history-status[^}]*display:\s*block/s);
+});
+
+test('entering review brings the single next action back into view after an inline field decision', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /focusActiveTask/);
+  assert.match(client, /scrollIntoView\(\{ block: 'start'/);
+  assert.match(client, /querySelector\('button\.primary'\)\?\.focus/);
 });
 
 test('recoverable capture failures preserve work and expose a non-voice alternative', async () => {
@@ -98,6 +144,16 @@ test('successful evidence attachment is visibly acknowledged without becoming a 
   assert.match(client, /workspace\.attachmentStatus = `Evidence attached:/);
 });
 
+test('one global missing-details composer can update several unresolved fields without a wizard', async () => {
+  const client = await fs.readFile('web/template-app.js', 'utf8');
+  assert.match(client, /addingDetail/);
+  assert.match(client, /Fill missing details/);
+  assert.match(client, /renderReporterComposer\(panel,[\s\S]*submitLabel: 'Fill report'/s);
+  assert.match(client, /state\.addingDetail = false/);
+  assert.match(client, /async function uploadAudio[\s\S]*workspace\.addingDetail = false/s);
+  assert.match(client, /button\('Cancel', 'text-button'/);
+});
+
 test('malformed audio asks for a replacement recording instead of claiming transcription can retry', async () => {
   const [client, view] = await Promise.all([
     fs.readFile('web/template-app.js', 'utf8'),
@@ -118,5 +174,6 @@ test('local API client reacquires its ephemeral token once after a server restar
 test('inline field edit mode does not retain duplicate Source or Edit actions', async () => {
   const client = await fs.readFile('web/template-app.js', 'utf8');
   assert.match(client, /const isEditing = state\.editingField === field\.field_id/);
-  assert.match(client, /if \(!isEditing\) \{[\s\S]*field\.has_provenance[\s\S]*phase === 'RESOLVE'/);
+  assert.match(client, /if \(!isEditing\) \{[\s\S]*field\.has_provenance[\s\S]*\['RESOLVE', 'REVIEW'\]/);
+  assert.doesNotMatch(client, /if \(isEditing\)[\s\S]*button\('Source'/);
 });

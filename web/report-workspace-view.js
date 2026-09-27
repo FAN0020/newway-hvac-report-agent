@@ -49,7 +49,6 @@ function sourceLabel(field) {
   const selected = new Set(field?.selected_candidate_ids || []);
   const candidate = (field?.candidates || []).find((entry) => selected.has(entry.candidate_id))
     || field?.candidates?.[0];
-  if (candidate?.extraction?.method === 'deterministic-rule') return 'Technician statement';
   const labels = {
     AUTHORITATIVE_SYSTEM_DATA: 'Work order',
     TRANSCRIPT_EVIDENCE: 'Technician statement',
@@ -61,13 +60,102 @@ function sourceLabel(field) {
   return labels[candidate?.support_type] || null;
 }
 
-export function fieldDisplay(field = {}) {
+function projectResolutionItem(item, field) {
+  if (!item) return null;
+  return {
+    ...item,
+    options: (item.options || []).map((option) => {
+      const candidate = field?.candidates?.find((entry) => entry.candidate_id === option.candidate_id);
+      return {
+        ...option,
+        source_label: candidate
+          ? sourceLabel({ ...field, state: 'KNOWN_VALUE', candidates: [candidate], selected_candidate_ids: [candidate.candidate_id] })
+          : option.source_label || null,
+      };
+    }),
+  };
+}
+
+function claimValue(candidate) {
+  if (candidate?.claim?.kind === 'EXPLICIT_NONE') return 'None';
+  if (candidate?.claim?.kind === 'NOT_APPLICABLE') return 'Not applicable';
+  const raw = candidate?.claim?.value;
+  if (raw && typeof raw === 'object' && Object.hasOwn(raw, 'value')) return `${raw.value}${raw.unit ? ` ${raw.unit}` : ''}`;
+  return raw === null || raw === undefined ? '' : String(raw);
+}
+
+function fieldRepresentations(field, chain) {
+  const transcripts = new Map((chain?.transcripts || []).map((item) => [item.transcript_id, item]));
+  const spans = new Map((chain?.evidence_spans || []).map((item) => [item.span_id, item]));
+  const candidates = field?.candidates || [];
+  const candidateById = new Map(candidates.map((candidate) => [candidate.candidate_id, candidate]));
+  const selectedCandidateIds = new Set(field?.selected_candidate_ids || []);
+  const selectedSourceIds = new Set();
+  const selectedTranscriptSpanIds = new Set();
+  for (const selected of candidates.filter((candidate) => selectedCandidateIds.has(candidate.candidate_id))) {
+    const source = selected.support_type === 'TECHNICIAN_CONFIRMATION' && selected.confirmed_candidate_id
+      ? candidateById.get(selected.confirmed_candidate_id)
+      : selected;
+    if (!source) continue;
+    selectedSourceIds.add(source.candidate_id);
+    if (source.extraction?.method === 'technician-transcript-selection') {
+      for (const reference of source.evidence_refs || []) {
+        if (reference.span_id) selectedTranscriptSpanIds.add(reference.span_id);
+      }
+    }
+  }
+  const drafts = [];
+  const originalWords = [];
+  const manual = [];
+  const seenDrafts = new Set();
+  const seenWords = new Set();
+  const seenManual = new Set();
+  for (const candidate of candidates) {
+    const method = candidate.extraction?.method || '';
+    const value = claimValue(candidate);
+    if (candidate.support_type !== 'TECHNICIAN_CONFIRMATION'
+      && !['technician-field-selection', 'technician-resolution-answer', 'technician-transcript-selection'].includes(method)
+      && value && !seenDrafts.has(`${candidate.candidate_id}:${value}`)) {
+      seenDrafts.add(`${candidate.candidate_id}:${value}`);
+      drafts.push({
+        kind: 'CANDIDATE', candidate_id: candidate.candidate_id, value,
+        source_label: sourceLabel({ ...field, candidates: [candidate], selected_candidate_ids: [candidate.candidate_id] }) || 'Report evidence',
+        selected: selectedSourceIds.has(candidate.candidate_id),
+      });
+    }
+    if (candidate.support_type !== 'TECHNICIAN_CONFIRMATION' && ['technician-field-selection', 'technician-resolution-answer'].includes(method)
+      && value && !seenManual.has(value)) {
+      seenManual.add(value);
+      manual.push({
+        kind: 'CANDIDATE', candidate_id: candidate.candidate_id, value, source_label: 'My edit',
+        selected: selectedSourceIds.has(candidate.candidate_id),
+      });
+    }
+    for (const reference of candidate.evidence_refs || []) {
+      const span = spans.get(reference.span_id);
+      const transcript = transcripts.get(reference.evidence_id);
+      if (!span || !transcript) continue;
+      const words = transcript.raw_text.slice(span.start_offset, span.end_offset);
+      const key = `${reference.span_id}:${words}`;
+      if (!words || seenWords.has(key)) continue;
+      seenWords.add(key);
+      originalWords.push({
+        kind: 'TRANSCRIPT_SPAN', candidate_id: candidate.candidate_id, span_id: reference.span_id,
+        value: words, source_label: 'Original words', selected: selectedTranscriptSpanIds.has(reference.span_id),
+      });
+    }
+  }
+  return { drafts, original_words: originalWords, manual };
+}
+
+export function fieldDisplay(field = {}, chain = null) {
   return {
     field_id: field.field_id || '',
     label: FIELD_LABELS[field.state] || 'Needs information',
     value: displayValue(field),
     source_label: sourceLabel(field),
     actionable: ['UNKNOWN', 'UNCERTAIN', 'CONFLICT', 'INVALID', 'INFERRED'].includes(field.state),
+    representations: fieldRepresentations(field, chain),
   };
 }
 
@@ -117,7 +205,7 @@ function deriveActiveTask(input) {
     const labels = {
       RETRY_TRANSCRIPTION: 'Retry transcription', RETRY_ATTACHMENT: 'Try attachment again',
       RETRY_AUDIO_UPLOAD: 'Choose another recording',
-      RETRY_CONNECTION: 'Try again', REFRESH_SESSION: 'Refresh report',
+      RETRY_CONNECTION: 'Try again', RETRY_INPUT: 'Edit answer', REFRESH_SESSION: 'Refresh report',
     };
     return {
       kind: 'RECOVERABLE_ERROR', title: error.message || 'Something interrupted this step.',
@@ -149,17 +237,16 @@ function deriveActiveTask(input) {
   const next = agentState?.resolution_queue?.[0];
   if (next) {
     return {
-      kind: 'RESOLUTION', title: next.prompt, reason: next.reason, item: next,
+      kind: 'REPORT_REVIEW', title: `${agentState.resolution_queue.length} ${agentState.resolution_queue.length === 1 ? 'detail needs' : 'details need'} attention`,
       remaining: agentState.resolution_queue.length,
-      control: resolutionControl(next),
-      primary_action: action('ANSWER_RESOLUTION', 'Continue'),
+      primary_action: action('CAPTURE_MISSING_DETAILS', 'Fill missing details'),
     };
   }
   if (session.phase === 'REVIEW') {
-    return { kind: 'REVIEW', title: 'Review exceptions and critical details', primary_action: action('COMPLETE_REVIEW', 'Finish review') };
+    return { kind: 'REVIEW', title: 'Review the completed report', primary_action: action('SUBMIT_REPORT', 'Submit report') };
   }
   if (session.phase === 'READY') {
-    return { kind: 'READY', title: 'Report is ready to confirm', primary_action: action('CONFIRM_REPORT', 'Confirm report') };
+    return { kind: 'READY', title: 'Report is ready to submit', primary_action: action('SUBMIT_REPORT', 'Submit report') };
   }
   if (session.phase === 'CONFIRMED') {
     return { kind: 'CONFIRMED', title: 'Report confirmed', primary_action: action('EXPORT_REPORT', 'Export report') };
@@ -182,21 +269,22 @@ function valueFor(fields, id, conflictLabel = 'Needs resolution') {
   return field?.state === 'CONFLICT' ? conflictLabel : displayValue(field);
 }
 
-function buildSections(template, agentState, sessionPhase, processing) {
+function buildSections(template, agentState, sessionPhase, processing, chain) {
   const fieldMap = new Map((agentState?.report_fields || []).map((field) => [field.field_id, field]));
-  const unresolved = new Set((agentState?.resolution_queue || []).map((item) => item.field_id));
-  const activeFieldId = agentState?.resolution_queue?.[0]?.field_id;
+  const resolutionByField = new Map((agentState?.resolution_queue || []).map((item) => [item.field_id, item]));
+  const unresolved = new Set(resolutionByField.keys());
   const groups = new Map();
   for (const definition of template?.schema?.fields || []) {
     if (definition.id.endsWith('.*')) continue;
     const title = definition.section || 'Report';
     if (!groups.has(title)) groups.set(title, []);
     const field = fieldMap.get(definition.id) || { field_id: definition.id, state: 'UNKNOWN', value: null, candidates: [] };
-    const display = fieldDisplay(field);
+    const display = fieldDisplay(field, chain);
     if (!definition.required && field.state === 'UNKNOWN' && !unresolved.has(field.field_id)) {
       display.label = 'Optional · not provided';
       display.actionable = false;
     }
+    const resolutionItem = projectResolutionItem(resolutionByField.get(field.field_id), field);
     groups.get(title).push({
       ...display,
       name: definition.label,
@@ -205,12 +293,18 @@ function buildSections(template, agentState, sessionPhase, processing) {
       review_priority: Boolean(definition.critical || definition.requiresTechnicianConfirmation
         || field.candidates?.some((candidate) => candidate.extraction?.method === 'technician-resolution-answer')),
       has_provenance: Boolean(field.candidates?.some((candidate) => candidate.evidence_refs?.length)),
+      definition: {
+        type: definition.type || 'string',
+        unit: definition.unit || null,
+        allowed_values: definition.allowedValues || definition.allowedStatuses || [],
+      },
+      resolution_item: resolutionItem,
+      resolution_control: resolutionItem ? resolutionControl(resolutionItem) : null,
     });
   }
   return [...groups].map(([title, fields]) => {
     const needsAttention = fields.filter((field) => unresolved.has(field.field_id)).length;
     const reviewPriority = fields.filter((field) => field.review_priority).length;
-    const activeIssueIsHere = fields.some((field) => field.field_id === activeFieldId);
     const reviewing = sessionPhase === 'REVIEW';
     const recordingWithBlanks = processing === 'RECORDING' && fields.some((field) => field.state === 'UNKNOWN');
     return {
@@ -222,7 +316,7 @@ function buildSections(template, agentState, sessionPhase, processing) {
       review_priority: reviewPriority,
       expanded: processing === 'RECORDING'
         ? recordingWithBlanks
-        : sessionPhase === 'CONTEXT' ? false : reviewing ? reviewPriority > 0 : activeIssueIsHere,
+        : ['RESOLVE', 'REVIEW', 'READY'].includes(sessionPhase),
       fields,
     };
   });
@@ -251,6 +345,6 @@ export function deriveWorkspaceView(input = {}) {
       need_input: input.agent_state?.resolution_queue?.length || 0,
     },
     active_task: deriveActiveTask(input),
-    report_sections: buildSections(input.template, input.agent_state, input.session?.phase, input.processing),
+    report_sections: buildSections(input.template, input.agent_state, input.session?.phase, input.processing, input.chain),
   };
 }

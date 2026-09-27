@@ -175,7 +175,10 @@ test('confirmed export is snapshot-owned, retry-idempotent, and survives service
   assert.equal(first.output_artifact.snapshot_id, confirmed.snapshot.snapshot_id);
   assert.equal(first.output_artifact.report_id, confirmed.snapshot.report.report_id);
   assert.equal(first.output_artifact.report_version, 1);
-  assert.equal(first.output_artifact.format, 'text/plain');
+  assert.equal(first.output_artifact.format, 'application/pdf');
+  assert.equal(first.mime_type, 'application/pdf');
+  assert.match(first.filename, /\.pdf$/u);
+  assert.equal(Buffer.from(first.content_base64, 'base64').subarray(0, 5).toString('ascii'), '%PDF-');
   assert.match(first.export_text, /Bus Defect Rectification/iu);
   assert.match(first.export_text, /Parts \/ materials: None/iu);
   assert.match(first.export_text, /Odometer: 51020 km/iu);
@@ -186,11 +189,13 @@ test('confirmed export is snapshot-owned, retry-idempotent, and survives service
   });
   assert.equal(second.reused, true);
   assert.equal(second.export_hash, first.export_hash);
+  assert.equal(second.content_base64, first.content_base64);
 
   const restarted = new AuthoritativeCaptureService({
     artifactStore: new ArtifactStore({ root: path.join(root, 'artifacts') }),
     sessionStore: new ReportSessionStore({ root: path.join(root, 'authority') }),
     whisperProvider: { transcribe: async () => { throw new Error('Not used.'); } },
+    pdfRenderer: async () => { throw new Error('Existing export must be reused without rendering.'); },
     clock: () => '2026-09-27T10:42:00.000Z',
   });
   const afterRestart = await restarted.exportConfirmedSession({
@@ -199,6 +204,7 @@ test('confirmed export is snapshot-owned, retry-idempotent, and survives service
   });
   assert.equal(afterRestart.reused, true);
   assert.equal(afterRestart.export_hash, first.export_hash);
+  assert.equal(afterRestart.content_base64, first.content_base64);
   assert.equal(afterRestart.output_artifact.output_id, first.output_artifact.output_id);
   const history = await restarted.listReportHistory();
   assert.equal(history[0].report_id, confirmed.snapshot.report.report_id);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
+import { hashContract } from '../src/domain/index.js';
 import { ArtifactStore } from '../src/storage/artifacts.js';
 import { ReportSessionStore } from '../src/storage/report-sessions.js';
 import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capture.js';
@@ -118,6 +119,47 @@ test('technician text is persisted, report-bound, reviewed harmlessly, and conve
     'PROCESSING_STARTED',
     'STRUCTURED_CANDIDATES_CREATED',
   ]);
+});
+
+test('transcript measurements become numeric server candidates while preserving exact units', async (t) => {
+  const { service } = await fixture(t, 'numeric-measurement');
+  const created = await busSession(service, 'MEASUREMENT');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'The odometer was 51020 km.',
+    language: 'en',
+    idempotency_key: 'measurement-capture-1',
+  });
+  const candidate = result.candidates.find((entry) => entry.field_id === 'measurement.odometer_km');
+  assert.deepEqual(candidate.claim.value, { value: 51020, unit: 'km' });
+  const field = result.agent_state.report_fields.find((entry) => entry.field_id === 'measurement.odometer_km');
+  assert.equal(field.state, 'KNOWN_VALUE');
+  const issue = result.agent_state.validation_issues.find((entry) => entry.field_id === 'measurement.odometer_km');
+  assert.equal(issue.code, 'CRITICAL_CONFIRMATION_REQUIRED');
+  assert.equal(issue.blocking, true);
+  const resolution = result.agent_state.resolution_queue.find((entry) => entry.field_id === 'measurement.odometer_km');
+  assert.equal(resolution.type, 'SAFETY_CONFIRMATION');
+});
+
+test('ordinary text capture uses the selected fact-centric interpretation even without a correction screen', async (t) => {
+  const { service } = await fixture(t, 'fact-centric-no-review');
+  const created = await busSession(service, 'NO-REVIEW');
+  const result = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: 'The passenger door would not close. Inspection found a loose connector. No outstanding issues.',
+    language: 'en',
+    idempotency_key: 'fact-centric-no-review-1',
+  });
+  assert.equal(result.review, null);
+  assert.deepEqual(
+    result.candidates.filter((candidate) => candidate.field_id === 'inspection_findings').map((candidate) => candidate.claim.value),
+    ['Inspection found a loose connector'],
+  );
+  const outstanding = result.agent_state.report_fields.find((field) => field.field_id === 'completion.outstanding_issues');
+  assert.equal(outstanding.state, 'EXPLICIT_NONE');
+  assert.equal(result.agent_state.resolution_queue.some((item) => item.field_id === 'completion.outstanding_issues'), false);
 });
 
 test('audio bytes exist before Whisper and the transcript preserves provider timestamps and exact bindings', async (t) => {
@@ -488,4 +530,40 @@ test('accepting a material correction preserves raw evidence while candidates re
   assert.equal(rawText.slice(span.start_offset, span.end_offset), 'Bus MAN 9-5 had a door fault');
   assert.equal(span.quote_hash.startsWith('sha256:'), true);
   assert.equal((await sessionStore.loadChain(created.session.session_id)).transcripts[0].raw_text, rawText);
+});
+
+test('accepted terminology correction adds only correction-eligible facts and cannot invent an inspection action', async (t) => {
+  const { service, sessionStore } = await fixture(t, 'fact-centric-correction');
+  const created = await service.createSession({
+    template_id: 'rail-maintenance-completion-handover',
+    template_version: '1.0.0',
+    job_context_ref: 'job-context:RAIL-SEMANTIC-TRAP',
+  });
+  const rawText = 'Door control module 40 was mentioned during inspection.';
+  const pending = await service.captureText({
+    session_id: created.session.session_id,
+    expected_revision: created.session.revision,
+    text: rawText,
+    language: 'en',
+  });
+  assert.equal(pending.session.phase, 'CORRECTION_IF_NEEDED');
+
+  const decided = await service.decideTranscriptReview({
+    session_id: created.session.session_id,
+    expected_revision: pending.session.revision,
+    review_id: pending.review.review_id,
+    decisions: pending.review.items.map((item) => ({
+      review_item_id: item.review_item_id,
+      decision: item.kind === 'CORRECTION' ? 'ACCEPT' : 'NO_CHANGE',
+    })),
+  });
+
+  const fields = new Set(decided.candidates.map((candidate) => candidate.field_id));
+  assert.ok(fields.has('parts.part_number'));
+  assert.ok(!fields.has('inspection_findings'));
+  assert.ok(!fields.has('work_performed'));
+  for (const candidate of decided.candidates) {
+    const span = await sessionStore.readRecord('evidence-spans', candidate.evidence_refs[0].span_id);
+    assert.equal(span.quote_hash, hashContract(rawText.slice(span.start_offset, span.end_offset)));
+  }
 });

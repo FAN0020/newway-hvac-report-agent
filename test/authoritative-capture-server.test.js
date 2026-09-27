@@ -251,6 +251,46 @@ test('HTTP exposes authoritative Agent state and accepts only server-owned struc
   assert.equal(answered.body.data.agent_state.resolution_queue.some((entry) => entry.resolution_id === item.resolution_id), false);
 });
 
+test('HTTP field selection is server-owned, reversible, and stale-write protected', async (t) => {
+  const { request } = await fixture(t, 'field-selection');
+  const created = await createBusSession(request, 'FIELD-SELECTION');
+  const sessionId = created.body.data.session.session_id;
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: created.body.data.session.revision,
+    text: 'Passenger door would not close.',
+  } });
+  const field = captured.body.data.agent_state.report_fields.find((entry) => entry.candidates.some((candidate) => candidate.claim?.kind === 'VALUE'));
+  const fieldId = field.field_id;
+  const candidate = field.candidates.find((entry) => entry.claim?.kind === 'VALUE');
+  assert.ok(candidate);
+
+  const selected = await request(`/api/report-sessions/${sessionId}/fields/${fieldId}/select`, { method: 'POST', body: {
+    expected_revision: captured.body.data.session.revision,
+    idempotency_key: 'http-field-select-draft',
+    selection: { kind: 'CANDIDATE', candidate_id: candidate.candidate_id },
+  } });
+  assert.equal(selected.status, 201);
+  assert.equal(selected.body.data.candidate.support_type, 'TECHNICIAN_CONFIRMATION');
+  assert.equal(selected.body.data.agent_state.report_fields.find((entry) => entry.field_id === fieldId).value, candidate.claim.value);
+
+  const forged = await request(`/api/report-sessions/${sessionId}/fields/${fieldId}/select`, { method: 'POST', body: {
+    expected_revision: selected.body.data.session.revision,
+    idempotency_key: 'http-field-select-forged',
+    selection: { kind: 'CANDIDATE', candidate_id: candidate.candidate_id },
+    support_type: 'TECHNICIAN_CONFIRMATION',
+  } });
+  assert.equal(forged.status, 400);
+  assert.equal(forged.body.error_code, 'UNTRUSTED_CAPTURE_INPUT');
+
+  const stale = await request(`/api/report-sessions/${sessionId}/fields/${fieldId}/select`, { method: 'POST', body: {
+    expected_revision: captured.body.data.session.revision,
+    idempotency_key: 'http-field-select-stale',
+    selection: { kind: 'MANUAL', value: 'SBS6027Z' },
+  } });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.error_code, 'STALE_REVISION');
+});
+
 test('authoritative template build never renders a planned action blocked by Agent validation', async (t) => {
   const { request } = await fixture(t, 'blocked-render');
   const created = await createBusSession(request, 'BLOCKED');

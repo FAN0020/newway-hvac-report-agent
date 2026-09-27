@@ -112,19 +112,19 @@ const stateCases = [
   ['material transcript correction required', { session: session('CORRECTION_IF_NEEDED'), transcript_review: { status: 'PENDING', items: [{ review_item_id: 'review_1', source_span: { quote: 'Z751A' }, proposed_text: 'C751A', reason: 'Rail terminology' }] } }, 'CORRECTION', 'DECIDE_CORRECTION'],
   ['correction accepted', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'ACCEPT' }] }, transcript: { raw_text: 'C751A inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
   ['correction rejected', { transcript_review: { status: 'REVIEWED', decisions: [{ decision: 'REJECT' }] }, transcript: { raw_text: 'Z751A inspected.' } }, 'CAPTURED', 'CAPTURE_MORE'],
-  ['required field missing', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['uncertain field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 51020), state: 'UNCERTAIN' }], queue: [item('UNCERTAIN', 'CONFIRM_OR_REPLACE', 'measurement.odometer_km')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['conflicting field', { agent_state: agent({ fields: [{ ...unknown('asset.internal_fleet_no'), state: 'CONFLICT' }], queue: [item('CONFLICT', 'SELECT_OR_PROVIDE', 'asset.internal_fleet_no')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['invalid field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 9999999), state: 'INVALID' }], queue: [item('INVALID', 'VALUE', 'measurement.odometer_km')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['conditional requirement', { agent_state: agent({ fields: [unknown('test.result')], queue: [item('CONDITIONAL_REQUIREMENT', 'VALUE', 'test.result')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['safety confirmation', { agent_state: agent({ fields: [known('completion.state', 'NOT_READY')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
+  ['required field missing', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['uncertain field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 51020), state: 'UNCERTAIN' }], queue: [item('UNCERTAIN', 'CONFIRM_OR_REPLACE', 'measurement.odometer_km')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['conflicting field', { agent_state: agent({ fields: [{ ...unknown('asset.internal_fleet_no'), state: 'CONFLICT' }], queue: [item('CONFLICT', 'SELECT_OR_PROVIDE', 'asset.internal_fleet_no')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['invalid field', { agent_state: agent({ fields: [{ ...known('measurement.odometer_km', 9999999), state: 'INVALID' }], queue: [item('INVALID', 'VALUE', 'measurement.odometer_km')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['conditional requirement', { agent_state: agent({ fields: [unknown('test.result')], queue: [item('CONDITIONAL_REQUIREMENT', 'VALUE', 'test.result')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['safety confirmation', { agent_state: agent({ fields: [known('completion.state', 'NOT_READY')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
   ['explicit none', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'EXPLICIT_NONE' }] }), transcript: { raw_text: 'No parts were used.' } }, 'CAPTURED', 'CAPTURE_MORE'],
   ['not applicable', { agent_state: agent({ fields: [{ ...unknown('parts.part_number'), state: 'NOT_APPLICABLE' }] }), transcript: { raw_text: 'Parts do not apply.' } }, 'CAPTURED', 'CAPTURE_MORE'],
-  ['partially complete report', { agent_state: agent({ fields: [known('asset.internal_fleet_no', '8300-354'), unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['multiple remaining items', { agent_state: agent({ fields: [unknown('diagnosis.root_cause'), unknown('completion.state')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state'), item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['final resolution item', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'RESOLUTION', 'ANSWER_RESOLUTION'],
-  ['review state', { session: session('REVIEW'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'REVIEW', 'COMPLETE_REVIEW'],
-  ['ready to confirm', { session: session('READY'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'READY', 'CONFIRM_REPORT'],
+  ['partially complete report', { agent_state: agent({ fields: [known('asset.internal_fleet_no', '8300-354'), unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['multiple remaining items', { agent_state: agent({ fields: [unknown('diagnosis.root_cause'), unknown('completion.state')], queue: [item('SAFETY_CONFIRMATION', 'SINGLE_SELECT', 'completion.state'), item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['final resolution item', { agent_state: agent({ fields: [unknown('diagnosis.root_cause')], queue: [item('MISSING')] }) }, 'REPORT_REVIEW', 'CAPTURE_MISSING_DETAILS'],
+  ['review state', { session: session('REVIEW'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'REVIEW', 'SUBMIT_REPORT'],
+  ['ready to confirm', { session: session('READY'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }) }, 'READY', 'SUBMIT_REPORT'],
   ['confirmed', { session: session('CONFIRMED'), agent_state: agent({ fields: [known('diagnosis.root_cause', 'Not established')], complete: true }), confirmation: { confirmation_token: 'confirmed' } }, 'CONFIRMED', 'EXPORT_REPORT'],
   ['STT recoverable failure', { session: session('RECOVERABLE_ERROR'), recoverable_error: { kind: 'STT', message: 'Recording saved.', retry_action: 'RETRY_TRANSCRIPTION' } }, 'RECOVERABLE_ERROR', 'RETRY_TRANSCRIPTION'],
   ['upload recoverable failure', { recoverable_error: { kind: 'UPLOAD', message: 'Attachment was not added.', retry_action: 'RETRY_ATTACHMENT' } }, 'RECOVERABLE_ERROR', 'RETRY_ATTACHMENT'],
@@ -140,7 +140,7 @@ for (const [name, overrides, expectedKind, primaryId] of stateCases) {
     assert.equal(result.active_task.kind, expectedKind);
     assert.equal(result.active_task.primary_action?.id || null, primaryId);
     assert.ok((result.active_task.primary_action ? 1 : 0) <= 1);
-    assert.equal(result.active_task.primary_action?.id === 'CONFIRM_REPORT', result.session_phase === 'READY');
+    assert.equal(result.active_task.primary_action?.id === 'SUBMIT_REPORT', ['REVIEW', 'READY'].includes(result.session_phase));
     assert.equal(JSON.stringify(result).match(/confidence|chunk_id|trace_id|model|provider/giu), null);
   });
 }
@@ -242,7 +242,7 @@ test('recording state belongs only to the ReportSession that started it', () => 
   assert.equal(anotherReport.active_task.primary_action.id, 'CAPTURE_STATEMENT');
 });
 
-test('header and report summary use only authoritative Agent state and prioritize unresolved sections', () => {
+test('header and report summary use only authoritative Agent state and place unresolved work in the report', () => {
   const result = view({
     agent_state: agent({
       fields: [known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'), known('asset.internal_fleet_no', 'LONG-BUS-IDENTIFIER-8300-354', 'AUTHORITATIVE_SYSTEM_DATA'), unknown('diagnosis.root_cause')],
@@ -253,11 +253,121 @@ test('header and report summary use only authoritative Agent state and prioritiz
   assert.match(result.job_header.identity_line, /WO-111-1222.*LONG-BUS-IDENTIFIER-8300-354/u);
   assert.equal(result.job_header.need_input, 1);
   assert.equal(result.report_sections.find((section) => section.title === 'Diagnosis').expanded, true);
-  assert.equal(result.report_sections.find((section) => section.title === 'Job Identity').expanded, false);
+  assert.equal(result.report_sections.find((section) => section.title === 'Job Identity').expanded, true);
+  const rootCause = result.report_sections.flatMap((section) => section.fields).find((field) => field.field_id === 'diagnosis.root_cause');
+  assert.equal(rootCause.resolution_item.type, 'MISSING');
+  assert.equal(rootCause.resolution_control.kind, 'COMPACT_INPUT');
   assert.equal(result.report_sections.flatMap((section) => section.fields).some((field) => field.editing), false);
 });
 
-test('capture keeps report sections compact while review opens only critical or technician-touched sections', () => {
+test('inline conflict choices identify their authoritative and technician sources', () => {
+  const system = known('asset.internal_fleet_no', '8300-354', 'AUTHORITATIVE_SYSTEM_DATA').candidates[0];
+  const transcript = known('asset.internal_fleet_no', '8300-345').candidates[0];
+  transcript.candidate_id = 'candidate_transcript_bus';
+  const conflictField = {
+    ...unknown('asset.internal_fleet_no'),
+    state: 'CONFLICT',
+    candidates: [system, transcript],
+    active_candidate_ids: [system.candidate_id, transcript.candidate_id],
+  };
+  const conflictItem = {
+    ...item('CONFLICT', 'SELECT_OR_PROVIDE', 'asset.internal_fleet_no'),
+    candidate_ids: [system.candidate_id, transcript.candidate_id],
+    options: [
+      { candidate_id: system.candidate_id, value: '8300-354', support_type: 'AUTHORITATIVE_SYSTEM_DATA' },
+      { candidate_id: transcript.candidate_id, value: '8300-345', support_type: 'TRANSCRIPT_EVIDENCE' },
+    ],
+  };
+  const result = view({
+    agent_state: agent({ fields: [conflictField], queue: [conflictItem] }),
+  });
+  const projected = result.report_sections.flatMap((section) => section.fields)
+    .find((field) => field.field_id === 'asset.internal_fleet_no');
+  assert.deepEqual(projected.resolution_item.options.map((option) => option.source_label), [
+    'Work order',
+    'Technician statement',
+  ]);
+});
+
+test('field representations identify the currently selected source without discarding alternatives', () => {
+  const draft = {
+    candidate_id: 'candidate_draft', support_type: 'TRANSCRIPT_EVIDENCE',
+    claim: { kind: 'VALUE', value: 'Secured the connector' },
+    extraction: { method: 'deterministic-rule', version: 'test' },
+    evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_work' }],
+  };
+  const manual = {
+    candidate_id: 'candidate_manual', support_type: 'MANUAL_TECHNICIAN_INPUT',
+    claim: { kind: 'VALUE', value: 'Reseated and secured the loose connector' },
+    extraction: { method: 'technician-field-selection', version: 'test' },
+    evidence_refs: [{ evidence_id: 'evidence_manual', span_id: 'span_manual' }],
+  };
+  const confirmation = {
+    candidate_id: 'candidate_confirmation', support_type: 'TECHNICIAN_CONFIRMATION',
+    confirmed_candidate_id: manual.candidate_id,
+    claim: manual.claim,
+    extraction: { method: 'technician-field-selection-confirmation', version: 'test' },
+    evidence_refs: manual.evidence_refs,
+  };
+  const field = {
+    field_id: 'work_performed', state: 'KNOWN_VALUE', value: manual.claim.value,
+    selected_candidate_ids: [confirmation.candidate_id],
+    active_candidate_ids: [confirmation.candidate_id],
+    candidates: [draft, manual, confirmation],
+  };
+  const chain = {
+    transcripts: [{ transcript_id: 'transcript_1', raw_text: 'I secured the loose connector.' }],
+    evidence_spans: [{ span_id: 'span_work', evidence_id: 'transcript_1', start_offset: 2, end_offset: 29 }],
+  };
+
+  const projected = fieldDisplay(field, chain).representations;
+
+  assert.equal(projected.drafts[0].selected, false);
+  assert.equal(projected.original_words[0].selected, false);
+  assert.equal(projected.manual[0].selected, true);
+  assert.equal(projected.drafts[0].value, 'Secured the connector');
+  assert.equal(projected.original_words[0].value, 'secured the loose connector');
+  assert.equal(projected.manual[0].value, 'Reseated and secured the loose connector');
+});
+
+test('selecting original transcript words is projected as the active reversible representation', () => {
+  const draft = {
+    candidate_id: 'candidate_draft', support_type: 'TRANSCRIPT_EVIDENCE',
+    claim: { kind: 'VALUE', value: 'Secured the connector' },
+    extraction: { method: 'deterministic-rule', version: 'test' },
+    evidence_refs: [{ evidence_id: 'transcript_1', span_id: 'span_work' }],
+  };
+  const transcriptSelection = {
+    candidate_id: 'candidate_words', support_type: 'MANUAL_TECHNICIAN_INPUT',
+    claim: { kind: 'VALUE', value: 'secured the loose connector' },
+    extraction: { method: 'technician-transcript-selection', version: 'test' },
+    evidence_refs: draft.evidence_refs,
+  };
+  const confirmation = {
+    candidate_id: 'candidate_words_confirmation', support_type: 'TECHNICIAN_CONFIRMATION',
+    confirmed_candidate_id: transcriptSelection.candidate_id,
+    claim: transcriptSelection.claim,
+    extraction: { method: 'technician-field-selection-confirmation', version: 'test' },
+    evidence_refs: transcriptSelection.evidence_refs,
+  };
+  const field = {
+    field_id: 'work_performed', state: 'KNOWN_VALUE', value: transcriptSelection.claim.value,
+    selected_candidate_ids: [confirmation.candidate_id],
+    active_candidate_ids: [confirmation.candidate_id],
+    candidates: [draft, transcriptSelection, confirmation],
+  };
+  const chain = {
+    transcripts: [{ transcript_id: 'transcript_1', raw_text: 'I secured the loose connector.' }],
+    evidence_spans: [{ span_id: 'span_work', evidence_id: 'transcript_1', start_offset: 2, end_offset: 29 }],
+  };
+
+  const projected = fieldDisplay(field, chain).representations;
+
+  assert.equal(projected.drafts[0].selected, false);
+  assert.equal(projected.original_words[0].selected, true);
+});
+
+test('capture stays compact while generated report review exposes the complete schema in order', () => {
   const fields = [
     known('work.work_order_id', 'WO-111-1222', 'AUTHORITATIVE_SYSTEM_DATA'),
     known('diagnosis.root_cause', 'Not established', 'MANUAL_TECHNICIAN_INPUT', 'technician-resolution-answer'),
@@ -270,7 +380,7 @@ test('capture keeps report sections compact while review opens only critical or 
   assert.equal(capture.report_sections.some((section) => section.expanded), false);
 
   const review = view({ session: session('REVIEW'), agent_state: agent({ fields, complete: true }) });
-  assert.equal(review.report_sections.find((section) => section.title === 'Job Identity').expanded, false);
+  assert.equal(review.report_sections.find((section) => section.title === 'Job Identity').expanded, true);
   assert.equal(review.report_sections.find((section) => section.title === 'Diagnosis').expanded, true);
   assert.equal(review.report_sections.find((section) => section.title === 'Completion & Handover').expanded, true);
 });

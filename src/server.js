@@ -386,6 +386,19 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
+  const fieldSelectionMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/fields\/([^/]+)\/select$/u);
+  if (request.method === 'POST' && fieldSelectionMatch) {
+    const input = await readJson(request);
+    rejectUntrustedAuthority(input);
+    const result = await captureService.selectFieldRepresentation({
+      ...input,
+      session_id: decodeURIComponent(fieldSelectionMatch[1]),
+      field_id: decodeURIComponent(fieldSelectionMatch[2]),
+    });
+    writeJson(response, result.reused ? 200 : 201, toolEnvelope('select_report_field_representation', traceId, 'PASS', result));
+    return;
+  }
+
   const candidateConfirmMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/candidates\/([^/]+)\/confirm$/u);
   if (request.method === 'POST' && candidateConfirmMatch) {
     const input = await readJson(request);
@@ -1096,6 +1109,7 @@ const staticFiles = new Map([
   ['/template-selection.js', ['template-selection.js', 'text/javascript; charset=utf-8']],
   ['/template-workspace.js', ['template-workspace.js', 'text/javascript; charset=utf-8']],
   ['/report-workspace-view.js', ['report-workspace-view.js', 'text/javascript; charset=utf-8']],
+  ['/report-input.js', ['report-input.js', 'text/javascript; charset=utf-8']],
   ['/template-app.js', ['template-app.js', 'text/javascript; charset=utf-8']],
   ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
   ['/audio-recorder.js', ['audio-recorder.js', 'text/javascript; charset=utf-8']],

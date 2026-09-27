@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { whisperAdapter, correctionAdapter, factsAdapter, missingAdapter } from '../evaluation/component-adapters.js';
-import { errorRate, categoryHits, setCounts, scores, aggregateFieldScores, normalizedText } from '../evaluation/component-metrics.js';
+import { errorRate, categoryHits, setCounts, scores, aggregateFieldScores, aggregateFactValueScores, scoreFactValues, normalizedText } from '../evaluation/component-metrics.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const components = ['asr', 'correction', 'facts', 'missing'];
@@ -28,7 +28,9 @@ const fixtures = JSON.parse(await fs.readFile(fixturePath));
 if (manifest.label !== 'SYNTHETIC' || manifest.gold_status !== 'seed_only' || fixtures.label_status !== 'SYNTHETIC_SEED_ONLY') throw new Error('Expected synthetic seed contracts');
 const cases = manifest.cases.filter((item) => !opts.ids.length || opts.ids.includes(item.case_id));
 if (cases.length !== (opts.ids.length ? new Set(opts.ids).size : manifest.cases.length)) throw new Error('Unknown or duplicate case ID');
-for (const item of cases) if (!scopes.includes(item.scope) || !Array.isArray(fixtures.fact_fields[item.case_id])) throw new Error(`Missing fixture for ${item.case_id}`);
+for (const item of cases) {
+  if (!scopes.includes(item.scope) || !Array.isArray(fixtures.fact_fields[item.case_id]) || !Array.isArray(fixtures.fact_value_targets[item.case_id])) throw new Error(`Missing fixture for ${item.case_id}`);
+}
 const sha = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 const manifestHash = sha(await fs.readFile(manifestPath));
 const fixtureHash = sha(await fs.readFile(fixturePath));
@@ -71,13 +73,27 @@ for (const item of cases) {
         const prediction = await factsAdapter(item.scope, item.standard_text, item.case_id);
         if (prediction.status !== 'PASS') { add(component, item, 'ERROR', { reason: prediction.error_code || prediction.status }); continue; }
         const expected = fixtures.fact_fields[item.case_id];
+        const valueTargets = fixtures.fact_value_targets[item.case_id];
         const actual = [...new Set(prediction.facts.map((fact) => fact.field))];
         const counts = setCounts(expected, actual);
+        const valueScores = scoreFactValues(valueTargets, prediction.facts);
         const critical = ['asset.registration_no', 'asset.train_set', 'completion.state', 'work_performed', 'parts.replaced'];
         const failures = expected.filter((field) => critical.includes(field) && !actual.includes(field)).map((field) => ({ category: 'critical_fact_missing', field }));
         if (!expected.includes('work_performed') && actual.includes('work_performed')) failures.push({ category: 'unsupported_action', field: 'work_performed' });
         if (!expected.includes('parts.replaced') && actual.includes('parts.replaced')) failures.push({ category: 'unsupported_replacement', field: 'parts.replaced' });
-        add(component, item, 'RUN', { input: { reference_text: item.standard_text }, expected: { fields: expected }, prediction: { facts: prediction.facts, fields: actual }, counts, metrics: scores(counts), hard_gate_failures: failures });
+        for (const check of valueScores.negation.violations) {
+          for (const prohibited of check.violations) failures.push({ category: 'negated_action_emitted', target: check.target, field: prohibited.field, value: prohibited.value });
+        }
+        add(component, item, 'RUN', {
+          input: { reference_text: item.standard_text },
+          expected: { fields: expected, value_targets: valueTargets },
+          prediction: { facts: prediction.facts, fields: actual },
+          counts,
+          value_scores: valueScores,
+          value_failures: valueScores.target_results.filter((target) => !target.passed),
+          metrics: { ...scores(counts), value: valueScores.metrics },
+          hard_gate_failures: failures,
+        });
       } else {
         const fixture = fixtures.missing.find((entry) => entry.case_id === item.case_id);
         if (!fixture) { add(component, item, 'NOT_RUN', { reason: 'NO_FIXED_FACTS_SCHEMA_FIXTURE' }); continue; }
@@ -97,7 +113,7 @@ for (const component of selectedComponents) {
     const run = subset.filter((item) => item.status === 'RUN');
     const grouped = Object.groupBy(subset, (item) => item.status);
     const hardGateFailures = run.flatMap((item) => item.hard_gate_failures.map((failure) => ({ case_id: item.case_id, ...failure })));
-    summary[component][scope] = { status_counts: Object.fromEntries(Object.entries(grouped).map(([key, value]) => [key, value.length])), ...(component === 'facts' || component === 'missing' ? { field_scores: aggregateFieldScores(subset) } : {}), ...(component === 'asr' && run.length ? { mean_wer: run.reduce((sum, item) => sum + item.metrics.wer, 0) / run.length, mean_cer: run.reduce((sum, item) => sum + item.metrics.cer, 0) / run.length, categories: Object.fromEntries(['term', 'number_unit', 'equipment_id'].map((category) => [category, { matched: run.reduce((sum, item) => sum + item.metrics.categories[category].matched, 0), total: run.reduce((sum, item) => sum + item.metrics.categories[category].total, 0) }])) } : {}), ...(component === 'correction' && run.length ? { exact_matches: run.filter((item) => item.metrics.exact_match).length, cases: run.length } : {}), hard_gate_failures: hardGateFailures, error_class_counts: Object.fromEntries(Object.entries(Object.groupBy(hardGateFailures, (failure) => failure.category)).map(([category, failures]) => [category, failures.length])) };
+    summary[component][scope] = { status_counts: Object.fromEntries(Object.entries(grouped).map(([key, value]) => [key, value.length])), ...(component === 'facts' || component === 'missing' ? { field_scores: aggregateFieldScores(subset) } : {}), ...(component === 'facts' ? { value_scores: aggregateFactValueScores(subset) } : {}), ...(component === 'asr' && run.length ? { mean_wer: run.reduce((sum, item) => sum + item.metrics.wer, 0) / run.length, mean_cer: run.reduce((sum, item) => sum + item.metrics.cer, 0) / run.length, categories: Object.fromEntries(['term', 'number_unit', 'equipment_id'].map((category) => [category, { matched: run.reduce((sum, item) => sum + item.metrics.categories[category].matched, 0), total: run.reduce((sum, item) => sum + item.metrics.categories[category].total, 0) }])) } : {}), ...(component === 'correction' && run.length ? { exact_matches: run.filter((item) => item.metrics.exact_match).length, cases: run.length } : {}), hard_gate_failures: hardGateFailures, error_class_counts: Object.fromEntries(Object.entries(Object.groupBy(hardGateFailures, (failure) => failure.category)).map(([category, failures]) => [category, failures.length])) };
   }
 }
 for (const item of results) {
@@ -112,6 +128,10 @@ for (const component of selectedComponents) for (const scope of scopes) {
   const row = summary[component][scope];
   lines.push(`| ${component} | ${scope} | ${row.status_counts.RUN || 0} | ${row.status_counts.NOT_RUN || 0} | ${row.status_counts.NOT_SUPPORTED || 0} | ${row.status_counts.ERROR || 0} | ${row.hard_gate_failures.length} |`);
   if (row.field_scores) lines.push(`  Field-level micro P/R/F1: ${Object.values(row.field_scores.micro).map((x) => x.toFixed(3)).join(' / ')}; macro P/R/F1: ${Object.values(row.field_scores.macro).map((x) => x.toFixed(3)).join(' / ')}.`);
+  if (row.value_scores) {
+    const categories = ['equipment_id', 'number_unit', 'action', 'completion'].map((kind) => `${kind} ${row.value_scores.categories[kind] ? row.value_scores.categories[kind].micro.f1.toFixed(3) : 'n/a'}`).join(', ');
+    lines.push(`  Value-level micro P/R/F1: ${Object.values(row.value_scores.micro).map((x) => x.toFixed(3)).join(' / ')}; category F1: ${categories}; negation ${row.value_scores.negation.correct}/${row.value_scores.negation.checks} (${row.value_scores.negation.accuracy.toFixed(3)}).`);
+  }
   if (row.mean_wer !== undefined) lines.push(`  WER ${row.mean_wer.toFixed(3)}, CER ${row.mean_cer.toFixed(3)}; term ${row.categories.term.matched}/${row.categories.term.total}, number/unit ${row.categories.number_unit.matched}/${row.categories.number_unit.total}, equipment ID ${row.categories.equipment_id.matched}/${row.categories.equipment_id.total}.`);
   if (Object.keys(row.error_class_counts).length) lines.push(`  Critical check failures by class: ${Object.entries(row.error_class_counts).map(([category, count]) => `${category} ${count}`).join(', ')}.`);
 }

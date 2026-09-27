@@ -252,7 +252,7 @@ const REPLACED_RE = /更换|替换|换了|换上|换下|换掉|换装|replaced|i
  * {km, train-km, car-km, mm, V, %, °C, min}). Capacitance specs (µF/uF/微法)
  * are part specifications, not measurements, and are intentionally excluded.
  */
-const MEASUREMENT_RE = /(\d+(?:[.,]\d+)?)\s*(千米|公里|毫米|厘米|米|kv|mm|km|cm|m|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh|ω[·.]?m|ohm[·-]?m)/giu;
+const MEASUREMENT_RE = /((?:\d{1,3}(?:,\d{3})+(?:\.\d+)?)|(?:\d+(?:[.,]\d+)?))\s*(kilometers?|kilometres?|千米|公里|毫米|厘米|米|kv|mm|km|cm|m|%|bar|kpa|psi|°c|℃|v|kwh|mwh|min|db|g\/kwh|ω[·.]?m|ohm[·-]?m)/giu;
 
 /** Explicit standard references used by the supplied inspection templates. */
 const STANDARD_REFERENCE_RE = /\b(?:GB(?:\/T)?|NB\/T|Q\/GDW)\s*\d+(?:\.\d+)?(?:-\d{4})?(?:\s*第\s*[\d.]+\s*条)?/giu;
@@ -260,12 +260,13 @@ const INSPECTION_ITEM_RE = /检查|检测|试验|测试|巡检|inspection|test|�
 const INDUSTRIAL_RESULT_RE = /符合|不符合|合格|不合格|正常|异常|通过|不通过|pass(?:ed)?|fail(?:ed)?|compliant|non[- ]?compliant/iu;
 const OBSERVATION_RE = /实际情况|现场|发现|观察|测得|显示|observed|found|measured|inspection/iu;
 const SPECIFICATION_ONLY_RE = /手册|规范|规格|标准|要求|阈值|上限|下限|manual|spec(?:ification)?|standard|required?|threshold|limit/iu;
-const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔离)|(?:已完成|完成)(?:了)?[^。；;，,]{0,12}(?:更换|修复|紧固|清理|整改|处理|隔离)|replaced|repaired|secured|cleaned|rectified|isolated/iu;
+const PERFORMED_WORK_RE = /已(?:更换|修复|紧固|清理|整改|处理|隔离)|(?:已完成|完成)(?:了)?[^。；;，,]{0,12}(?:更换|修复|紧固|清理|整改|处理|隔离)|replaced|repaired|secured|cleaned|rectified|isolated|reseated|reconnected/iu;
 
 /** Test-indicator + result words (drives test.result). */
 const TEST_INDICATOR_RE = /试机|测试|试验|试车|试运行|复测|test|retest|验证|check|检测/iu;
-const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|pass|fail|运转|ready/iu;
-const TEST_ACTION_RE = /试机|测试|试验|试车|试运行|验证|tested|verified|validated|function(?:al)?\s+test/iu;
+const TEST_RESULT_RE = /正常|异常|通过|不通过|失败|良好|合格|不合格|ok|normal|pass|fail|运转|ready|successful(?:ly)?/iu;
+const TEST_ACTION_RE = /试机|测试|试验|试车|试运行|验证|tested|verified|validated|function(?:al)?\s+test|completed?\s+(?:\w+\s+){0,3}cycles?\s+successful(?:ly)?/iu;
+const COMPLETED_CYCLE_RE = /\bcompleted?\b[^.!?。！？]{0,60}\bcycles?\b/iu;
 
 /** TAMS/track-access approval must be stated, never inferred from rail work. */
 const ACCESS_APPROVED_RE = /(?:\bTAMS\b[^.]*\baccess\b[^.]*\bapproved\b)|(?:track\s+access[^.]*\bapproved\b)|(?:轨道|线路|轨旁)?准入[^.。]*(?:已批准|获批|批准)/iu;
@@ -300,6 +301,7 @@ const BUS_FLEET_ID_RE = /\b(?:bus|fleet)\s*(?:id|number|no\.?)[\s:=]*(\d{4}-\d{3
  */
 function measurementField(sentence, unit = '') {
   const normalizedUnit = String(unit).toLowerCase().replace(/℃/g, '°c');
+  if (/odometer|mileage|里程(?:表|计)?/iu.test(sentence) && normalizedUnit === 'km') return 'measurement.odometer_km';
   if (/ω[·.]?m|ohm[·-]?m/iu.test(normalizedUnit) || /体积电阻率|resistivity/iu.test(sentence)) return 'measurement.resistivity';
   if (/击穿电压|耐压值|breakdown\s+voltage|dielectric\s+strength/iu.test(sentence) && normalizedUnit === 'kv') return 'measurement.breakdown_voltage';
   if (/湿度|humidity/iu.test(sentence) && normalizedUnit === '%') return 'measurement.humidity';
@@ -315,7 +317,12 @@ function measurementField(sentence, unit = '') {
 
 function normalizeMeasurementUnit(unit) {
   const value = String(unit ?? '');
-  return ({ 米: 'm', 千米: 'km', 公里: 'km', 毫米: 'mm', 厘米: 'cm' })[value] || value;
+  return ({ 米: 'm', 千米: 'km', 公里: 'km', 毫米: 'mm', 厘米: 'cm', kilometer: 'km', kilometers: 'km', kilometre: 'km', kilometres: 'km' })[value.toLowerCase()] || value;
+}
+
+function normalizeMeasurementValue(value) {
+  const text = String(value ?? '');
+  return /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/u.test(text) ? text.replaceAll(',', '') : text;
 }
 
 /* ------------------------------------------------------------------ *
@@ -346,8 +353,8 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const stocks = buildIndex(vocab.terms.filter((record) => /^term_stock_/u.test(String(record?.id ?? ''))));
     for (const hit of findMatches(sentence, lines)) push('asset.line', hit.canonical);
     for (const hit of findMatches(sentence, stocks)) push('asset.stock_class', hit.canonical);
-    const trainSet = /(?:train\s+set\s+)?([A-Z]\d{3}[A-Z]?\s+\d{4}\/\d{4})\b/iu.exec(sentence);
-    if (trainSet) push('asset.train_set', trainSet[1].toUpperCase());
+    const trainSet = /(?:train\s+set\s+)?([A-Z]\d{3}[A-Z]?\s+\d{4}\/\d{4})\b|\b([A-Z]\d{3}[A-Z]?)\s+train\s+set\s+(\d{4}\/\d{4})\b/iu.exec(sentence);
+    if (trainSet) push('asset.train_set', (trainSet[1] || `${trainSet[2]} ${trainSet[3]}`).toUpperCase());
     const car = /\bcar\s+([A-Za-z0-9-]+)\b/iu.exec(sentence);
     if (car) push('asset.car', `Car ${car[1]}`);
     if (/车门|(?:train\s+)?door(?:\s+system|\s+roller)?/iu.test(sentence)) push('asset.subsystem', 'door');
@@ -427,11 +434,11 @@ function factsFromSentence(sentence, scopeId, vocab) {
     const specificationAfter = specificationMarker >= 0 && !interveningHasMeasurement;
     if (specificationBefore || specificationAfter) continue;
     const unit = normalizeMeasurementUnit(measure[2]);
-    out.push({ field: measurementField(sentence, unit), value: measure[1], unit });
+    out.push({ field: measurementField(sentence, unit), value: normalizeMeasurementValue(measure[1]), unit });
   }
 
   // --- test.result ----------------------------------------------------
-  if ((TEST_INDICATOR_RE.test(sentence) && TEST_RESULT_RE.test(sentence)) || TEST_ACTION_RE.test(sentence)) {
+  if (((TEST_INDICATOR_RE.test(sentence) || COMPLETED_CYCLE_RE.test(sentence)) && TEST_RESULT_RE.test(sentence)) || TEST_ACTION_RE.test(sentence)) {
     push('test.result', sentence);
   }
 

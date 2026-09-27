@@ -144,6 +144,7 @@ test('conditional post-work testing is required only when rectification occurred
     {
       id: 'test.result', label: 'Post-work test', type: 'string',
       requiredWhen: { field: 'work_performed', operator: 'HAS_VALUE' },
+      critical: true, requiresTechnicianConfirmation: true,
     },
   ]);
   const noRectification = runAuthoritativeAgent({
@@ -159,7 +160,10 @@ test('conditional post-work testing is required only when rectification occurred
 
   assert.equal(noRectification.validation_issues.some((issue) => issue.field_id === 'test.result'), false);
   assert.ok(rectified.validation_issues.some((issue) => issue.code === 'CONDITIONAL_FIELD_REQUIRED' && issue.field_id === 'test.result'));
-  assert.ok(rectified.resolution_queue.some((item) => item.type === 'CONDITIONAL_REQUIREMENT' && item.field_id === 'test.result'));
+  const followUp = rectified.resolution_queue.find((item) => item.field_id === 'test.result');
+  assert.equal(followUp.type, 'CONDITIONAL_REQUIREMENT');
+  assert.equal(followUp.answer_type, 'VALUE');
+  assert.equal(followUp.priority_class, 'SAFETY');
 });
 
 test('safety work is first, duplicate questions collapse, and one item can own multiple issues', () => {

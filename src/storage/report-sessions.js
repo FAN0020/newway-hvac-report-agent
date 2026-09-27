@@ -298,20 +298,35 @@ export class ReportSessionStore {
     });
   }
 
-  async writeOfficialExport(snapshotId, text) {
+  async writeOfficialExport(snapshotId, { bytes, extension = 'pdf' } = {}) {
     const id = safeId(snapshotId, 'snapshot_id');
-    const filename = path.join(this.exportRoot, `${id}.txt`);
+    const suffix = safeId(extension, 'export_extension').toLowerCase();
+    if (!Buffer.isBuffer(bytes) || !bytes.length) {
+      throw storageError('Official export bytes are required.', 'EMPTY_OFFICIAL_EXPORT', 400);
+    }
+    const filename = path.join(this.exportRoot, `${id}.${suffix}`);
     await fs.mkdir(this.exportRoot, { recursive: true });
     let created = true;
     try {
-      await fs.writeFile(filename, text, { flag: 'wx', mode: 0o600 });
+      await fs.writeFile(filename, bytes, { flag: 'wx', mode: 0o600 });
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
       created = false;
-      const existing = await fs.readFile(filename, 'utf8');
-      if (existing !== text) throw storageError('Official export path collision.', 'EXPORT_PATH_COLLISION', 409);
     }
-    return deepFreeze({ file: filename, created });
+    const persisted = await fs.readFile(filename);
+    return Object.freeze({ file: filename, created, bytes: persisted });
+  }
+
+  async readOfficialExport(snapshotId, extension = 'pdf') {
+    const id = safeId(snapshotId, 'snapshot_id');
+    const suffix = safeId(extension, 'export_extension').toLowerCase();
+    const filename = path.join(this.exportRoot, `${id}.${suffix}`);
+    try {
+      return Object.freeze({ file: filename, created: false, bytes: await fs.readFile(filename) });
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
   }
 
   async listOutputArtifacts(snapshotId) {

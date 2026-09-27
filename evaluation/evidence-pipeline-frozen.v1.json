@@ -1,0 +1,237 @@
+{
+  "schema_version": "evidence-pipeline-frozen.v1",
+  "frozen_at": "2026-09-27T00:00:00.000Z",
+  "label_status": "FROZEN_DETERMINISTIC_REGRESSION",
+  "human_gold": false,
+  "purpose": "Compare evidence-processing strategies against existing reviewed repository expectations without claiming real-world accuracy.",
+  "sources": [
+    "evaluation/component-fixtures.v1.json",
+    "evaluation/synthetic-cases.v1.json",
+    "evaluation/batch3-fixtures.v1.json",
+    "test/fixtures/sbs-extraction-eval.v1.json",
+    "test/authoritative-agent-workflow.test.js"
+  ],
+  "cases": [
+    {
+      "case_id": "HVAC-COMPLETE-RAW",
+      "scope_id": "HVAC",
+      "context_id": "HVAC",
+      "template_id": "hvac-service-report",
+      "raw_text": "At fictional unit AC 104, I found the drain line blocked. I cleared the drain line and ran a cooling test. Cooling was normal. The job is complete.",
+      "expected_fields": ["equipment", "inspection_findings", "work_performed", "test_results", "completion_status"],
+      "forbidden_fields": [],
+      "expected_values": { "equipment": "AC 104" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "equipment", "value": "AC 104" },
+        { "kind": "action", "field": "work_performed", "value": "cleared the drain line", "match": "contains" },
+        { "kind": "completion", "field": "completion_status", "value": "complete", "match": "contains" }
+      ],
+      "retrieval_query": "drain line clearing cooling test",
+      "relevant_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_drain_clearing", "knowledge:HVAC:hvac-terms.v1.json:term_cooling_test"]
+    },
+    {
+      "case_id": "HVAC-CRITICAL-VALUE-NEGATED",
+      "scope_id": "HVAC",
+      "context_id": "HVAC",
+      "template_id": "hvac-service-report",
+      "raw_text": "机组 AC 105 的运行电容是三十五微法，未更换电容。",
+      "expected_fields": ["equipment", "measurements"],
+      "forbidden_fields": ["work_performed", "parts_used"],
+      "expected_values": { "equipment": "AC 105" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "equipment", "value": "AC 105" },
+        { "kind": "number_unit", "field": "measurements", "value": "35", "unit": "µF" },
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "work_performed", "value": "replace", "match": "contains" },
+          { "kind": "action", "field": "parts_used", "value": "replace", "match": "contains" }
+        ] }
+      ],
+      "expected_negation_preserved": true,
+      "retrieval_query": "run capacitor microfarad capacitance",
+      "relevant_retrieval_ids": ["knowledge:HVAC:hvac-terms.v1.json:term_capacitance_uf"]
+    },
+    {
+      "case_id": "BUS-COMPLETE",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "Preventive maintenance on bus MAN A95. The front door would not close. Inspection found the door control module was faulty. Replaced the door control module. Tested door opening and closing normal. Completion status completed.",
+      "expected_fields": ["asset.bus_model", "work.type", "work.description", "inspection_findings", "work_performed", "parts.part_number", "parts.replaced", "test.result", "completion.state"],
+      "forbidden_fields": ["asset.train_set"],
+      "expected_values": { "asset.bus_model": "MAN A95", "completion.state": "completed" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "asset.bus_model", "value": "MAN A95" },
+        { "kind": "completion", "field": "completion.state", "value": "completed" }
+      ],
+      "retrieval_query": "MAN A95 door control module",
+      "relevant_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95", "knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_door_control_module"]
+    },
+    {
+      "case_id": "BUS-IDENTITY-CORRECTION",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-preventive-maintenance-inspection",
+      "raw_text": "Fictional bus SG3051Z is MAN 9-5. I adjusted the brake, not the steering.",
+      "expected_fields": ["asset.registration_no", "asset.bus_model"],
+      "forbidden_fields": ["asset.stock_class"],
+      "expected_values": { "asset.registration_no": "SG3051Z", "asset.bus_model": "MAN A95" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "asset.registration_no", "value": "SG3051Z" },
+        { "kind": "equipment_id", "field": "asset.bus_model", "value": "MAN A95" },
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "work_performed", "value": "steering", "match": "contains" }
+        ] }
+      ],
+      "expected_negation_preserved": true,
+      "retrieval_query": "MAN A95 brake pressure bar",
+      "relevant_retrieval_ids": ["knowledge:SBS_BUS:v2/sbs-bus-terms.v1.json:term_model_man_a95"]
+    },
+    {
+      "case_id": "BUS-EXPLICIT-NONE",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "No parts were used.",
+      "expected_fields": ["parts.part_number"],
+      "expected_states": { "parts.part_number": "EXPLICIT_NONE" },
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "fact_value_targets": [
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "parts.replaced", "value": "true" }
+        ] }
+      ],
+      "relevant_retrieval_ids": []
+    },
+    {
+      "case_id": "BUS-NEGATED-REPLACEMENT",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "检查发现电容轻微磨损，未更换。",
+      "expected_fields": ["inspection_findings", "diagnosis.root_cause", "parts.part_number"],
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "fact_value_targets": [
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "parts.replaced", "value": "true" },
+          { "kind": "action", "field": "work_performed", "value": "replace", "match": "contains" }
+        ] }
+      ],
+      "expected_negation_preserved": true,
+      "relevant_retrieval_ids": []
+    },
+    {
+      "case_id": "BUS-PLANNED-WORK",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "Recommend replacing the door control module next visit.",
+      "expected_fields": ["parts.part_number"],
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "fact_value_targets": [
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "parts.replaced", "value": "true" },
+          { "kind": "action", "field": "work_performed", "value": "replace", "match": "contains" }
+        ] }
+      ],
+      "expected_planned_preserved": true,
+      "relevant_retrieval_ids": []
+    },
+    {
+      "case_id": "BUS-ASSET-CONFLICT",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "Bus ID 8300-345. Inspection found the passenger door would not close.",
+      "system_context": { "asset.internal_fleet_no": "8300-354" },
+      "expected_fields": ["asset.internal_fleet_no", "inspection_findings"],
+      "expected_conflict_fields": ["asset.internal_fleet_no"],
+      "forbidden_fields": [],
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "asset.internal_fleet_no", "value": "8300-345" }
+      ],
+      "relevant_retrieval_ids": []
+    },
+    {
+      "case_id": "BUS-ASR-GROUPED-ODOMETER",
+      "scope_id": "SBS_BUS",
+      "context_id": "SBS/BUS",
+      "template_id": "bus-defect-rectification-corrective-maintenance",
+      "raw_text": "The odometer was 51,020 kilometers.",
+      "expected_fields": ["measurement.odometer_km"],
+      "forbidden_fields": [],
+      "expected_values": { "measurement.odometer_km": "51020" },
+      "fact_value_targets": [
+        { "kind": "number_unit", "field": "measurement.odometer_km", "value": "51020", "unit": "km" }
+      ],
+      "relevant_retrieval_ids": []
+    },
+    {
+      "case_id": "RAIL-COMPLETE",
+      "scope_id": "SBS_RAIL",
+      "context_id": "SBS/RAIL",
+      "template_id": "rail-maintenance-completion-handover",
+      "raw_text": "Corrective maintenance on train set C751A 7001/7002. TAMS access approved. Inspected car three door, replaced the worn door roller, tested operation, and returned the train to service.",
+      "expected_fields": ["asset.train_set", "asset.stock_class", "asset.car", "asset.subsystem", "work.type", "access.approval", "inspection_findings", "work_performed", "parts.part_number", "parts.replaced", "test.result", "completion.state", "safety.assertion"],
+      "forbidden_fields": ["asset.bus_model"],
+      "expected_values": { "asset.train_set": "C751A 7001/7002", "completion.state": "completed" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "asset.train_set", "value": "C751A 7001/7002" },
+        { "kind": "completion", "field": "completion.state", "value": "completed" }
+      ],
+      "retrieval_query": "C751A train door roller",
+      "relevant_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751a", "knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_subsys_door"]
+    },
+    {
+      "case_id": "RAIL-BOUNDED-CORRECTIONS",
+      "scope_id": "SBS_RAIL",
+      "context_id": "SBS/RAIL",
+      "template_id": "rail-maintenance-completion-handover",
+      "raw_text": "Fictional Z751A train has a door control model. I inspected it but did not replace it.",
+      "expected_fields": ["asset.stock_class", "asset.subsystem", "parts.part_number", "inspection_findings"],
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "expected_values": { "asset.stock_class": "Alstom Metropolis C751A" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "asset.stock_class", "value": "Alstom Metropolis C751A" },
+        { "kind": "action", "field": "parts.part_number", "value": "door control module" },
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "parts.replaced", "value": "true" }
+        ] }
+      ],
+      "expected_negation_preserved": true,
+      "retrieval_query": "C751A train door roller",
+      "relevant_retrieval_ids": ["knowledge:SBS_RAIL:v2/sbs-rail-terms.v1.json:term_stock_c751a"]
+    },
+    {
+      "case_id": "RAIL-SEMANTIC-CORRECTION-TRAP",
+      "scope_id": "SBS_RAIL",
+      "context_id": "SBS/RAIL",
+      "template_id": "rail-maintenance-completion-handover",
+      "raw_text": "Door control module 40 was mentioned during inspection.",
+      "expected_fields": ["asset.subsystem", "parts.part_number"],
+      "forbidden_fields": ["inspection_findings", "diagnosis.root_cause", "work_performed"],
+      "fact_value_targets": [
+        { "kind": "action", "field": "parts.part_number", "value": "door control module" }
+      ],
+      "relevant_retrieval_ids": []
+    },
+    {
+      "case_id": "RAIL-NOT-RETURNED",
+      "scope_id": "SBS_RAIL",
+      "context_id": "SBS/RAIL",
+      "template_id": "rail-maintenance-completion-handover",
+      "raw_text": "C751A 检查发现集电靴磨损，未回役。",
+      "expected_fields": ["asset.stock_class", "inspection_findings", "diagnosis.root_cause", "parts.part_number", "completion.state", "safety.assertion"],
+      "forbidden_fields": ["parts.replaced", "work_performed"],
+      "expected_values": { "completion.state": "out_of_service" },
+      "fact_value_targets": [
+        { "kind": "equipment_id", "field": "asset.stock_class", "value": "Alstom Metropolis C751A" },
+        { "kind": "completion", "field": "completion.state", "value": "out_of_service" },
+        { "kind": "negation", "prohibited": [
+          { "kind": "action", "field": "parts.replaced", "value": "true" }
+        ] }
+      ],
+      "expected_negation_preserved": true,
+      "relevant_retrieval_ids": []
+    }
+  ]
+}

@@ -629,11 +629,10 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .choice-button { display: grid; min-height: 48px; gap: 2px; align-content: center; padding: 10px 14px; border: 1px solid #9eb4aa; border-radius: 9px; color: var(--green); background: white; font-weight: 760; text-align: left; }
 .choice-button:hover, .choice-button:focus-visible { border-color: var(--green); background: var(--mint); }
 .choice-button small { color: var(--muted); font-size: .65rem; font-weight: 600; }
-.compact-answer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; max-width: 620px; margin-top: 12px; }
-.compact-answer input { min-height: 44px; }
-.why-required, .transcript-disclosure { width: fit-content; max-width: 720px; margin-top: 14px; color: var(--muted); font-size: .76rem; }
-.why-required summary, .transcript-disclosure summary { min-height: 36px; padding-block: 8px; color: var(--green-2); cursor: pointer; }
-.why-required p, .transcript-disclosure p { margin: 4px 0; }
+.compact-composer textarea { min-height: 76px; }
+.transcript-disclosure { width: fit-content; max-width: 720px; margin-top: 14px; color: var(--muted); font-size: .76rem; }
+.transcript-disclosure summary { min-height: 36px; padding-block: 8px; color: var(--green-2); cursor: pointer; }
+.transcript-disclosure p { margin: 4px 0; }
 .correction-comparison { display: grid; gap: 7px; max-width: 650px; padding: 12px 14px; border-left: 3px solid var(--orange); background: var(--orange-soft); font-size: .84rem; }
 .report-summary { border: 1px solid var(--line); border-radius: 14px; background: white; overflow: hidden; }
 .report-summary-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 19px; border-bottom: 1px solid var(--line); }
@@ -649,7 +648,7 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .report-section-accordion.needs-attention > summary { background: #fffaf1; }
 .report-section-accordion.needs-attention > summary span { color: #8d5a1e; }
 .report-section-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); }
-.report-field { display: flex; min-width: 0; gap: 10px; justify-content: space-between; padding: 13px 18px; border-right: 1px solid #edf0ed; border-bottom: 1px solid #edf0ed; }
+.report-field { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; justify-content: space-between; padding: 13px 18px; border-right: 1px solid #edf0ed; border-bottom: 1px solid #edf0ed; }
 .report-field:nth-child(2n) { border-right: 0; }
 .report-field-copy { display: grid; min-width: 0; gap: 3px; }
 .field-name { color: var(--muted); font-size: .68rem; font-weight: 720; }
@@ -659,8 +658,23 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .field-source { color: #39765c; }
 .report-field-actions { display: flex; flex: 0 0 auto; gap: 7px; align-items: start; }
 .report-field-actions .text-button { min-height: 32px; padding: 5px 0; font-size: .66rem; }
-.field-edit-actions { display: flex; gap: 10px; }
-.field-edit-actions button { min-height: 34px; }
+.inline-field-editor { display: grid; grid-column: 1 / -1; gap: 12px; margin-top: 5px; padding-top: 12px; border-top: 1px solid #dde7e2; }
+.unresolved-field-editor { padding: 12px; border: 1px solid #ead8b8; border-radius: 9px; background: #fffdf8; }
+.inline-question { margin: 0; color: var(--ink); font-size: .76rem; font-weight: 760; }
+.field-representation-group { display: grid; gap: 6px; }
+.representation-label { color: var(--muted); font-size: .66rem; font-weight: 800; letter-spacing: .035em; text-transform: uppercase; }
+.representation-choices { display: grid; gap: 6px; }
+.representation-choice { display: grid; gap: 2px; min-height: 42px; padding: 8px 10px; border: 1px solid #b9c8c1; border-radius: 8px; color: var(--ink); background: white; font-size: .76rem; font-weight: 720; text-align: left; overflow-wrap: anywhere; }
+.representation-choice:hover, .representation-choice:focus-visible { border-color: var(--green-2); background: var(--mint); }
+.representation-choice.selected { border-color: var(--green-2); background: var(--mint); box-shadow: inset 3px 0 0 var(--green-2); }
+.representation-choice small { color: var(--muted); font-size: .62rem; font-weight: 600; }
+.manual-field-entry { display: flex; gap: 8px; align-items: stretch; }
+.manual-field-entry input { min-width: 0; min-height: 42px; flex: 1 1 auto; }
+.manual-field-entry button { flex: 0 0 auto; }
+.field-dictation-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inline-field-recording-time { min-width: 90px; }
+.semantic-cause-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inline-choices { margin-top: 0; }
 .state-conflict, .state-invalid, .state-uncertain, .state-inferred { background: #fffaf1; }
 .evidence-dialog { width: min(520px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: white; box-shadow: 0 20px 70px rgba(0,0,0,.2); }
 .evidence-dialog::backdrop { background: rgba(13, 30, 24, .45); }
@@ -687,12 +701,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .capture-actions .text-button { width: fit-content; min-height: 44px; margin-left: 0; }
   .task-choices { grid-template-columns: 1fr; }
   .choice-button { width: 100%; min-height: 50px; }
-  .compact-answer { grid-template-columns: 1fr; }
-  .compact-answer button { min-height: 46px; }
   .report-section-fields { grid-template-columns: 1fr; }
   .report-field, .report-field:nth-child(2n) { border-right: 0; }
   .report-field-actions .text-button { min-width: 44px; min-height: 44px; padding: 9px 3px; }
-  .why-required summary, .transcript-disclosure summary { min-height: 44px; padding-block: 12px; }
+  .inline-field-editor button { min-height: 44px; }
+  .manual-field-entry { align-items: stretch; flex-direction: column; }
+  .manual-field-entry button { width: 100%; }
+  .field-dictation-actions { align-items: stretch; flex-direction: column; }
+  .field-dictation-actions button { width: 100%; }
+  .transcript-disclosure summary { min-height: 44px; padding-block: 12px; }
   .report-summary-heading { padding-inline: 14px; }
   .report-section-accordion > summary { padding-inline: 14px; }
 }

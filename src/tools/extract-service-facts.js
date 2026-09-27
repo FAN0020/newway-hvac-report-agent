@@ -65,6 +65,10 @@ function heuristicFacts(rawText, confirmedCorrections = []) {
   for (const span of sentenceSpans(rawText)) {
     const text = span.text;
     const add = (field, value, uncertain = false) => candidates.push({ field, value, source_span: span, support_status: uncertain ? 'UNCERTAIN' : 'DIRECT_TRANSCRIPT' });
+    const equipment = text.match(/(?:\b(?:unit|equipment)\s+|机组\s*)([A-Z]{1,8}\s*-?\s*\d{2,8})\b/iu)?.[1];
+    if (equipment) add('equipment', equipment.replace(/\s*-\s*/gu, '-').replace(/\s+/gu, ' ').trim());
+    const capacitance = text.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:µF|uF|microfarads?|微法)/iu)?.[1];
+    if (capacitance) add('measurements', { kind: 'capacitance', value: Number(capacitance), unit: 'µF' });
     const complaint = text.match(/(?:客户(?:反映|说|报告)|报修)[：:,，\s]*(.+)/u)?.[1];
     if (complaint) add('customer_complaint', complaint.replace(/[\n。！？；;]+$/u, ''));
     const finding = text.match(/(?:检查(?:发现|结果)?|现场发现|发现)[：:,，\s]*(.+)/u)?.[1];

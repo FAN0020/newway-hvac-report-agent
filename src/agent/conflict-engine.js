@@ -1,12 +1,16 @@
 import { canonicalJson } from '../domain/index.js';
 
 export function activeCandidates(candidates = []) {
-  const known = new Set(candidates.map((candidate) => candidate.candidate_id));
-  const superseded = new Set(candidates.flatMap((candidate) => (
-    candidate.support_type === 'TECHNICIAN_CONFIRMATION'
-      ? candidate.resolution?.resolved_candidate_ids || []
-      : []
-  )).filter((id) => known.has(id)));
+  const latestResolutionIndex = candidates.findLastIndex((candidate) => (
+    candidate.support_type === 'TECHNICIAN_CONFIRMATION' && candidate.resolution
+  ));
+  if (latestResolutionIndex >= 0) {
+    return {
+      active: candidates.slice(latestResolutionIndex),
+      superseded_candidate_ids: candidates.slice(0, latestResolutionIndex).map((candidate) => candidate.candidate_id),
+    };
+  }
+  const superseded = new Set();
   return {
     active: candidates.filter((candidate) => !superseded.has(candidate.candidate_id)),
     superseded_candidate_ids: [...superseded],
@@ -37,4 +41,3 @@ export function detectFieldConflicts(candidates = []) {
     }];
   });
 }
-

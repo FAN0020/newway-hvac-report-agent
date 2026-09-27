@@ -4,15 +4,15 @@
 
 User: a field technician completing one bound maintenance report.
 
-Immediate goal: capture what happened once, answer only unresolved exceptions, review material facts, and confirm the existing company report.
+Immediate goal: capture what happened once, inspect the generated company report, correct or complete only the fields that need attention, and submit the reviewed version.
 
-Required decisions: provide an initial statement; resolve the current correction or ResolutionItem; inspect evidence only when needed; confirm when the server marks the report ready.
+Required decisions: provide an initial statement; decide any material transcript correction; select the right source or make a field edit in report context; inspect evidence only when needed; submit when the server permits it.
 
-Required information: report/job identity, actionable completeness, the current question or recovery action, compact report sections, material source provenance, and confirmation availability.
+Required information: report/job identity, actionable completeness, the complete schema-ordered report, unresolved fields at their actual locations, material source provenance, and submit availability.
 
-Required actions: type or record a statement, upload a recording, attach evidence, accept/reject a material transcript correction, answer one ResolutionItem, edit a specific field on demand, inspect provenance, retry preserved audio, and confirm/export.
+Required actions: type or record a statement, upload a recording, attach evidence, accept/reject a material transcript correction, edit or resolve a specific report field, fill several missing fields with one follow-up statement, inspect provenance, retry preserved audio, and submit/export.
 
-Required visible system state: capture/recording/processing/recovery status, current server-owned ReportSession phase, current ResolutionItem, section-level exceptions, and server-owned readiness.
+Required visible system state: capture/recording/processing/recovery status, current server-owned ReportSession phase, field-level and section-level exceptions, and server-owned readiness.
 
 The minimum sufficient persistent component set is therefore: App shell/navigation, compact JobHeader, one ActiveTaskPanel, and Report Summary.
 
@@ -41,9 +41,10 @@ The minimum sufficient persistent component set is therefore: App shell/navigati
 | Full editable field form | REMOVE | Replaced by read-first ReportSectionAccordion; no permanent inputs. |
 | Checklist table with permanent controls | REVISE | Compact read-only field rows inside section accordions; editing is on demand. |
 | Per-field status on every field | REVISE | Show actionable labels only when meaningful; normal values use a lightweight source indicator. |
-| Per-field confirm buttons | MOVE | Critical/uncertain/conflict work moves to the single ResolutionItem ActiveTaskPanel. |
+| Per-field confirm buttons | REVISE | Critical/uncertain/conflict choices stay beside the affected field in the generated report; source labels and no-positive-default safety controls remain explicit. |
+| Inline field editor | REVISE | Keep Report draft, exact Original words, and prior My edit alternatives together; visibly mark the server-selected representation and provide type or field-owned dictation without leaving the report. |
 | Confirmation checkbox | REMOVE | It duplicates review state and local browser logic. Server readiness controls confirmation. |
-| Confirm Report button | REVISE | The only final primary CTA; enabled only when the authoritative session is READY. |
+| Confirm Report button | REVISE | One visible `Submit report` CTA requests server-owned review completion and confirmation for the exact current revision. |
 | Confirmation status paragraph | MERGE | Fold into ActiveTaskPanel/live status so confirmation status is not duplicated. |
 | Template details and evidence block | REMOVE | Template IDs, schema versions, context versions, and source inventories are implementation/admin data. |
 | Context-source list | HIDE BY DEFAULT | Only question-specific “Why is this required?” guidance is available on demand. |
@@ -56,7 +57,7 @@ Starting from an empty workspace, four persistent areas earn their place:
 
 1. App shell/navigation: location and escape path.
 2. JobHeader: compact report/job identity and actionable completion summary.
-3. ActiveTaskPanel: the only immediate task, capture, correction, resolution, recovery, review, ready, or confirmed action.
-4. Report Summary: read-first sections and on-demand provenance/editing.
+3. ActiveTaskPanel: capture, material correction, multi-field follow-up, recovery, review, or confirmed action without duplicating field controls. During a field-owned recording it gives context but leaves the only Stop action beside that field.
+4. Report Summary: the primary correction workspace—complete, schema ordered, read-first, and editable by typing, dictation, or reversible source selection at the affected field.
 
 Attachment purpose, transcript, guidance explanation, provenance, editing, and unresolved-category details are contextual disclosures rather than permanent panels.
