@@ -269,6 +269,7 @@ export class AuthoritativeCaptureService {
     modelResolver,
     semanticProvider,
     semanticModel,
+    principalRef = 'principal:demo-technician',
     exportWriter,
     pdfRenderer = renderReportPdf,
     clock = () => new Date().toISOString(),
@@ -289,6 +290,7 @@ export class AuthoritativeCaptureService {
     this.modelResolver = modelResolver || null;
     this.semanticProvider = semanticProvider || null;
     this.semanticModel = String(semanticModel || '');
+    this.principalRef = String(principalRef);
     this.exportWriter = exportWriter || ((snapshotId, payload) => this.sessionStore.writeOfficialExport(snapshotId, payload));
     this.pdfRenderer = pdfRenderer;
     this.clock = clock;
@@ -374,7 +376,7 @@ export class AuthoritativeCaptureService {
       buffer,
       mimeType,
       metadata: {
-        uploader: 'principal:demo-technician',
+        uploader: this.principalRef,
         source: 'report-session-guidance-upload',
         scenario: 'authoritative-report-session',
         report_session_id: session.session_id,
@@ -739,7 +741,7 @@ export class AuthoritativeCaptureService {
     const transitioned = await this.sessionStore.transition({
       session_id: sessionId, expected_revision: session.revision, to_phase: 'READY',
       event_type: 'REPORT_REVIEW_COMPLETED', occurred_at: this.clock(),
-      details: { ready_for_confirmation: true, technician_principal_ref: 'principal:demo-technician' },
+      details: { ready_for_confirmation: true, technician_principal_ref: this.principalRef },
     });
     const computed = await this.persistAgentState(transitioned.session);
     const output = buildAuthoritativeReport({
@@ -822,7 +824,7 @@ export class AuthoritativeCaptureService {
       template_binding: session.template_binding,
       structured_state_hash: output.structured_state_hash,
       validation_ref: validation.validation_id,
-      technician_principal_ref: 'principal:demo-technician',
+      technician_principal_ref: this.principalRef,
       technician_name: String(technicianField?.value || 'Demo technician'),
       confirmed_at: this.clock(),
     };
@@ -967,13 +969,13 @@ export class AuthoritativeCaptureService {
       created_at: this.clock(),
       metadata: {
         filename: name, mime_type: String(mimeType || 'application/octet-stream'), purpose: normalizedPurpose,
-        uploader: 'principal:demo-technician', report_binding: reportBinding(session),
+        uploader: this.principalRef, report_binding: reportBinding(session),
       },
     });
     await this.sessionStore.putRecord('evidence', evidence.evidence_id, evidence);
     const recorded = await this.sessionStore.recordEvent({
       session_id: sessionId, expected_revision: session.revision, event_type: 'EVIDENCE_ATTACHED',
-      principal_ref: 'principal:demo-technician', occurred_at: this.clock(),
+      principal_ref: this.principalRef, occurred_at: this.clock(),
       details: { evidence_id: evidence.evidence_id, filename: name, purpose: normalizedPurpose },
       additions: { evidence_ids: [evidence.evidence_id] },
     });
@@ -1440,7 +1442,7 @@ export class AuthoritativeCaptureService {
     if (source.session_id !== session.session_id || source.support_type === 'RAG_GUIDANCE') {
       throw workflowError('Candidate belongs to another ReportSession.', 'FIELD_CANDIDATE_BINDING_MISMATCH', 409);
     }
-    const principalRef = 'principal:demo-technician';
+    const principalRef = this.principalRef;
     const event = createTechnicianConfirmationEvent({
       session_id: session.session_id,
       revision: session.revision + 1,
@@ -1623,7 +1625,7 @@ export class AuthoritativeCaptureService {
     }
 
     const confirmationSource = sourceCandidate || selectedSource;
-    const principalRef = 'principal:demo-technician';
+    const principalRef = this.principalRef;
     const event = createTechnicianConfirmationEvent({
       session_id: session.session_id, revision: session.revision + 1, field_id: normalizedFieldId,
       candidate_id: confirmationSource.candidate_id, technician_principal_ref: principalRef, occurred_at: this.clock(),
@@ -1752,7 +1754,7 @@ export class AuthoritativeCaptureService {
         context_version: session.context_binding.context_version, scope_id: session.context_binding.scope_id,
       },
     });
-    const principalRef = 'principal:demo-technician';
+    const principalRef = this.principalRef;
     const event = createTechnicianConfirmationEvent({
       session_id: session.session_id, revision: session.revision + 1, field_id: item.field_id,
       candidate_id: sourceCandidate.candidate_id, technician_principal_ref: principalRef, occurred_at: this.clock(),
@@ -1999,7 +2001,7 @@ export class AuthoritativeCaptureService {
       items: pending.items,
       decisions: normalized,
       confirmation_requirements: pending.confirmation_requirements,
-      reviewer_principal_ref: 'principal:demo-technician',
+      reviewer_principal_ref: this.principalRef,
       reviewed_at: this.clock(),
       effective_projection_hash: hashContract(transcriptProjection(transcript, pending.items, normalized).effectiveText),
     });
@@ -2322,7 +2324,26 @@ export class AuthoritativeCaptureService {
       captureContext,
     });
     const existing = await this.sessionStore.claimCapture({ identity_hash: identityHash, idempotency_key: idempotencyKey });
-    if (existing) return this.reuseCapture(existing);
+    if (existing) {
+      if (existing.status === 'CAPTURED') {
+        const current = await this.sessionStore.load(sessionId);
+        const previousEvidence = await this.sessionStore.readRecord('evidence', existing.evidence_id).catch(async (error) => {
+          if (error.code !== 'IMMUTABLE_RECORD_NOT_FOUND' || !existing.evidence_created_at) throw error;
+          const metadata = await this.artifactStore.readAudioMetadata(existing.audio_id);
+          return createEvidence({ evidence_type: 'AUDIO', source_hash: existing.source_hash,
+            storage_ref: `artifact://audio/${existing.audio_id}.wav`, created_at: existing.evidence_created_at,
+            metadata: { bytes: metadata.bytes, wav: metadata.wav, report_binding: reportBinding(current), capture_context: existing.capture_context } });
+        });
+        const processing = current.phase === 'PROCESSING' ? { session: current }
+          : current.phase === 'CAPTURE' && current.evidence_ids.includes(existing.evidence_id)
+            ? await this.sessionStore.transition({ session_id: sessionId, expected_revision: current.revision,
+              to_phase: 'PROCESSING', event_type: 'PROCESSING_STARTED', occurred_at: this.clock(),
+              details: { evidence_id: existing.evidence_id, processing_version: PROCESSING_VERSION } })
+            : await this.beginCapture({ sessionId, expectedRevision: current.revision, evidence: previousEvidence, source: 'MICROPHONE_AUDIO' });
+        return this.transcribeAudioRecord({ record: existing, session: processing.session, evidence: previousEvidence });
+      }
+      return this.reuseCapture(existing);
+    }
     const evidence = createEvidence({
       evidence_type: 'AUDIO',
       source_hash: audio.source_hash,
@@ -2336,6 +2357,7 @@ export class AuthoritativeCaptureService {
       source_hash: audio.source_hash,
       audio_id: audio.audio_id,
       evidence_id: evidence.evidence_id,
+      evidence_created_at: evidence.created_at,
       model: normalizedModel,
       language: normalizedLanguage,
       processing_version: PROCESSING_VERSION,

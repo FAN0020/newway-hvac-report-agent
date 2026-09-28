@@ -34,6 +34,17 @@
         <div class="template-trust"><span></span><strong id="template-runtime-status">Connecting…</strong></div>
       </header>
 
+      <section id="public-auth" class="public-auth" hidden aria-labelledby="public-auth-title">
+        <form id="public-auth-form" class="public-auth-card">
+          <h2 id="public-auth-title">Sign in to Field Report</h2>
+          <p>Use your assigned operator account to access reports.</p>
+          <label>Username<input id="public-auth-user" name="username" autocomplete="username" required></label>
+          <label>Password<input id="public-auth-password" name="password" type="password" autocomplete="current-password" required></label>
+          <button type="submit" class="primary">Sign in</button>
+          <p id="public-auth-status" role="status"></p>
+        </form>
+      </section>
+
       <section id="template-reports" class="template-view" hidden aria-labelledby="template-reports-title">
         <div class="template-hero"><h1 id="template-reports-title">Reports</h1><button class="primary" data-template-nav="choose">＋ New report</button></div>
         <div id="template-report-list" class="manager-template-list"></div>

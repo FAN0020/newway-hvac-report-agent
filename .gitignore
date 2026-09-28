@@ -14,6 +14,8 @@ data/reports/*
 !data/reports/.gitkeep
 # Server-owned ReportSession records, indexes, audit events, and exports are runtime data.
 data/report-session-authority/
+data/audio-jobs/
+data/logs/
 data/settings/
 data/v2-uploads/*
 !data/v2-uploads/.gitkeep
@@ -31,6 +33,7 @@ outputs/qiongwen-ground-truth-blind-package-*/
 outputs/qiongwen-ground-truth-blind-package-*.zip
 node_modules/
 dist/
+.netlify/
 .venv/
 venv/
 .env

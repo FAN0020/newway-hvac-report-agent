@@ -841,6 +841,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .latest-statement-evidence small { color: var(--green-2); }
 .transcript-replacement { color: inherit; font-weight: inherit; text-decoration: none; }
 .confirmed-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
+.public-auth[hidden] { display: none; }
+.public-auth { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: #10231fcc; }
+.public-auth-card { width: min(100%, 400px); display: grid; gap: 15px; padding: 28px; border-radius: 18px; background: #fff; box-shadow: 0 24px 80px #0003; }
+.public-auth-card h2, .public-auth-card p { margin: 0; }
+.public-auth-card label { display: grid; gap: 6px; font-weight: 600; }
+.public-auth-card input { width: 100%; min-height: 44px; padding: 10px; border: 1px solid #879d95; border-radius: 8px; }
+.public-auth-card button { min-height: 44px; }
 @media (max-width: 760px) {
   .template-main.content-first-mode .template-topbar { display: flex; min-height: 52px; padding: 4px 10px; }
   .template-main.content-first-mode .template-topbar > div { display: none; }

@@ -20,6 +20,7 @@ let recorder = null;
 let recorderWorkspace = null;
 let recordingStartedAt = 0;
 let recordingTimer = null;
+let pendingLogin = null;
 
 function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
   return {
@@ -100,11 +101,49 @@ function recordRecentTemplate(templateId) {
 state.recentTemplateIds = loadRecentTemplateIds();
 
 async function refreshLocalSessionToken() {
+  const remembered = sessionStorage.getItem('field-report.session');
+  if (remembered) { state.token = remembered; return remembered; }
   const response = await fetch('/session-bootstrap', { method: 'POST' });
   const payload = await response.json();
-  if (!response.ok || !payload.token) throw new Error(payload.data?.message || 'Local session could not be refreshed.');
-  state.token = payload.token;
-  return state.token;
+  if (response.ok && payload.token) { state.token = payload.token; return state.token; }
+  if (response.status === 401 || response.status === 403) return requestPublicLogin();
+  throw new Error(payload.data?.message || 'Session could not be started.');
+}
+
+function requestPublicLogin() {
+  if (pendingLogin) return pendingLogin;
+  const gate = $('public-auth');
+  const form = $('public-auth-form');
+  const status = $('public-auth-status');
+  gate.hidden = false;
+  status.textContent = '';
+  $('public-auth-user').focus();
+  pendingLogin = new Promise((resolve) => {
+    const submit = async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      status.textContent = 'Signing in…';
+      try {
+        const response = await fetch('/session-bootstrap', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username: $('public-auth-user').value, password: $('public-auth-password').value }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.token) throw new Error(response.status === 429 ? 'Too many attempts. Try again in one minute.' : 'Username or password is incorrect.');
+        state.token = payload.token;
+        sessionStorage.setItem('field-report.session', payload.token);
+        $('public-auth-password').value = '';
+        gate.hidden = true;
+        form.removeEventListener('submit', submit);
+        pendingLogin = null;
+        resolve(state.token);
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+    };
+    form.addEventListener('submit', submit);
+  });
+  return pendingLogin;
 }
 
 async function api(pathname, options = {}, allowReauthentication = true) {
@@ -115,6 +154,7 @@ async function api(pathname, options = {}, allowReauthentication = true) {
   }
   const response = await fetch(pathname, { ...options, headers, body });
   if (response.status === 401 && allowReauthentication) {
+    sessionStorage.removeItem('field-report.session');
     await refreshLocalSessionToken();
     return api(pathname, options, false);
   }
@@ -994,7 +1034,8 @@ async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) 
       headers['x-target-section-id'] = definition?.section || '';
       headers['x-capture-mode'] = 'FIELD_DICTATION';
     }
-    const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/audio`, { method: 'POST', headers, body: blob });
+    const queued = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/capture/audio`, { method: 'POST', headers, body: blob });
+    const result = await awaitAudioJob(queued, workspace);
     workspace.session = result.session; workspace.agentState = result.agent_state || workspace.agentState; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     if (result.failure) workspace.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.', retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence.evidence_id };
     else {
@@ -1008,6 +1049,50 @@ async function uploadAudio(blob, workspace = activeWorkspace(), fieldId = null) 
     handleMutationError(error, kind, undefined, workspace);
   }
   finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
+}
+
+function audioJobStorageKey(workspace) {
+  return `field-report.audio-job.${workspace.session.session_id}`;
+}
+
+async function awaitAudioJob(queued, workspace) {
+  if (!queued?.job_id) return queued;
+  const key = audioJobStorageKey(workspace);
+  sessionStorage.setItem(key, queued.job_id);
+  setProcessing('EXTRACTING', workspace);
+  const deadline = Date.now() + 15 * 60_000;
+  while (Date.now() < deadline) {
+    const job = await api(`/api/audio-jobs/${queued.job_id}`);
+    if (job.status === 'complete') {
+      sessionStorage.removeItem(key);
+      return job.result;
+    }
+    if (job.status === 'failed') {
+      sessionStorage.removeItem(key);
+      throw new Error(job.error?.message || 'Audio processing failed.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  throw new Error('Audio processing is still running. Refresh the page to reconnect.');
+}
+
+async function resumeAudioJob(workspace) {
+  const jobId = sessionStorage.getItem(audioJobStorageKey(workspace));
+  if (!jobId) return;
+  try {
+    const result = await awaitAudioJob({ job_id: jobId }, workspace);
+    workspace.session = result.session;
+    workspace.agentState = result.agent_state || workspace.agentState;
+    workspace.transcript = result.transcript;
+    workspace.transcriptReview = result.review;
+    await refreshSession(workspace);
+    if (!result.failure) await enterReviewIfComplete(workspace);
+    else workspace.recoverableError = { kind: 'STT', message: 'Recording saved, but transcription could not finish.',
+      retry_action: 'RETRY_TRANSCRIPTION', evidence_id: result.evidence?.evidence_id };
+  } catch (error) {
+    workspace.recoverableError = { kind: 'NETWORK', message: `Audio processing could not reconnect. ${error.message}`,
+      retry_action: 'REFRESH_SESSION' };
+  } finally { clearProcessing(workspace); renderWorkspaceIfActive(workspace); }
 }
 
 async function retryActiveTask() {
@@ -1029,7 +1114,9 @@ async function retryActiveTask() {
     }
     if (error.kind === 'STALE_REVISION' || error.kind === 'NETWORK' || error.kind === 'SESSION') await refreshSession(workspace);
     else if (error.kind === 'STT' && error.evidence_id) {
-      const result = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcription/retry`, { method: 'POST', body: { expected_revision: workspace.session.revision, evidence_id: error.evidence_id } }); workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
+      const queued = await api(`/api/report-sessions/${encodeURIComponent(workspace.session.session_id)}/transcription/retry`, { method: 'POST', body: { expected_revision: workspace.session.revision, evidence_id: error.evidence_id } });
+      const result = await awaitAudioJob(queued, workspace);
+      workspace.session = result.session; workspace.agentState = result.agent_state; workspace.transcript = result.transcript; workspace.transcriptReview = result.review;
     }
   } catch (retryError) { handleMutationError(retryError, error.kind, undefined, workspace); }
   renderWorkspaceIfActive(workspace);
@@ -1117,6 +1204,9 @@ async function init() {
     const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template);
     state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local'; $('template-runtime-status').parentElement.hidden = true;
     await restoreReportWorkspaces();
+    for (const { workspace } of workspaceRegistry.list()) {
+      if (workspace.session && sessionStorage.getItem(audioJobStorageKey(workspace))) void resumeAudioJob(workspace);
+    }
     setView('choose');
   }
   catch (error) { state.templatesLoading = false; state.templatesError = error.message; $('template-runtime-status').textContent = 'Connection unavailable'; $('template-runtime-status').parentElement.hidden = false; renderCatalog(); }

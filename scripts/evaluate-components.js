@@ -106,14 +106,19 @@ for (const item of cases) {
   }
 }
 const summary = {};
+const groupBy = (items, keyFor) => items.reduce((groups, item) => {
+  const key = keyFor(item);
+  (groups[key] ||= []).push(item);
+  return groups;
+}, {});
 for (const component of selectedComponents) {
   summary[component] = {};
   for (const scope of scopes) {
     const subset = results.filter((item) => item.component === component && item.scope === scope);
     const run = subset.filter((item) => item.status === 'RUN');
-    const grouped = Object.groupBy(subset, (item) => item.status);
+    const grouped = groupBy(subset, (item) => item.status);
     const hardGateFailures = run.flatMap((item) => item.hard_gate_failures.map((failure) => ({ case_id: item.case_id, ...failure })));
-    summary[component][scope] = { status_counts: Object.fromEntries(Object.entries(grouped).map(([key, value]) => [key, value.length])), ...(component === 'facts' || component === 'missing' ? { field_scores: aggregateFieldScores(subset) } : {}), ...(component === 'facts' ? { value_scores: aggregateFactValueScores(subset) } : {}), ...(component === 'asr' && run.length ? { mean_wer: run.reduce((sum, item) => sum + item.metrics.wer, 0) / run.length, mean_cer: run.reduce((sum, item) => sum + item.metrics.cer, 0) / run.length, categories: Object.fromEntries(['term', 'number_unit', 'equipment_id'].map((category) => [category, { matched: run.reduce((sum, item) => sum + item.metrics.categories[category].matched, 0), total: run.reduce((sum, item) => sum + item.metrics.categories[category].total, 0) }])) } : {}), ...(component === 'correction' && run.length ? { exact_matches: run.filter((item) => item.metrics.exact_match).length, cases: run.length } : {}), hard_gate_failures: hardGateFailures, error_class_counts: Object.fromEntries(Object.entries(Object.groupBy(hardGateFailures, (failure) => failure.category)).map(([category, failures]) => [category, failures.length])) };
+    summary[component][scope] = { status_counts: Object.fromEntries(Object.entries(grouped).map(([key, value]) => [key, value.length])), ...(component === 'facts' || component === 'missing' ? { field_scores: aggregateFieldScores(subset) } : {}), ...(component === 'facts' ? { value_scores: aggregateFactValueScores(subset) } : {}), ...(component === 'asr' && run.length ? { mean_wer: run.reduce((sum, item) => sum + item.metrics.wer, 0) / run.length, mean_cer: run.reduce((sum, item) => sum + item.metrics.cer, 0) / run.length, categories: Object.fromEntries(['term', 'number_unit', 'equipment_id'].map((category) => [category, { matched: run.reduce((sum, item) => sum + item.metrics.categories[category].matched, 0), total: run.reduce((sum, item) => sum + item.metrics.categories[category].total, 0) }])) } : {}), ...(component === 'correction' && run.length ? { exact_matches: run.filter((item) => item.metrics.exact_match).length, cases: run.length } : {}), hard_gate_failures: hardGateFailures, error_class_counts: Object.fromEntries(Object.entries(groupBy(hardGateFailures, (failure) => failure.category)).map(([category, failures]) => [category, failures.length])) };
   }
 }
 for (const item of results) {

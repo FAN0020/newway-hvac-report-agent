@@ -6,10 +6,13 @@ import { fileURLToPath } from 'node:url';
 import {
   authorizeApiRequest,
   canBootstrapLocalSession,
+  issuePublicSession,
   resolveServerConfig,
   securityHeaders,
   startupMessages,
+  validateRequestContext,
   validateRequestHost,
+  verifyPublicPassword,
 } from './network-security.js';
 import { ArtifactStore } from './storage/artifacts.js';
 import { ReportStore } from './storage/reports.js';
@@ -19,6 +22,7 @@ import { WhisperProvider } from './providers/whisper.js';
 import { WhisperModelManager } from './providers/whisper-model-manager.js';
 import { SpeechToTextConfigStore } from './config/speech-to-text.js';
 import { LocalSpeechToTextService } from './services/local-speech-to-text.js';
+import { AudioJobQueue } from './services/audio-jobs.js';
 import { OllamaProvider } from './providers/ollama.js';
 import { normalizeHvacTranscript } from './tools/normalize-hvac-transcript.js';
 import { extractServiceFacts } from './tools/extract-service-facts.js';
@@ -90,6 +94,7 @@ const authoritativeCapture = new AuthoritativeCaptureService({
   modelResolver: () => speechToText.resolveModel(),
   semanticProvider: ollama,
   semanticModel: String(process.env.HVAC_OLLAMA_MODEL || ''),
+  principalRef: process.env.HVAC_PUBLIC_USER ? `principal:${process.env.HVAC_PUBLIC_USER}` : 'principal:demo-technician',
   scopeRegistryProvider: ensureV2Registry,
   uploadStore: v2UploadStore,
   templateProvider: async (templateId) => (
@@ -227,6 +232,13 @@ async function handleApi(request, response, url, traceId, config, services) {
   const captureService = services.authoritativeCapture;
   const speechService = services.speechToText;
   const whisperProvider = services.whisper || whisper;
+  const audioJobs = services.audioJobs;
+  const audioJobMatch = url.pathname.match(/^\/api\/audio-jobs\/([a-f0-9]{64})$/u);
+  if (request.method === 'GET' && audioJobMatch && config.publicMode) {
+    const job = await audioJobs.get(audioJobMatch[1]);
+    writeJson(response, 200, toolEnvelope('get_audio_job', traceId, 'PASS', job));
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/api/settings/speech-to-text') {
     writeJson(response, 200, toolEnvelope('speech_to_text_settings', traceId, 'PASS', await speechService.getState()));
     return;
@@ -486,7 +498,7 @@ async function handleApi(request, response, url, traceId, config, services) {
         code: 'UNTRUSTED_CAPTURE_INPUT', status: 400,
       });
     }
-    const result = await captureService.captureAudio({
+    const input = {
       session_id: decodeURIComponent(audioCaptureMatch[1]),
       expected_revision: request.headers['x-expected-revision'],
       wav_buffer: await readBody(request, maxAudioBytes),
@@ -496,7 +508,13 @@ async function handleApi(request, response, url, traceId, config, services) {
       target_field_id: request.headers['x-target-field-id'],
       target_section_id: request.headers['x-target-section-id'],
       capture_mode: request.headers['x-capture-mode'],
-    });
+    };
+    if (config.publicMode) {
+      const job = await audioJobs.enqueue(input);
+      writeJson(response, 202, toolEnvelope('queue_report_audio', traceId, 'PASS', job));
+      return;
+    }
+    const result = await captureService.captureAudio(input);
     const status = result.failure ? 'RETRYABLE_ERROR' : 'PASS';
     writeJson(response, result.reused ? 200 : result.failure ? 202 : 201, toolEnvelope('capture_report_audio', traceId, status, result, {
       retryable: Boolean(result.failure),
@@ -509,6 +527,13 @@ async function handleApi(request, response, url, traceId, config, services) {
   if (request.method === 'POST' && retryMatch) {
     const input = await readJson(request);
     rejectUntrustedAuthority(input, { allow: ['evidence_id'] });
+    if (config.publicMode) {
+      const job = await audioJobs.enqueue({ kind: 'retry', session_id: decodeURIComponent(retryMatch[1]),
+        expected_revision: input.expected_revision, evidence_id: input.evidence_id,
+        idempotency_key: crypto.randomUUID() });
+      writeJson(response, 202, toolEnvelope('queue_report_transcription_retry', traceId, 'PASS', job));
+      return;
+    }
     const result = await captureService.retryTranscription({
       ...input,
       session_id: decodeURIComponent(retryMatch[1]),
@@ -706,7 +731,7 @@ async function handleApi(request, response, url, traceId, config, services) {
     const selectedModel = await speechService.resolveModel();
     const [stt, llm] = await Promise.all([whisperProvider.health({ model: selectedModel }), ollama.health()]);
     writeJson(response, 200, toolEnvelope('provider_health', traceId, stt.ready ? 'PASS' : 'FAIL', {
-      server: { ready: true, bound_to: `${config.host}:${config.port}`, mode: config.lanMode ? 'lan-demo' : 'local-only' },
+      server: { ready: true, bound_to: `${config.host}:${config.port}`, mode: config.publicMode ? 'public' : config.lanMode ? 'lan-demo' : 'local-only' },
       whisper: stt,
       ollama: llm,
     }, { warnings: [!stt.ready ? stt.message : null, !llm.ready ? llm.message : null].filter(Boolean) }));
@@ -1194,6 +1219,7 @@ function denyRequest(response, traceId, status, code) {
 }
 
 export function createServer({ config = resolveServerConfig(), services = {} } = {}) {
+  const loginAttempts = [];
   const reportDownloadTickets = new Map();
   const reportDownloads = {
     issue(result) {
@@ -1218,7 +1244,11 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
     },
   };
   const resolvedServices = { authoritativeCapture, speechToText, whisper, reportDownloads, ...services };
-  return http.createServer(async (request, response) => {
+  if (config.publicMode && !resolvedServices.audioJobs) {
+    resolvedServices.audioJobs = new AudioJobQueue({ root: path.join(dataRoot, 'audio-jobs'),
+      captureService: resolvedServices.authoritativeCapture });
+  }
+  const server = http.createServer(async (request, response) => {
     const traceId = `trace_${crypto.randomUUID()}`;
     const url = new URL(request.url, 'http://server.invalid');
     try {
@@ -1230,11 +1260,33 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
         }
         await handleApi(request, response, url, traceId, config, resolvedServices);
       } else if (request.method === 'POST' && url.pathname === '/session-bootstrap') {
-        if (!canBootstrapLocalSession(request, config)) {
-          denyRequest(response, traceId, 403, 'REQUEST_DENIED');
-          return;
+        if (config.publicMode) {
+          if (request.headers.origin !== config.publicFrontendOrigin || !validateRequestContext(request, config).ok) {
+            denyRequest(response, traceId, 403, 'REQUEST_DENIED');
+            return;
+          }
+          const now = Date.now();
+          while (loginAttempts.length && loginAttempts[0] <= now - 60_000) loginAttempts.shift();
+          if (loginAttempts.length >= 10) {
+            denyRequest(response, traceId, 429, 'LOGIN_RATE_LIMITED');
+            return;
+          }
+          let credentials;
+          try { credentials = JSON.parse((await readBody(request, 2048)).toString('utf8')); }
+          catch { credentials = {}; }
+          if (!verifyPublicPassword(credentials.username, credentials.password, config)) {
+            loginAttempts.push(now);
+            denyRequest(response, traceId, 401, 'AUTHENTICATION_REQUIRED');
+            return;
+          }
+          writeJson(response, 200, { status: 'PASS', token: issuePublicSession(config), mode: 'public', principal: config.publicUser });
+        } else {
+          if (!canBootstrapLocalSession(request, config)) {
+            denyRequest(response, traceId, 403, 'REQUEST_DENIED');
+            return;
+          }
+          writeJson(response, 200, { status: 'PASS', token: config.token, mode: 'local-only' });
         }
-        writeJson(response, 200, { status: 'PASS', token: config.token, mode: 'local-only' });
       } else if (request.method === 'GET' && /^\/report-download\/[a-f0-9-]+$/u.test(url.pathname)) {
         if (!validateRequestHost(request.headers.host, config).ok) {
           denyRequest(response, traceId, 403, 'REQUEST_DENIED');
@@ -1248,6 +1300,9 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
           return;
         }
         writePdfDownload(response, result);
+      } else if (config.publicMode) {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', ...securityHeaders() });
+        response.end('Not found');
       } else if (!validateRequestHost(request.headers.host, config).ok) {
         denyRequest(response, traceId, 403, 'REQUEST_DENIED');
       } else if (!await serveStatic(response, url.pathname)) {
@@ -1262,12 +1317,15 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
       }, { retryable: error.retryable, error_code: error.code || 'INTERNAL_ERROR' }));
     }
   });
+  server.audioJobs = resolvedServices.audioJobs;
+  return server;
 }
 
 export async function startServer({ env = process.env } = {}) {
   const config = resolveServerConfig(env);
   await fs.mkdir(tempRoot, { recursive: true });
   const server = createServer({ config });
+  if (config.publicMode) await server.audioJobs.init();
   server.listen(config.port, config.host, () => {
     for (const message of startupMessages(config)) console.log(message);
   });
