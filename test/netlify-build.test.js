@@ -12,7 +12,7 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'netlify-build-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, 'web'));
-  fs.writeFileSync(path.join(root, 'web', 'index.html'), '<!doctype html><title>Field Report</title>');
+  fs.writeFileSync(path.join(root, 'web', 'index.html'), '<!doctype html><title>ServiceScribe</title>');
   fs.writeFileSync(path.join(root, 'web', 'app.js'), 'export const ready = true;');
   return root;
 }
@@ -39,7 +39,7 @@ test('Netlify build publishes only browser assets and proxies all backend routes
   const result = build(root, 'https://api.example.com');
   assert.equal(result.status, 0, result.stderr);
   const output = path.join(root, 'dist', 'netlify');
-  assert.equal(fs.readFileSync(path.join(output, 'index.html'), 'utf8'), '<!doctype html><title>Field Report</title>');
+  assert.equal(fs.readFileSync(path.join(output, 'index.html'), 'utf8'), '<!doctype html><title>ServiceScribe</title>');
   assert.equal(fs.readFileSync(path.join(output, 'app.js'), 'utf8'), 'export const ready = true;');
   assert.equal(fs.existsSync(path.join(output, 'data', 'private.json')), false);
   assert.equal(fs.readFileSync(path.join(output, '_redirects'), 'utf8'), [

@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { controlValueForField, groupTemplateFields, reportStatusSummary } from '../web/template-workspace.js';
 
-test('visible shell keeps generic Field Report branding and focused navigation', async () => {
+test('visible shell keeps ServiceScribe branding and focused navigation', async () => {
   const html = await fs.readFile('web/index.html', 'utf8');
   const shell = html.slice(html.indexOf('id="template-app"'), html.indexOf('<div class="app-shell"'));
-  assert.match(shell, /aria-label="Field Report home"/);
+  assert.match(shell, /aria-label="ServiceScribe home"/);
   assert.match(shell, />\s*Reports\s*<\/button>/);
   assert.match(shell, />\s*New report\s*<\/button>/);
   assert.match(shell, />\s*Templates\s*<\/button>/);

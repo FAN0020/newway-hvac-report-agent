@@ -1,4 +1,4 @@
-# Field Report source-of-truth recovery
+# ServiceScribe source-of-truth recovery
 
 Date: 2026-09-27
 Implementation base: `57d0cb01c82ec804ed6caa8a9ba949f658a2b8ff`

@@ -170,7 +170,7 @@ export function renderReportHtml({ report, confirmation, template } = {}) {
 </head>
 <body>
   <header>
-    <div class="eyebrow">${escapeHtml(organization)} · Confirmed field report</div>
+    <div class="eyebrow">${escapeHtml(organization)} · Confirmed ServiceScribe report</div>
     <h1>${escapeHtml(report.template_name || template.name)}</h1>
     <div class="org">${escapeHtml(template.presentation?.reportFamily || '')}</div>
     <div class="notice">${escapeHtml(notice)} ${escapeHtml(report.disclaimer?.text || '')}</div>

@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#162b25">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>Field Report</title>
+  <title>ServiceScribe</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div id="template-app" class="template-app">
     <aside class="template-sidebar" aria-label="Primary navigation">
-      <button class="template-brand" data-template-nav="choose" aria-label="Field Report home"><span>FR</span><strong>Field Report<small>Maintenance reporting</small></strong></button>
+      <button class="template-brand" data-template-nav="choose" aria-label="ServiceScribe home"><span>SS</span><strong>ServiceScribe<small>Maintenance reporting</small></strong></button>
       <nav aria-label="Technician">
         <p>Technician</p>
         <button id="template-reports-nav" class="template-nav" data-template-nav="reports" hidden><span>▦</span> Reports</button>
@@ -36,7 +36,7 @@
 
       <section id="public-auth" class="public-auth" hidden aria-labelledby="public-auth-title">
         <form id="public-auth-form" class="public-auth-card">
-          <h2 id="public-auth-title">Sign in to Field Report</h2>
+          <h2 id="public-auth-title">Sign in to ServiceScribe</h2>
           <p>Use your assigned operator account to access reports.</p>
           <label>Username<input id="public-auth-user" name="username" autocomplete="username" required></label>
           <label>Password<input id="public-auth-password" name="password" type="password" autocomplete="current-password" required></label>
@@ -148,7 +148,7 @@
 
   <div class="app-shell" hidden inert aria-hidden="true">
     <aside id="primary-sidebar" class="sidebar" aria-label="Primary navigation">
-      <a class="brand" href="#reports" data-nav="reports" aria-label="Field Report home"><span class="brand-mark">FR</span><span><strong>Field Report</strong><small>Maintenance reporting</small></span></a>
+      <a class="brand" href="#reports" data-nav="reports" aria-label="ServiceScribe home"><span class="brand-mark">SS</span><span><strong>ServiceScribe</strong><small>Maintenance reporting</small></span></a>
       <nav><button class="nav-item active" data-nav="reports"><span>▦</span> Reports</button><button class="nav-item" data-nav="new-report"><span>＋</span> New report</button></nav>
       <nav class="secondary-nav" aria-label="Secondary navigation"><button class="nav-item" data-nav="knowledge"><span>⌕</span> Knowledge</button><button class="nav-item" data-nav="settings"><span>⚙</span> Settings</button><button class="nav-item" data-nav="help"><span>?</span> Help &amp; demo</button></nav>
       <div class="sidebar-foot"><div class="demo-chip">Demo mode · not production</div><span id="network-mode">Checking access mode…</span></div>
@@ -158,7 +158,7 @@
       <header class="topbar">
         <button id="mobile-menu" class="icon-button" aria-label="Open navigation" aria-controls="primary-sidebar" aria-expanded="false">☰</button>
         <div><p class="eyebrow" id="page-eyebrow">REPORT WORKSPACE</p><h1 id="page-title">Reports</h1></div>
-        <div class="topbar-actions"><span class="connection-dot" aria-hidden="true"></span><span id="topbar-status">Local workspace</span><button class="avatar" data-nav="settings" aria-label="Open settings">FR</button></div>
+        <div class="topbar-actions"><span class="connection-dot" aria-hidden="true"></span><span id="topbar-status">Local workspace</span><button class="avatar" data-nav="settings" aria-label="Open settings">SS</button></div>
       </header>
       <div id="network-warning" class="network-warning" role="note">For trusted local or LAN demo use only.</div>
       <section id="auth-gate" class="auth-card" aria-labelledby="auth-title">

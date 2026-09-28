@@ -1,8 +1,8 @@
 export default {
   app: {
-    title: 'Newway Service Report Agent',
+    title: 'ServiceScribe',
     demoMode: 'Demo mode · not production',
-    eyebrow: 'NEWWAY SYSTEMS · FIELD SERVICE REPORT AGENT',
+    eyebrow: 'SERVICESCRIBE · FIELD SERVICE REPORTS',
     headline: 'Speak a few words; review one service report before you leave',
     lead: 'Audio and reports are stored on the computer running the service. The AI organizes the content and does not replace repair, safety, or pricing judgment; only the current version confirmed by the technician can be officially saved or exported.',
     footer: 'This MVP validates process boundaries with synthetic test data and does not represent real-world accuracy or production readiness.',

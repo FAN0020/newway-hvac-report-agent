@@ -1,4 +1,4 @@
-# Newway Systems HVAC Report Agent MVP (V1 + V2 SBS scopes)
+# ServiceScribe (HVAC and SBS report scopes)
 
 This repository is a local-first hackathon MVP with an explicit, token-protected LAN demo mode. The current vertical slice provides:
 

@@ -234,20 +234,20 @@ export function securityHeaders({ api = false } = {}) {
 export function startupMessages(config) {
   if (config.publicMode) {
     return [
-      `Newway HVAC API listening on http://${config.host}:${config.port} behind ${config.publicApiHost}`,
+      `ServiceScribe API listening on http://${config.host}:${config.port} behind ${config.publicApiHost}`,
       `Public operator authentication enabled for ${config.publicFrontendOrigin}.`,
     ];
   }
   if (config.lanMode) {
     return [
-      `Newway HVAC MVP listening on http://0.0.0.0:${config.port}`,
+      `ServiceScribe listening on http://0.0.0.0:${config.port}`,
       'LAN DEMO ONLY: trusted Wi-Fi only; this is not a public-internet or production deployment.',
       `Open http://<this-computer-LAN-IP>:${config.port} and enter the shared temporary token.`,
       'The token is intentionally not printed. Press Ctrl-C to stop the demo server.',
     ];
   }
   return [
-    `Newway HVAC MVP listening on http://${config.host}:${config.port}`,
+    `ServiceScribe listening on http://${config.host}:${config.port}`,
     'Local-only mode. The browser obtains an ephemeral session only from the loopback interface.',
   ];
 }

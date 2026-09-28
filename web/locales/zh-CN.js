@@ -1,8 +1,8 @@
 export default {
   app: {
-    title: 'Newway 现场服务报告助手',
+    title: 'ServiceScribe',
     demoMode: '演示模式 · 非生产环境',
-    eyebrow: 'NEWWAY SYSTEMS · 现场服务报告助手',
+    eyebrow: 'SERVICESCRIBE · 现场服务报告',
     headline: '简述现场情况，离场前审核一份服务报告',
     lead: '音频和报告保存在运行本服务的计算机上。AI 仅负责整理内容，不能替代维修、安全或报价判断；只有经技术人员确认的当前版本才能正式保存或导出。',
     footer: '本 MVP 使用合成测试数据验证流程边界，不代表真实场景准确率或生产就绪状态。',
