@@ -15,6 +15,7 @@ const state = {
   templatesError: null, recentTemplateIds: [],
   speechToText: null, pendingSpeechModel: null, speechToTextError: null,
   setupDraft: null, setupSchemaSaved: false, setupContextReady: false, setupTestPassed: false,
+  workOrders: [], pendingWorkOrder: null,
 };
 let recorder = null;
 let recorderWorkspace = null;
@@ -866,7 +867,7 @@ async function openWorkspace(templateId) {
   workspaceRegistry.register(workspace.key, workspace);
   activateWorkspace(workspace);
   try {
-    const jobRef = `new-report:${crypto.randomUUID()}`;
+    const jobRef = $('work-order-select').value || `new-report:${crypto.randomUUID()}`;
     const created = await api('/api/report-sessions', { method: 'POST', body: { template_id: template.templateId, template_version: template.templateVersion, job_context_ref: jobRef } });
     const previousKey = workspace.key;
     workspace.session = created.session; workspace.agentState = created.agent_state; workspace.key = created.session.session_id;
@@ -1197,12 +1198,67 @@ async function uploadSetupContext() { const file = $('setup-context-file').files
 async function testSetup() { if (!state.setupDraft || !state.setupSchemaSaved || !state.setupContextReady) return; try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/test`, { method: 'POST', body: {} }); state.setupDraft = data.draft; state.setupTestPassed = data.draft.test.status === 'PASSED'; $('setup-test-status').textContent = data.draft.test.notes; $('setup-publish').disabled = !state.setupTestPassed; setSetupStep(5); } catch (error) { $('setup-test-status').textContent = error.message; } }
 async function publishSetup() { try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/publish`, { method: 'POST', body: {} }); registerRuntimeTemplate(data.template); state.templates.push(data.template); renderCatalog(); renderManager(); $('setup-test-status').textContent = `Published ${data.template.name} v${data.template.templateVersion}.`; $('setup-publish').disabled = true; } catch (error) { $('setup-test-status').textContent = error.message; } }
 
+function renderWorkOrders(selectedRef = $('work-order-select').value) {
+  const select = $('work-order-select'); select.replaceChildren();
+  const none = document.createElement('option'); none.value = ''; none.textContent = 'No work order'; select.append(none);
+  for (const record of state.workOrders.filter((item) => item.status === 'REVIEWED')) {
+    const option = document.createElement('option'); option.value = `work-order:${record.upload_id}@${record.version}`;
+    option.textContent = `${record.reviewed.work_order_id} · vehicle ${record.reviewed.vehicle_id} · v${record.version}`; select.append(option);
+  }
+  select.value = [...select.options].some((option) => option.value === selectedRef) ? selectedRef : '';
+  const record = state.pendingWorkOrder;
+  $('work-order-review').hidden = !record;
+  if (!record) return;
+  $('work-order-source').textContent = `${record.source.filename} · SHA-256 ${record.source.sha256}. Work-order source: ${record.candidates.work_order_id.map((item) => item.source).join(' | ') || 'not detected'}. Vehicle source: ${record.candidates.vehicle_id.map((item) => item.source).join(' | ') || 'not detected'}. Check the original file before confirming.`;
+  $('work-order-id').value = record.candidates.work_order_id.length === 1 ? record.candidates.work_order_id[0].value : '';
+  $('work-order-vehicle-id').value = record.candidates.vehicle_id.length === 1 ? record.candidates.vehicle_id[0].value : '';
+  $('work-order-correction').value = '';
+  const fields = $('work-order-fields'); fields.replaceChildren();
+  for (const item of record.candidates.fields) {
+    const label = document.createElement('label'); const checkbox = document.createElement('input'); checkbox.type = 'checkbox';
+    checkbox.value = item.field_id; checkbox.checked = true; label.append(checkbox, document.createTextNode(` ${item.field_id}: ${item.value} — ${item.source}`)); fields.append(label);
+  }
+}
+
+async function refreshWorkOrders(selectedRef) {
+  const result = await api('/api/work-orders'); state.workOrders = result.work_orders;
+  state.pendingWorkOrder = state.workOrders.find((item) => item.status === 'PENDING_REVIEW') || null;
+  renderWorkOrders(selectedRef);
+}
+
+async function uploadWorkOrder() {
+  const file = $('work-order-file').files[0];
+  if (!file) { $('work-order-status').textContent = 'Choose a work-order file first.'; return; }
+  try {
+    const result = await api('/api/work-orders/uploads', { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': file.name }, body: file });
+    state.pendingWorkOrder = result.work_order;
+    await refreshWorkOrders();
+    state.pendingWorkOrder = result.work_order; renderWorkOrders();
+    $('work-order-status').textContent = 'File stored. Review the work-order and stable vehicle IDs before using it.';
+  } catch (error) { $('work-order-status').textContent = `Upload failed: ${error.message}`; }
+}
+
+async function confirmWorkOrder() {
+  const record = state.pendingWorkOrder; if (!record) return;
+  try {
+    const fieldIds = [...$('work-order-fields').querySelectorAll('input:checked')].map((input) => input.value);
+    const result = await api(`/api/work-orders/${encodeURIComponent(record.upload_id)}/review`, { method: 'POST', body: {
+      work_order_id: $('work-order-id').value.trim(), vehicle_id: $('work-order-vehicle-id').value.trim(),
+      field_ids: fieldIds, correction_reason: $('work-order-correction').value.trim(),
+    } });
+    state.pendingWorkOrder = null;
+    await refreshWorkOrders(`work-order:${result.work_order.upload_id}@${result.work_order.version}`);
+    $('work-order-status').textContent = `Reviewed ${result.work_order.reviewed.work_order_id} for vehicle ${result.work_order.reviewed.vehicle_id}. Choose a report template to start.`;
+  } catch (error) { $('work-order-status').textContent = `Review failed: ${error.message}`; }
+}
+
 async function init() {
   state.templatesLoading = true; renderCatalog();
   try {
     await refreshLocalSessionToken();
     const result = await api('/api/templates'); state.templates = result.templates; for (const template of state.templates) registerRuntimeTemplate(template);
     state.templatesLoading = false; renderCatalog(); renderManager(); $('template-runtime-status').textContent = 'Local'; $('template-runtime-status').parentElement.hidden = true;
+    await refreshWorkOrders();
     await restoreReportWorkspaces();
     for (const { workspace } of workspaceRegistry.list()) {
       if (workspace.session && sessionStorage.getItem(audioJobStorageKey(workspace))) void resumeAudioJob(workspace);
@@ -1221,6 +1277,8 @@ document.querySelectorAll('[data-template-nav]').forEach((node) => node.addEvent
 $('template-mobile-menu').addEventListener('click', () => syncMobileNavigation(!document.querySelector('.template-sidebar').classList.contains('open')));
 mobileNavigation.addEventListener('change', () => syncMobileNavigation(false));
 $('template-search').addEventListener('input', (event) => renderCatalog(event.target.value));
+$('work-order-upload').addEventListener('click', uploadWorkOrder);
+$('work-order-confirm').addEventListener('click', confirmWorkOrder);
 $('stt-model-select').addEventListener('change', (event) => {
   state.pendingSpeechModel = event.target.value;
   state.speechToTextError = null;

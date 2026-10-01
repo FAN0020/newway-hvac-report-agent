@@ -371,6 +371,15 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .template-workspace-main { display: grid; gap: 14px; }
 .template-panel { padding: 22px; border: 1px solid var(--line); border-radius: 15px; background: white; box-shadow: 0 7px 24px rgba(25,48,39,.04); }
 .template-panel p { color: var(--muted); }
+.work-order-panel { display: grid; gap: 11px; margin: 0 0 20px; }
+.work-order-panel h2, .work-order-panel h3, .work-order-panel p { margin: 0; }
+.work-order-panel > label, .work-order-panel #work-order-review > label { display: grid; gap: 5px; max-width: 680px; color: var(--ink); font-size: .78rem; font-weight: 700; }
+.work-order-panel input, .work-order-panel select { max-width: 680px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.work-order-panel button { justify-self: start; }
+.work-order-panel #work-order-review { display: grid; gap: 10px; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.work-order-panel #work-order-review[hidden] { display: none; }
+.work-order-panel #work-order-fields { display: grid; gap: 6px; }
+.work-order-panel #work-order-fields label { display: flex; gap: 7px; align-items: start; overflow-wrap: anywhere; font-size: .76rem; }
 .section-heading { display: flex; gap: 20px; align-items: start; justify-content: space-between; }
 .section-heading p { margin: 0 0 14px; }
 .workspace-input-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }

@@ -411,6 +411,10 @@ export class AuthoritativeCaptureService {
     if (template.templateVersion !== String(templateVersion || '')) {
       throw workflowError('Requested template version does not match the published template.', 'TEMPLATE_VERSION_MISMATCH', 409);
     }
+    const context = this.jobContextProvider?.resolve ? await this.jobContextProvider.resolve({
+      job_context_ref: jobContextRef, template_id: template.templateId,
+      template_version: template.templateVersion, template,
+    }) : null;
     const scopeId = template.domain;
     let created = await this.sessionStore.create({
       session_id: `session_${crypto.randomUUID()}`,
@@ -421,16 +425,15 @@ export class AuthoritativeCaptureService {
         scope_id: scopeId,
       },
       job_context_ref: jobContextRef,
+      ...(context?.vehicle_id ? { job_context_binding: {
+        record_id: context.record_id, version: context.version, vehicle_id: context.vehicle_id,
+        source_sha256: context.source_sha256, review_sha256: context.review_sha256,
+      } } : {}),
       created_at: this.clock(),
       report_name_base: template.presentation?.displayName || template.name,
       report_time_zone: this.reportTimeZone,
     });
-    if (this.jobContextProvider?.resolve) {
-      const context = await this.jobContextProvider.resolve({
-        job_context_ref: jobContextRef,
-        template_id: template.templateId,
-        template_version: template.templateVersion,
-      });
+    if (context) {
       const fields = Array.isArray(context?.fields) ? context.fields : [];
       if (fields.length) {
         const lines = fields.map((item) => `${item.field_id}=${item.value}${item.unit ? ` ${item.unit}` : ''}`);

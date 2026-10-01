@@ -68,6 +68,11 @@ function validatePersistedSession(session) {
   requiredString(session.context_binding?.context_id, 'context_binding.context_id', code);
   requiredString(session.context_binding?.context_version, 'context_binding.context_version', code);
   requiredString(session.context_binding?.scope_id, 'context_binding.scope_id', code);
+  if (session.job_context_binding) {
+    for (const key of ['record_id', 'version', 'vehicle_id', 'source_sha256', 'review_sha256']) {
+      requiredString(session.job_context_binding[key], `job_context_binding.${key}`, code);
+    }
+  }
   requiredTimestamp(session.created_at, 'created_at', code);
   requiredTimestamp(session.updated_at, 'updated_at', code);
   if (session.report_name !== undefined) {

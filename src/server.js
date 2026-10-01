@@ -18,6 +18,7 @@ import { ArtifactStore } from './storage/artifacts.js';
 import { ReportStore } from './storage/reports.js';
 import { TemplateStore } from './storage/templates.js';
 import { ReportSessionStore } from './storage/report-sessions.js';
+import { WorkOrderStore } from './storage/work-orders.js';
 import { WhisperProvider } from './providers/whisper.js';
 import { WhisperModelManager } from './providers/whisper-model-manager.js';
 import { SpeechToTextConfigStore } from './config/speech-to-text.js';
@@ -77,6 +78,7 @@ const speechToText = new LocalSpeechToTextService({ configStore: speechToTextCon
 const whisper = new WhisperProvider({ runtimeRoot, tempRoot, modelManager: whisperModelManager });
 const ollama = new OllamaProvider();
 const reportSessions = new ReportSessionStore({ root: path.join(dataRoot, 'report-session-authority') });
+const workOrders = new WorkOrderStore({ root: path.join(dataRoot, 'work-orders') });
 // V2 wiring: one upload store and one lazily-loaded scope registry shared by
 // every /api/v2/* route. Uploads land under data/v2-uploads (auto-mkdir in
 // createUploadStore.put; directory is gitignored except for .gitkeep).
@@ -100,25 +102,7 @@ const authoritativeCapture = new AuthoritativeCaptureService({
   templateProvider: async (templateId) => (
     (await templates.listPublished()).find((item) => item.templateId === templateId) || null
   ),
-  jobContextProvider: {
-    resolve: async ({ job_context_ref: reference, template_id: templateId }) => {
-      if (reference !== 'work-order:WO-111-1222' || templateId !== 'bus-defect-rectification-corrective-maintenance') return null;
-      return {
-        record_id: reference,
-        version: 'demo-work-order.v1',
-        fields: [
-          { field_id: 'work.work_order_id', value: 'WO-111-1222' },
-          { field_id: 'work.date_time', value: '2026-09-27 22:42' },
-          { field_id: 'asset.internal_fleet_no', value: '8300-354' },
-          { field_id: 'asset.registration_no', value: 'SBS6025Z' },
-          { field_id: 'asset.bus_model', value: 'MAN A95' },
-          { field_id: 'asset.depot', value: 'Hougang Depot' },
-          { field_id: 'technician.name', value: 'Alex Tan' },
-          { field_id: 'work.trigger', value: 'Passenger door would not close' },
-        ],
-      };
-    },
-  },
+  jobContextProvider: workOrders,
 });
 
 function resolveV2ContextOrThrow(contextId, registry) {
@@ -230,9 +214,26 @@ function rejectUntrustedAuthority(input, { allow = [] } = {}) {
 
 async function handleApi(request, response, url, traceId, config, services) {
   const captureService = services.authoritativeCapture;
+  const workOrderService = services.workOrders || workOrders;
   const speechService = services.speechToText;
   const whisperProvider = services.whisper || whisper;
   const audioJobs = services.audioJobs;
+  if (request.method === 'GET' && url.pathname === '/api/work-orders') {
+    writeJson(response, 200, toolEnvelope('list_work_orders', traceId, 'PASS', { work_orders: await workOrderService.list() }));
+    return;
+  }
+  if (request.method === 'POST' && url.pathname === '/api/work-orders/uploads') {
+    const filename = String(request.headers['x-file-name'] || '').trim();
+    const result = await workOrderService.upload({ filename, mime_type: request.headers['content-type'], bytes: await readRawBody(request, 10 * 1024 * 1024) });
+    writeJson(response, 201, toolEnvelope('upload_work_order', traceId, 'PASS', { work_order: result }));
+    return;
+  }
+  const workOrderReviewMatch = url.pathname.match(/^\/api\/work-orders\/(wo_[a-f0-9-]{36})\/review$/u);
+  if (request.method === 'POST' && workOrderReviewMatch) {
+    const result = await workOrderService.review(workOrderReviewMatch[1], await readJson(request));
+    writeJson(response, 200, toolEnvelope('review_work_order', traceId, 'PASS', { work_order: result }));
+    return;
+  }
   const audioJobMatch = url.pathname.match(/^\/api\/audio-jobs\/([a-f0-9]{64})$/u);
   if (request.method === 'GET' && audioJobMatch && config.publicMode) {
     const job = await audioJobs.get(audioJobMatch[1]);
@@ -1243,7 +1244,7 @@ export function createServer({ config = resolveServerConfig(), services = {} } =
       return entry && entry.expires_at > Date.now() ? entry.result : null;
     },
   };
-  const resolvedServices = { authoritativeCapture, speechToText, whisper, reportDownloads, ...services };
+  const resolvedServices = { authoritativeCapture, workOrders, speechToText, whisper, reportDownloads, ...services };
   if (config.publicMode && !resolvedServices.audioJobs) {
     resolvedServices.audioJobs = new AudioJobQueue({ root: path.join(dataRoot, 'audio-jobs'),
       captureService: resolvedServices.authoritativeCapture });

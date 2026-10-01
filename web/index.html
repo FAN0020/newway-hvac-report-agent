@@ -52,6 +52,24 @@
 
       <section id="template-choose" class="template-view active" aria-labelledby="choose-title">
         <div class="template-selection-head"><h1 id="choose-title">Choose a report</h1><label class="template-search"><span aria-hidden="true">⌕</span><input id="template-search" type="search" placeholder="Search reports" aria-label="Search reports"></label></div>
+        <section class="template-panel work-order-panel" aria-labelledby="work-order-title">
+          <h2 id="work-order-title">Work order before starting</h2>
+          <p>Select a reviewed work order for this report, or leave it at “No work order”. Uploaded details are only used after human review.</p>
+          <label>Use work order<select id="work-order-select"><option value="">No work order</option></select></label>
+          <label>Upload local work-order file<input id="work-order-file" type="file" accept=".txt,.csv,.md,.docx"></label>
+          <button id="work-order-upload" class="secondary" type="button">Upload and extract</button>
+          <p id="work-order-status" role="status" aria-live="polite"></p>
+          <div id="work-order-review" hidden>
+            <h3>Review extracted identity against the source file</h3>
+            <p id="work-order-source"></p>
+            <label>Work-order ID<input id="work-order-id" autocomplete="off"></label>
+            <label>Stable vehicle ID<input id="work-order-vehicle-id" autocomplete="off"></label>
+            <p>Only checked task details will be prefilled. Confirm the identity even when it was extracted.</p>
+            <div id="work-order-fields"></div>
+            <label>Reason for correcting an extracted ID<input id="work-order-correction" autocomplete="off"></label>
+            <button id="work-order-confirm" class="primary" type="button">Confirm work order</button>
+          </div>
+        </section>
         <div class="template-filters" role="group" aria-label="Filter reports by category">
           <button type="button" class="template-filter active" data-template-category="All" aria-pressed="true">All</button>
           <button type="button" class="template-filter" data-template-category="Bus" aria-pressed="false">Bus</button>
