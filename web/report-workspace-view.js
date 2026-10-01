@@ -439,7 +439,29 @@ function valueFor(fields, id, conflictLabel = 'Needs resolution') {
   return field?.state === 'CONFLICT' ? conflictLabel : displayValue(field);
 }
 
-function buildSections(template, agentState, sessionPhase, processing, chain, changeSummary) {
+function sourceAdvice(definition, field, semanticTrace, sourcePlan) {
+  const allowed = definition.allowedSources || ['TECHNICIAN'];
+  const planned = sourcePlan?.fields?.find((item) => item.field_id === definition.id);
+  const selected = new Set(field.selected_candidate_ids || []);
+  const candidate = (field.candidates || []).find((item) => selected.has(item.candidate_id));
+  const observed = candidate?.support_type === 'AUTHORITATIVE_SYSTEM_DATA' ? 'WORK_ORDER'
+    : ['TRANSCRIPT_EVIDENCE', 'MANUAL_TECHNICIAN_INPUT', 'TECHNICIAN_CONFIRMATION'].includes(candidate?.support_type) ? 'TECHNICIAN' : null;
+  const fallback = observed && allowed.includes(observed) ? observed
+    : allowed.includes('TECHNICIAN') ? 'TECHNICIAN' : null;
+  const suggested = planned && allowed.includes(planned.suggested_source)
+    ? planned.suggested_source : fallback;
+  const method = candidate?.extraction?.method || null;
+  const modelAssisted = Boolean(candidate?.source_ref === semanticTrace?.transcript_id && semanticTrace?.model?.model
+    && ['structured-semantic-proposal', 'structured-schema-field-proposal'].includes(method));
+  return {
+    allowed_sources: [...allowed], suggested_source: suggested, actual_source: observed,
+    basis: planned?.basis || (observed ? modelAssisted ? 'MODEL_ASSISTED_EVIDENCE' : 'ACCEPTED_EVIDENCE' : 'TEMPLATE_RULE'),
+    model: planned?.basis === 'MODEL_SUGGESTION' ? sourcePlan.model.model
+      : modelAssisted ? semanticTrace.model.model : null,
+  };
+}
+
+function buildSections(template, agentState, sessionPhase, processing, chain, changeSummary, semanticTrace, sourcePlan) {
   const fieldMap = new Map((agentState?.report_fields || []).map((field) => [field.field_id, field]));
   const resolutionByField = new Map((agentState?.resolution_queue || []).map((item) => [item.field_id, item]));
   const unresolved = new Set(resolutionByField.keys());
@@ -507,6 +529,8 @@ function buildSections(template, agentState, sessionPhase, processing, chain, ch
       },
       resolution_item: resolutionItem,
       resolution_control: resolutionItem ? resolutionControl(resolutionItem) : null,
+      source_advice: sourceAdvice(definition, field, semanticTrace, sourcePlan),
+      technician_editable: (definition.allowedSources || ['TECHNICIAN']).includes('TECHNICIAN'),
     };
     projected.action = fieldAction(projected);
     projected.requires_review = projected.action.kind === 'REVIEW';
@@ -588,8 +612,11 @@ export function deriveChangeSummary({ template, before, after } = {}) {
 }
 
 function missingHint(template, agentState, hasPriorCapture) {
-  const missingIds = [...new Set(agentState?.completeness?.missing_required_fields || [])];
+  const missingIds = [...new Set(agentState?.completeness?.missing_required_fields || [])]
+    .filter((fieldId) => (definitionForField(template, fieldId)?.allowedSources || ['TECHNICIAN']).includes('TECHNICIAN'));
+  const questions = new Map((agentState?.resolution_queue || []).map((item) => [item.field_id, item.prompt]));
   const grouped = new Map();
+  const items = [];
   for (const fieldId of missingIds) {
     const definition = definitionForField(template, fieldId);
     const section = definition?.section || 'Report';
@@ -599,13 +626,15 @@ function missingHint(template, agentState, hasPriorCapture) {
       : definition?.label || fieldId;
     if (!grouped.has(section)) grouped.set(section, []);
     grouped.get(section).push(label);
+    items.push({ field_id: fieldId, label, section, question: questions.get(fieldId) || `Provide ${label}.` });
   }
   const count = missingIds.length;
   return {
     count,
-    summary: `${count} ${count === 1 ? 'detail' : 'details'} missing`,
+    summary: `${count} required technician ${count === 1 ? 'detail' : 'details'} missing`,
     lead: hasPriorCapture ? 'Still missing:' : 'Missing:',
     groups: [...grouped].map(([section, fields]) => ({ section, fields })),
+    items,
   };
 }
 
@@ -631,6 +660,17 @@ export function deriveWorkspaceView(input = {}) {
     recoverable_error: input.recoverable_error || sessionRecoveryError(input.session, input.chain),
   };
   const authoritativeMissingHint = missingHint(input.template, input.agent_state, Boolean(finalizedTranscript));
+  const semanticTrace = input.semantic_trace?.semantic_trace || input.semantic_trace || null;
+  const sourcePlan = input.source_plan || null;
+  const modelContributed = Boolean(semanticTrace?.model?.model && fields.some((field) =>
+    field.candidates?.some((candidate) => field.selected_candidate_ids?.includes(candidate.candidate_id)
+      && candidate.source_ref === semanticTrace.transcript_id
+      && ['structured-semantic-proposal', 'structured-schema-field-proposal'].includes(candidate.extraction?.method))));
+  const extractionMode = !finalizedTranscript ? 'AWAITING_INPUT'
+    : input.session?.phase === 'CORRECTION_IF_NEEDED' ? 'AWAITING_REVIEW'
+      : modelContributed ? 'MODEL_ASSISTED'
+        : semanticTrace?.model?.model && !semanticTrace.model.skipped && !semanticTrace.model.error
+          ? 'MODEL_ATTEMPTED_FALLBACK' : 'DETERMINISTIC_FALLBACK';
   const finalizedStatement = latestStatement(authoritativeInput, finalizedTranscript);
   const reportName = splitReportName(input.session?.report_name || input.history?.report_name || input.template?.name);
   const requiredIds = new Set(declaredFields.filter((field) => field.required && !field.id.endsWith('.*')).map((field) => field.id));
@@ -662,6 +702,11 @@ export function deriveWorkspaceView(input = {}) {
     missing_hint: authoritativeMissingHint,
     latest_change: input.change_summary || null,
     latest_statement: finalizedStatement,
+    extraction: { mode: extractionMode, model: semanticTrace?.model?.model || null,
+      reason: semanticTrace?.model?.error || semanticTrace?.model?.skipped || null },
+    source_plan: sourcePlan ? { model: sourcePlan.model, total: sourcePlan.fields?.length || 0,
+      technician_required: sourcePlan.fields?.filter((item) => item.required && item.suggested_source === 'TECHNICIAN').length || 0 } : null,
+    source_plan_error: input.source_plan_error || null,
     report_sections: buildSections(
       input.template,
       input.agent_state,
@@ -669,6 +714,8 @@ export function deriveWorkspaceView(input = {}) {
       input.processing,
       input.chain,
       input.change_summary,
+      semanticTrace,
+      sourcePlan,
     ),
   };
 }

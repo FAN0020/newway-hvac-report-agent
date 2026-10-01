@@ -114,6 +114,70 @@ function view(overrides = {}) {
   });
 }
 
+test('technician view shows the complete 20-field checklist and exact 8/6/2 follow-up with bounded source advice', () => {
+  const names = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel',
+    'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango'];
+  const fields = names.map((name, index) => ({
+    id: `detail.${name}`, label: `${name} detail`, section: 'Inspection', displayOrder: index + 1,
+    type: 'string', required: index < 8,
+    allowedSources: index < 8 ? ['TECHNICIAN'] : ['WORK_ORDER', 'KNOWLEDGE'],
+  }));
+  const reportFields = names.map((name, index) => index < 6
+    ? known(`detail.${name}`, `value ${name}`) : unknown(`detail.${name}`));
+  reportFields[0].candidates[0].extraction.method = 'structured-semantic-proposal';
+  reportFields[0].candidates[0].source_ref = 'transcript_1';
+  const queue = ['golf', 'hotel'].map((name) => item('MISSING', 'VALUE', `detail.${name}`));
+  const initial = deriveWorkspaceView({
+    template: { templateId: 'twenty', name: 'Twenty', schema: { fields } },
+    session: session(), agent_state: {
+      report_fields: reportFields, resolution_queue: queue,
+      completeness: { complete: false, complete_fields: names.slice(0, 6).map((name) => `detail.${name}`),
+        missing_required_fields: ['detail.golf', 'detail.hotel'], conditional_required_fields: [] },
+    },
+    transcript: finalizedTranscript('Alpha: value alpha.'),
+    semantic_trace: { transcript_id: 'transcript_1', model: { provider: 'ollama', model: 'local-test-model', skipped: null, error: null } },
+    interaction: { statement: '', microphone_available: true },
+  });
+  assert.equal(initial.report_sections.flatMap((section) => section.fields).length, 20);
+  assert.deepEqual(initial.readiness, { completed: 6, required: 8, label: 'Needs information' });
+  assert.deepEqual(initial.missing_hint.items.map((entry) => entry.field_id), ['detail.golf', 'detail.hotel']);
+  assert.deepEqual(initial.missing_hint.items.map((entry) => entry.question), ['Resolve detail.golf', 'Resolve detail.hotel']);
+  assert.equal(initial.report_sections[0].fields[0].source_advice.basis, 'MODEL_ASSISTED_EVIDENCE');
+  assert.equal(initial.report_sections[0].fields[0].source_advice.model, 'local-test-model');
+  assert.equal(initial.report_sections[0].fields[8].source_advice.suggested_source, null);
+  assert.equal(initial.report_sections[0].fields[8].source_advice.allowed_sources.includes('TECHNICIAN'), false);
+  const resolved = deriveWorkspaceView({
+    template: { templateId: 'twenty', name: 'Twenty', schema: { fields } }, session: session(),
+    agent_state: { report_fields: reportFields.map((field, index) => index === 6 || index === 7
+      ? known(field.field_id, 'answered', 'MANUAL_TECHNICIAN_INPUT') : field), resolution_queue: [],
+    completeness: { complete: true, complete_fields: names.slice(0, 8).map((name) => `detail.${name}`),
+      missing_required_fields: [], conditional_required_fields: [] } },
+    transcript: finalizedTranscript('Alpha: value alpha.'), interaction: { statement: '', microphone_available: true },
+  });
+  assert.equal(resolved.missing_hint.count, 0);
+  assert.equal(resolved.readiness.completed, 8);
+});
+
+test('source-plan model advice is visibly distinct from accepted job evidence', () => {
+  const result = deriveWorkspaceView({
+    template: { templateId: 'reference', name: 'Reference', schema: { fields: [
+      { id: 'standard.reference', label: 'Standard reference', section: 'Reference', type: 'string',
+        fieldRole: 'NORMATIVE_REFERENCE', allowedSources: ['TECHNICIAN', 'KNOWLEDGE'], required: false },
+    ] } },
+    session: { ...session('CONTEXT'), template_binding: { template_id: 'reference', template_version: '1' } },
+    agent_state: { report_fields: [unknown('standard.reference')], resolution_queue: [],
+      completeness: { complete: true, complete_fields: [], missing_required_fields: [], conditional_required_fields: [] } },
+    source_plan: { model: { provider: 'ollama', model: 'local-test', status: 'MODEL_SUGGESTED' }, fields: [
+      { field_id: 'standard.reference', required: false, suggested_source: 'KNOWLEDGE', basis: 'MODEL_SUGGESTION' },
+    ] },
+  });
+  const advice = result.report_sections[0].fields[0].source_advice;
+  assert.equal(advice.suggested_source, 'KNOWLEDGE');
+  assert.equal(advice.basis, 'MODEL_SUGGESTION');
+  assert.equal(advice.actual_source, null);
+  assert.equal(result.report_sections[0].fields[0].state, 'UNKNOWN');
+});
+
 test('workspace field semantics remain truthful and actionable without confidence percentages', () => {
   const cases = [
     ['KNOWN_VALUE', 'Confirmed'], ['UNKNOWN', 'Needs information'], ['UNCERTAIN', 'Needs confirmation'],
@@ -381,7 +445,7 @@ for (const [name, overrides, expectedKind, primaryId] of stateCases) {
     assert.equal(result.active_task.primary_action?.id || null, primaryId);
     assert.ok((result.active_task.primary_action ? 1 : 0) <= 1);
     assert.equal(result.active_task.primary_action?.id === 'SUBMIT_REPORT', ['REVIEW', 'READY'].includes(result.session_phase));
-    assert.equal(JSON.stringify(result).match(/confidence|chunk_id|trace_id|model|provider/giu), null);
+    assert.equal(JSON.stringify(result).match(/confidence|chunk_id|trace_id|provider/giu), null);
   });
 }
 
@@ -603,11 +667,15 @@ test('missing hint uses only server-authoritative completeness and current schem
 
   assert.deepEqual(result.missing_hint, {
     count: 2,
-    summary: '2 details missing',
+    summary: '2 required technician details missing',
     lead: 'Still missing:',
     groups: [
       { section: 'Diagnosis', fields: ['Root cause'] },
       { section: 'Completion & Handover', fields: ['Return to service'] },
+    ],
+    items: [
+      { field_id: 'diagnosis.root_cause', label: 'Root cause', section: 'Diagnosis', question: 'Resolve diagnosis.root_cause' },
+      { field_id: 'completion.state', label: 'Return to service', section: 'Completion & Handover', question: 'Resolve completion.state' },
     ],
   });
 });
@@ -630,7 +698,7 @@ test('missing hint recomputes immediately when one statement resolves several fi
 
   assert.deepEqual(before.missing_hint.groups.flatMap((group) => group.fields), ['Root cause', 'Return to service']);
   assert.deepEqual(after.missing_hint.groups.flatMap((group) => group.fields), ['Return to service']);
-  assert.equal(after.missing_hint.summary, '1 detail missing');
+  assert.equal(after.missing_hint.summary, '1 required technician detail missing');
 });
 
 test('recording expands exactly the report sections that still contain blank fields', () => {

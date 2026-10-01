@@ -32,6 +32,10 @@ function createWorkspace(template, key = `pending:${crypto.randomUUID()}`) {
     chain: null,
     transcript: null,
     transcriptReview: null,
+    semanticTrace: null,
+    sourcePlan: null,
+    sourcePlanRevision: null,
+    sourcePlanError: null,
     processing: null,
     processingSessionId: null,
     recoverableError: null,
@@ -59,6 +63,9 @@ for (const property of [
   'exportStatus', 'attachmentStatus', 'editingField', 'reviewFullReport',
   'captureNotice', 'changeBaseline', 'changeSummary',
   'history',
+  'semanticTrace',
+  'sourcePlan',
+  'sourcePlanError',
   'focusActiveTask', 'recordingFieldId',
 ]) {
   Object.defineProperty(state, property, {
@@ -326,6 +333,9 @@ function workspaceInput() {
     chain: state.chain,
     history: state.history,
     transcript: state.transcript, transcript_review: state.transcriptReview, processing: state.processing,
+    semantic_trace: state.semanticTrace,
+    source_plan: state.sourcePlan,
+    source_plan_error: state.sourcePlanError,
     processing_session_id: state.processingSessionId,
     recoverable_error: state.recoverableError || sessionRecoveryError(state.session, state.chain), interaction: state.interaction, confirmation: state.confirmation,
     change_summary: state.changeSummary,
@@ -366,9 +376,40 @@ async function refreshSession(workspace = activeWorkspace()) {
   workspace.chain = chain; workspace.session = chain.session; workspace.agentState = chain.agent_state;
   workspace.transcript = chain.transcripts.at(-1) || workspace.transcript;
   workspace.transcriptReview = chain.transcript_reviews.at(-1) || null;
+  if (chain.transcripts.length) {
+    try {
+      const trace = await api(`/api/report-sessions/${encodeURIComponent(sessionId)}/semantic-trace`);
+      if (workspace.session?.session_id !== sessionId) return;
+      workspace.semanticTrace = trace.semantic_trace || null;
+    } catch { workspace.semanticTrace = null; }
+  } else workspace.semanticTrace = null;
   workspace.confirmation = chain.confirmation || workspace.confirmation;
   const latestAttachment = chain.evidence.filter((item) => item.evidence_type === 'DOCUMENT').at(-1);
   if (latestAttachment?.metadata?.filename) workspace.attachmentStatus = `Evidence attached: ${latestAttachment.metadata.filename}.`;
+  if (workspace.sourcePlanRevision !== chain.session.revision) loadSourcePlan(workspace);
+}
+
+async function loadSourcePlan(workspace) {
+  const revision = workspace.session.revision;
+  workspace.sourcePlanRevision = revision;
+  workspace.sourcePlan = null;
+  const sessionId = workspace.session.session_id;
+  try {
+    const plan = await api(`/api/report-sessions/${encodeURIComponent(sessionId)}/source-plan`);
+    if (workspace.session?.session_id === sessionId
+      && workspace.session.revision === revision
+      && plan.session_revision === revision
+      && plan.template_binding?.template_version === workspace.session.template_binding.template_version) {
+      workspace.sourcePlan = plan;
+      workspace.sourcePlanError = null;
+      renderWorkspaceIfActive(workspace);
+    }
+  } catch (error) {
+    if (workspace.session?.session_id !== sessionId || workspace.session.revision !== revision) return;
+    workspace.sourcePlan = null;
+    workspace.sourcePlanError = error.code || 'SOURCE_PLAN_UNAVAILABLE';
+    renderWorkspaceIfActive(workspace);
+  }
 }
 
 async function restoreReportWorkspaces() {
@@ -591,12 +632,28 @@ function renderFieldEditor(container, field) {
 function renderField(section, field) {
   const isEditing = state.editingField === field.field_id;
   const row = element('div', `report-field state-${field.state.toLowerCase()} ui-${field.ui_kind.toLowerCase()}${field.requires_review ? ' requires-review' : ''}${field.updated ? ' is-updated' : ''}${isEditing ? ' is-editing' : ''}`);
+  row.dataset.fieldId = field.field_id;
   const copy = element('div', 'report-field-copy');
   const name = element('span', 'field-name', field.name);
   if (field.required) {
     const required = element('span', 'field-required', ' *'); required.setAttribute('aria-label', 'Required'); name.append(required);
   }
   copy.append(name);
+  const advice = field.source_advice;
+  if (advice) {
+    const sourceNames = { TECHNICIAN: 'Technician', WORK_ORDER: 'Reviewed work order', KNOWLEDGE: 'Knowledge guidance' };
+    const note = advice.suggested_source
+      ? `Suggested source: ${sourceNames[advice.suggested_source]}`
+      : 'No job fact source available';
+    const basis = advice.basis === 'MODEL_SUGGESTION' ? ` · Model source plan (${advice.model})`
+      : advice.basis === 'RULE_FALLBACK' ? ' · Rule fallback'
+        : advice.basis === 'MODEL_ASSISTED_EVIDENCE' ? ` · Model assisted extraction (${advice.model})`
+          : advice.basis === 'ACCEPTED_EVIDENCE' ? ' · Evidence backed' : ' · Template rule';
+    const actual = advice.actual_source ? ` · Accepted from ${sourceNames[advice.actual_source]}` : '';
+    const source = element('small', 'field-source-advice', `${note}${basis}${actual}`);
+    source.title = `Manager allowed: ${advice.allowed_sources.map((item) => sourceNames[item]).join(', ')}. Knowledge is guidance only, never evidence of this job.`;
+    copy.append(source);
+  }
   if (field.display_value && (!isEditing || ['CRITICAL', 'CONFLICT', 'ERROR'].includes(field.ui_kind))) {
     const value = element('strong', 'field-value', field.display_value); value.title = field.display_value; copy.append(value);
   }
@@ -607,7 +664,7 @@ function renderField(section, field) {
   const actions = element('div', 'report-field-actions');
   if (!isEditing) {
     const controlKind = fieldControlKind(state.session?.phase, field);
-    if (controlKind === 'EDIT') {
+    if (controlKind === 'EDIT' && field.technician_editable) {
       const openEditor = () => { state.editingField = field.field_id; renderWorkspace(); };
       const addAction = (label, className, onClick, ariaLabel = `${label} ${field.name}`) => {
         const action = button(label, `text-button field-action ${className}`, onClick);
@@ -626,7 +683,7 @@ function renderField(section, field) {
         addAction('Edit', 'field-confirm-edit', openEditor);
       } else if (field.ui_kind === 'NEEDS_CONFIRMATION') addAction('Review', 'field-confirm', openEditor);
       else addAction('✎', 'quiet-edit', openEditor, `Edit ${field.name}`);
-    } else if (controlKind === 'SOURCE') {
+    } else if ((controlKind === 'SOURCE' || controlKind === 'EDIT') && field.has_provenance) {
       const source = button('ⓘ', 'text-button field-action quiet-source', () => showProvenance(field.field_id));
       source.setAttribute('aria-label', `Source for ${field.name}`);
       actions.append(source);
@@ -642,6 +699,25 @@ function renderField(section, field) {
 
 function renderReportSections(view) {
   const container = $('workspace-sections'); container.replaceChildren();
+  const mode = view.extraction.mode === 'MODEL_ASSISTED'
+    ? `Field extraction: model assisted (${view.extraction.model}); every value still needs allowed evidence.`
+    : view.extraction.mode === 'MODEL_ATTEMPTED_FALLBACK'
+      ? `Field extraction: ${view.extraction.model} ran; no model field proposal passed verification. Deterministic evidence was used.`
+    : view.extraction.mode === 'DETERMINISTIC_FALLBACK'
+      ? `Field extraction: deterministic fallback${view.extraction.reason ? ` (${view.extraction.reason})` : ''}.`
+      : view.extraction.mode === 'AWAITING_REVIEW'
+        ? 'Review transcript changes before field extraction.'
+      : 'Field checklist from the published template. Source suggestions follow manager rules until evidence is captured.';
+  container.append(element('p', 'field-extraction-mode', mode));
+  if (view.source_plan) {
+    const plan = view.source_plan;
+    const sourceMode = plan.model?.status === 'MODEL_SUGGESTED'
+      ? `model suggestions checked against manager rules (${plan.model.model})`
+      : `rule fallback${plan.model?.status === 'MODEL_FAILED' ? `; model error ${plan.model.error}` : ''}`;
+    container.append(element('p', 'field-extraction-mode', `Source plan: ${plan.total} fields, ${plan.technician_required} required fields recommended for technician input; ${sourceMode}.`));
+  } else if (view.source_plan_error) {
+    container.append(element('p', 'field-extraction-mode', `Source plan unavailable (${view.source_plan_error}); showing manager-rule preview.`));
+  }
   for (const section of view.report_sections) {
     const body = element('div', 'report-section-fields'); for (const field of section.fields) body.append(renderField(section, field));
     if (!section.collapsible) {
@@ -772,6 +848,7 @@ function renderCorrection(panel, task) {
 function renderReportReview(panel, task) {
   panel.append(element('h3', '', 'Add information'));
   panel.lastChild.id = 'active-task-title';
+  renderMissingQuestions(panel, task.missing_hint);
   renderReporterComposer(panel, {
     inputId: 'workspace-missing-details', microphoneId: 'workspace-missing-details-microphone',
     placeholder: 'Tell us anything you know…',
@@ -780,6 +857,26 @@ function renderReportReview(panel, task) {
   });
   if (state.attachmentStatus) { const status = element('p', 'task-note', state.attachmentStatus); status.role = 'status'; panel.append(status); }
   renderCaptureNotice(panel);
+}
+
+function renderMissingQuestions(panel, hint) {
+  if (!hint?.items?.length || !state.transcript) return;
+  const notice = element('section', 'workspace-missing-questions');
+  notice.setAttribute('role', 'status');
+  notice.setAttribute('aria-label', 'Required technician details still missing');
+  notice.append(element('strong', '', hint.summary));
+  const list = element('ol');
+  for (const item of hint.items) {
+    const row = element('li');
+    row.append(element('span', '', `${item.label}: ${item.question}`));
+    const answer = button(`Answer ${item.label}`, 'text-button', () => {
+      state.editingField = item.field_id;
+      renderWorkspace();
+      $('workspace-sections').querySelector(`.report-field[data-field-id="${CSS.escape(item.field_id)}"]`)?.scrollIntoView({ block: 'center' });
+    });
+    row.append(answer); list.append(row);
+  }
+  notice.append(list); panel.append(notice);
 }
 
 function renderReview(panel, task) {
@@ -1197,6 +1294,11 @@ function addSetupField(values = {}) {
   const technician = setupCheck('Technician', values.allowedSources?.includes('TECHNICIAN') ?? true);
   const workOrder = setupCheck('Work order', values.allowedSources?.includes('WORK_ORDER'));
   const knowledge = setupCheck('Knowledge guidance', values.allowedSources?.includes('KNOWLEDGE'));
+  const fieldRole = element('select'); fieldRole.setAttribute('aria-label', 'Field role');
+  for (const [value, label] of [['JOB_FACT', 'This job fact'], ['NORMATIVE_REFERENCE', 'Standard or terminology reference']]) {
+    const option = element('option', '', label); option.value = value; fieldRole.append(option);
+  }
+  fieldRole.value = values.fieldRole || 'JOB_FACT';
   const explicitNone = setupCheck('Explicit none', values.allowExplicitNone);
   const notApplicable = setupCheck('Not applicable', values.allowNotApplicable);
   const whenField = setupInput('Required when field ID', values.requiredWhen?.field);
@@ -1205,13 +1307,13 @@ function addSetupField(values = {}) {
   const whenValue = setupInput('Equals value', values.requiredWhen?.value);
   const choices = setupInput('Allowed values, comma separated', (values.allowedValues || values.allowedStatuses || []).filter((value) => value !== 'NOT_CHECKED').join(', '));
   const remove = element('button', 'secondary', 'Remove'); remove.type = 'button'; remove.addEventListener('click', () => row.remove());
-  row.append(id, label, section, type, choices, required.wrapper, critical.wrapper, confirmation.wrapper, technician.wrapper, workOrder.wrapper, knowledge.wrapper, explicitNone.wrapper, notApplicable.wrapper, whenField, whenOperator, whenValue, remove);
-  row._controls = { id, label, section, type, choices, required: required.input, critical: critical.input, confirmation: confirmation.input, technician: technician.input, workOrder: workOrder.input, knowledge: knowledge.input, explicitNone: explicitNone.input, notApplicable: notApplicable.input, whenField, whenOperator, whenValue };
+  row.append(id, label, section, type, fieldRole, choices, required.wrapper, critical.wrapper, confirmation.wrapper, technician.wrapper, workOrder.wrapper, knowledge.wrapper, explicitNone.wrapper, notApplicable.wrapper, whenField, whenOperator, whenValue, remove);
+  row._controls = { id, label, section, type, fieldRole, choices, required: required.input, critical: critical.input, confirmation: confirmation.input, technician: technician.input, workOrder: workOrder.input, knowledge: knowledge.input, explicitNone: explicitNone.input, notApplicable: notApplicable.input, whenField, whenOperator, whenValue };
   $('setup-field-list').append(row);
 }
 function setupFields() { return [...document.querySelectorAll('.setup-field-row')].map((row) => {
   const c = row._controls;
-  return { id: c.id.value.trim(), label: c.label.value.trim(), section: c.section.value.trim(), type: c.type.value,
+  return { id: c.id.value.trim(), label: c.label.value.trim(), section: c.section.value.trim(), type: c.type.value, fieldRole: c.fieldRole.value,
     required: c.required.checked, critical: c.critical.checked, requiresTechnicianConfirmation: c.confirmation.checked,
     allowedSources: [['TECHNICIAN', c.technician], ['WORK_ORDER', c.workOrder], ['KNOWLEDGE', c.knowledge]].filter(([, input]) => input.checked).map(([source]) => source),
     allowExplicitNone: c.explicitNone.checked, allowNotApplicable: c.notApplicable.checked,

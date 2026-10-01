@@ -117,6 +117,23 @@ test('invalid conditional references and cycles fail schema review', async (t) =
   ] }), { code: 'INVALID_TEMPLATE_SCHEMA' });
 });
 
+test('manager reviews the knowledge field role before publication', async (t) => {
+  const store = await storeFor(t);
+  const draft = await store.createDraft({ name: 'Reference role', filename: 'reference.txt', mimeType: 'text/plain', bytes: Buffer.from('Standard:\nAction:\n') });
+  const reviewed = await store.saveSchema(draft.id, { fields: [
+    { id: 'standard.reference', label: 'Standard', fieldRole: 'NORMATIVE_REFERENCE', allowedSources: ['TECHNICIAN', 'KNOWLEDGE'] },
+    { id: 'work.action', label: 'Action', allowedSources: ['TECHNICIAN', 'KNOWLEDGE'], required: true },
+  ] });
+  assert.equal(reviewed.schemaReview.fields[0].fieldRole, 'NORMATIVE_REFERENCE');
+  assert.equal(reviewed.schemaReview.fields[1].fieldRole, 'JOB_FACT');
+  await assert.rejects(() => store.saveSchema(draft.id, { fields: [
+    { id: 'standard.reference', label: 'Standard', fieldRole: 'GUESSED', allowedSources: ['KNOWLEDGE'] },
+  ] }), { code: 'INVALID_TEMPLATE_SCHEMA' });
+  await assert.rejects(() => store.saveSchema(draft.id, { fields: [
+    { id: 'completion.state', label: 'Return to service', fieldRole: 'NORMATIVE_REFERENCE', allowedSources: ['TECHNICIAN', 'KNOWLEDGE'] },
+  ] }), { code: 'INVALID_TEMPLATE_SCHEMA' });
+});
+
 test('another draft with the same template id cannot overwrite a published version', async (t) => {
   const store = await storeFor(t);
   const makeReady = async () => {

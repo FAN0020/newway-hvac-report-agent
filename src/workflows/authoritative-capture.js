@@ -22,6 +22,7 @@ import { extractConversationalFacts, CONVERSATIONAL_FACTS_VERSION } from '../sem
 import { segmentAssertions, ASSERTION_SEGMENTER_VERSION } from '../semantic/assertion-segmentation.js';
 import { evaluateAssertionCoverage, unresolvedSemanticWindows, ASSERTION_COVERAGE_VERSION } from '../semantic/assertion-coverage.js';
 import { SemanticExtractor, SEMANTIC_EXTRACTOR_VERSION } from '../semantic/semantic-extractor.js';
+import { buildSourcePlan } from '../agent/source-plan.js';
 import { routeAtomicFacts } from '../semantic/field-router.js';
 import { extractCuedFieldAssignments, STRUCTURED_VERIFIER_VERSION } from '../semantic/structured-proposals.js';
 import { normalizeContextualTranscript, NORMALIZER_VERSION } from '../semantic/transcript-normalization.js';
@@ -292,6 +293,7 @@ export class AuthoritativeCaptureService {
     this.modelResolver = modelResolver || null;
     this.semanticProvider = semanticProvider || null;
     this.semanticModel = String(semanticModel || '');
+    this.sourcePlanCache = new Map();
     this.principalRef = String(principalRef);
     this.exportWriter = exportWriter || ((snapshotId, payload) => this.sessionStore.writeOfficialExport(snapshotId, payload));
     this.pdfRenderer = pdfRenderer;
@@ -405,6 +407,7 @@ export class AuthoritativeCaptureService {
       },
       additions: { guidance_upload_ids: [upload.upload_id] },
     });
+    this.sourcePlanCache.delete(sessionId);
     return { session: recorded.session, upload };
   }
 
@@ -539,6 +542,29 @@ export class AuthoritativeCaptureService {
       return { session: chain.session, agent_state: chain.agent_state };
     }
     return this.persistAgentState(chain.session);
+  }
+
+  async getSourcePlan(sessionId) {
+    const chain = await this.sessionStore.loadChain(sessionId);
+    const cached = this.sourcePlanCache.get(sessionId);
+    if (cached?.revision === chain.session.revision) return cached.pending;
+    const pending = (async () => {
+      const dependencies = await this.guidanceDependencies();
+      const contextId = chain.session.context_binding.context_id;
+      const knowledgeAvailable = Boolean(dependencies && CONTEXT_BY_SCOPE[chain.session.context_binding.scope_id]
+        && (chain.session.guidance_upload_ids.length || allowedScopes(contextId, dependencies.registry)
+          .some((scopeId) => !scopeId.startsWith('USER_UPLOADED:')
+            && (dependencies.registry.knowledge_files?.[scopeId] || []).length > 0)));
+      return buildSourcePlan({ session: chain.session,
+        template: await this.resolveTemplate(chain.session.template_binding.template_id),
+        agentState: chain.agent_state, knowledgeAvailable,
+        provider: this.semanticProvider, model: this.semanticModel });
+    })();
+    this.sourcePlanCache.set(sessionId, { revision: chain.session.revision, pending });
+    pending.catch(() => {
+      if (this.sourcePlanCache.get(sessionId)?.pending === pending) this.sourcePlanCache.delete(sessionId);
+    });
+    return pending;
   }
 
   async getSemanticTrace(sessionId) {

@@ -635,6 +635,13 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .workspace-composer textarea { min-height: 108px; padding: 13px 105px 13px 14px; border: 1px solid #aebfb7; border-radius: 10px; font-size: .9rem; line-height: 1.5; resize: vertical; }
 .workspace-missing-hint { display: grid; gap: 3px; margin-bottom: 8px; color: var(--muted); font-size: .72rem; line-height: 1.4; }
 .workspace-missing-hint strong { color: var(--ink); font-size: .76rem; }
+.workspace-missing-questions { margin: 0 0 16px; padding: 12px 14px; border: 1px solid #caa75d; border-radius: 9px; background: #fffaf0; }
+.workspace-missing-questions > strong { display: block; margin-bottom: 7px; color: var(--ink); font-size: .86rem; }
+.workspace-missing-questions ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+.workspace-missing-questions li { padding-left: 2px; font-size: .8rem; }
+.workspace-missing-questions li .text-button { margin-left: 8px; }
+.field-source-advice { display: block; margin-top: 3px; color: var(--muted); font-size: .68rem; line-height: 1.4; }
+.field-extraction-mode { margin: 0 0 12px; color: var(--muted); font-size: .72rem; }
 .workspace-change-summary { display: grid; gap: 3px; margin-bottom: 14px; padding: 10px 12px; border: 1px solid #cfe2d8; border-radius: 9px; background: #f3faf6; color: var(--muted); font-size: .72rem; line-height: 1.4; }
 .workspace-change-summary strong { color: var(--green-2); font-size: .82rem; }
 .workspace-change-summary small { color: #71501f; font-size: .68rem; }

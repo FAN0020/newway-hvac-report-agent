@@ -4,6 +4,7 @@ import path from 'node:path';
 import { decodeTemplateText } from '../templates/field-proposals.js';
 
 const SOURCES = new Set(['TECHNICIAN', 'WORK_ORDER', 'KNOWLEDGE']);
+const NORMATIVE_FIELD_ID = /^(?:standard|reference|terminology|procedure)\.[a-z0-9_.-]+$/u;
 const TYPES = new Set(['string', 'text', 'number', 'measurement', 'boolean', 'status', 'structured']);
 const invalidSchema = (message) => Object.assign(new Error(message), { code: 'INVALID_TEMPLATE_SCHEMA', status: 400 });
 
@@ -53,6 +54,11 @@ function validateFields(fields) {
     const allowedSources = input.allowedSources ?? ['TECHNICIAN'];
     if (!Array.isArray(allowedSources) || !allowedSources.length || new Set(allowedSources).size !== allowedSources.length || allowedSources.some((source) => !SOURCES.has(source))) throw invalidSchema(`${id} has invalid allowed sources.`);
     if (allowedSources.length === 1 && allowedSources[0] === 'KNOWLEDGE' && (input.required || input.requiredWhen)) throw invalidSchema(`${id} cannot require knowledge as the only source of a job fact.`);
+    const fieldRole = input.fieldRole || 'JOB_FACT';
+    if (!['JOB_FACT', 'NORMATIVE_REFERENCE'].includes(fieldRole)) throw invalidSchema(`${id} has an invalid field role.`);
+    if (fieldRole === 'NORMATIVE_REFERENCE' && (!NORMATIVE_FIELD_ID.test(id) || input.critical || input.requiresTechnicianConfirmation)) {
+      throw invalidSchema(`${id} cannot classify a critical or job-fact field as a normative reference.`);
+    }
     const requiredWhen = input.requiredWhen ?? null;
     if (requiredWhen && (typeof requiredWhen !== 'object' || !['HAS_VALUE', 'IS'].includes(requiredWhen.operator) || typeof requiredWhen.field !== 'string' || (requiredWhen.operator === 'IS' && (requiredWhen.value === undefined || requiredWhen.value === null)))) throw invalidSchema(`${id} has an invalid requiredWhen rule.`);
     const allowedStatuses = type === 'status' ? (input.allowedStatuses || ['NOT_CHECKED', 'OK', 'NOT_OK', 'N/A']) : undefined;
@@ -63,6 +69,7 @@ function validateFields(fields) {
       id, label, section: String(input.section || 'Report fields'), displayOrder: index + 1,
       type, required: input.required === true, ...(requiredWhen ? { requiredWhen: { field: requiredWhen.field, operator: requiredWhen.operator, ...(requiredWhen.operator === 'IS' ? { value: requiredWhen.value } : {}) } } : {}),
       allowedSources: [...allowedSources], critical: input.critical === true,
+      fieldRole,
       requiresTechnicianConfirmation: input.requiresTechnicianConfirmation === true,
       allowExplicitNone: input.allowExplicitNone === true, allowNotApplicable: input.allowNotApplicable === true,
       inferencePolicy: 'EVIDENCE_OR_TECHNICIAN_INPUT',

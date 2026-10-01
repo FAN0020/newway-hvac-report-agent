@@ -11,6 +11,7 @@ import { AuthoritativeCaptureService } from '../src/workflows/authoritative-capt
 import { createRetriever } from '../src/v2/retrieval.js';
 import { loadScopeRegistry } from '../src/v2/scope.js';
 import { createUploadStore } from '../src/v2/upload.js';
+import { listPredefinedTemplates } from '../web/template-catalog.js';
 import { pcmWav } from './helpers.js';
 
 const TOKEN = 'authoritative-capture-token-2026';
@@ -26,7 +27,7 @@ function freePort() {
   });
 }
 
-async function fixture(t, name, { whisper, speechToText } = {}) {
+async function fixture(t, name, { whisper, speechToText, template, semanticProvider, semanticModel } = {}) {
   const root = path.resolve('.tmp-tests', `authoritative-capture-server-${name}`);
   await fs.rm(root, { recursive: true, force: true });
   const registry = await loadScopeRegistry();
@@ -46,6 +47,8 @@ async function fixture(t, name, { whisper, speechToText } = {}) {
     scopeRegistry: registry,
     uploadStore,
     retriever: createRetriever({ registry, uploadStore }),
+    ...(template ? { templateProvider: async (id) => id === template.templateId ? template : null } : {}),
+    ...(semanticProvider ? { semanticProvider, semanticModel: semanticModel || 'test-source-model' } : {}),
     clock: () => '2026-09-27T07:00:00.000Z',
   });
   let server;
@@ -312,6 +315,94 @@ test('authoritative template build never renders a planned action blocked by Age
   const rendered = built.body.data.draft.sections.flatMap((section) => section.content).find((field) => field.field === 'work_performed');
   assert.equal(rendered.value, null);
   assert.equal(rendered.status, 'MISSING');
+});
+
+test('20-field report immediately asks for exactly two missing technician details after six extracted facts, then records answers', async (t) => {
+  const names = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel',
+    'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango'];
+  const base = listPredefinedTemplates().find((item) => item.domain === 'SBS_BUS');
+  const template = {
+    ...base, templateId: 'batch-three-twenty-field-acceptance', templateVersion: '1.0.0', name: 'Twenty field acceptance',
+    schema: { ...base.schema, id: 'batch_three_twenty_fields', version: '1.0.0', fields: names.map((name, index) => ({
+      id: `detail.${name}`, label: `${name[0].toUpperCase()}${name.slice(1)} detail`, section: 'Inspection',
+      displayOrder: index + 1, type: 'string', required: index < 8,
+      allowedSources: index < 8 ? ['TECHNICIAN'] : ['TECHNICIAN', 'WORK_ORDER', 'KNOWLEDGE'],
+      critical: false, requiresTechnicianConfirmation: false,
+    })) },
+  };
+  const { request } = await fixture(t, 'twenty-eight-six-two', { template });
+  const created = await request('/api/report-sessions', { method: 'POST', body: {
+    template_id: template.templateId, template_version: template.templateVersion,
+    job_context_ref: 'new-report:batch-three-acceptance',
+  } });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.data.agent_state.report_fields.length, 20);
+  assert.equal(created.body.data.agent_state.completeness.missing_required_fields.length, 8);
+  const sessionId = created.body.data.session.session_id;
+  const sourcePlan = await request(`/api/report-sessions/${sessionId}/source-plan`);
+  assert.equal(sourcePlan.status, 200);
+  assert.equal(sourcePlan.body.data.fields.length, 20);
+  assert.equal(sourcePlan.body.data.session_revision, created.body.data.session.revision);
+  assert.deepEqual(sourcePlan.body.data.fields.filter((field) => field.required).map((field) => field.suggested_source), Array(8).fill('TECHNICIAN'));
+  assert.equal(sourcePlan.body.data.model.status, 'NO_SOURCE_CHOICE');
+  const captured = await request(`/api/report-sessions/${sessionId}/capture/text`, { method: 'POST', body: {
+    expected_revision: created.body.data.session.revision,
+    text: 'Alpha: steady. Bravo: inspected. Charlie: clear. Delta: dry. Echo: intact. Foxtrot: clean.',
+    language: 'en', idempotency_key: 'twenty-eight-six-two-capture',
+  } });
+  assert.equal(captured.status, 201);
+  assert.equal(captured.body.data.session.phase, 'RESOLVE');
+  const afterCapture = await request(`/api/report-sessions/${sessionId}`);
+  const refreshedPlan = await request(`/api/report-sessions/${sessionId}/source-plan`);
+  assert.equal(refreshedPlan.body.data.session_revision, afterCapture.body.data.session.revision);
+  const firstState = afterCapture.body.data.agent_state;
+  assert.deepEqual(firstState.completeness.missing_required_fields.sort(), ['detail.golf', 'detail.hotel']);
+  assert.equal(firstState.report_fields.filter((field) => field.state === 'KNOWN_VALUE' && names.slice(0, 8).some((name) => field.field_id === `detail.${name}`)).length, 6);
+  assert.deepEqual(firstState.resolution_queue.filter((item) => item.type === 'MISSING').map((item) => item.field_id).sort(), ['detail.golf', 'detail.hotel']);
+  assert.ok(afterCapture.body.data.transcripts[0].raw_text.includes('Alpha: steady'));
+  let revision = afterCapture.body.data.session.revision;
+  for (const [fieldId, value] of [['detail.golf', 'checked'], ['detail.hotel', 'stable']]) {
+    const answered = await request(`/api/report-sessions/${sessionId}/fields/${fieldId}/answer`, { method: 'POST', body: {
+      expected_revision: revision, value,
+    } });
+    assert.equal(answered.status, 201);
+    revision = answered.body.data.session.revision;
+  }
+  const finalChain = (await request(`/api/report-sessions/${sessionId}`)).body.data;
+  const finalPlan = await request(`/api/report-sessions/${sessionId}/source-plan`);
+  assert.equal(finalPlan.body.data.session_revision, finalChain.session.revision);
+  assert.deepEqual(finalChain.agent_state.completeness.missing_required_fields, []);
+  assert.equal(finalChain.agent_state.completeness.complete, true);
+  assert.equal(finalChain.transcripts[0].raw_text, afterCapture.body.data.transcripts[0].raw_text);
+  assert.equal(finalChain.evidence.filter((item) => item.metadata?.input_kind === 'TECHNICIAN_FIELD_ANSWER').length, 2);
+});
+
+test('HTTP source plan accepts a model knowledge suggestion only for a manager-classified reference field', async (t) => {
+  const base = listPredefinedTemplates().find((item) => item.domain === 'SBS_BUS');
+  const template = { ...base, templateId: 'source-plan-http-acceptance', templateVersion: '1.0.0',
+    schema: { ...base.schema, id: 'source_plan_http', version: '1.0.0', fields: [
+      { id: 'work.action', label: 'Completed action', section: 'Job', type: 'string', required: true,
+        fieldRole: 'JOB_FACT', allowedSources: ['TECHNICIAN', 'KNOWLEDGE'] },
+      { id: 'standard.reference', label: 'Maintenance standard', section: 'Reference', type: 'string', required: false,
+        fieldRole: 'NORMATIVE_REFERENCE', allowedSources: ['TECHNICIAN', 'KNOWLEDGE'] },
+    ] } };
+  const provider = { generateJson: async () => ({ provider: 'ollama-test', model: 'test-source-model', data: { fields: [
+    { field_id: 'work.action', source: 'KNOWLEDGE' },
+    { field_id: 'standard.reference', source: 'KNOWLEDGE' },
+  ] } }) };
+  const { request } = await fixture(t, 'source-plan-http', { template, semanticProvider: provider });
+  const created = await request('/api/report-sessions', { method: 'POST', body: {
+    template_id: template.templateId, template_version: template.templateVersion, job_context_ref: 'new-report:source-plan-http',
+  } });
+  assert.equal(created.status, 201);
+  const result = await request(`/api/report-sessions/${created.body.data.session.session_id}/source-plan`);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.data.fields[0].suggested_source, 'TECHNICIAN');
+  assert.equal(result.body.data.fields[0].basis, 'RULE_FALLBACK');
+  assert.equal(result.body.data.fields[1].suggested_source, 'KNOWLEDGE');
+  assert.equal(result.body.data.fields[1].basis, 'MODEL_SUGGESTION');
+  assert.equal(result.body.data.model.status, 'MODEL_SUGGESTED');
+  assert.equal(created.body.data.agent_state.report_fields.every((field) => field.state === 'UNKNOWN'), true);
 });
 
 test('HTTP guidance upload derives scope from ReportSession and exposes only minimal on-demand guidance', async (t) => {

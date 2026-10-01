@@ -321,6 +321,13 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
+  const sourcePlanMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/source-plan$/u);
+  if (request.method === 'GET' && sourcePlanMatch) {
+    const plan = await captureService.getSourcePlan(decodeURIComponent(sourcePlanMatch[1]));
+    writeJson(response, 200, toolEnvelope('get_report_source_plan', traceId, 'PASS', plan));
+    return;
+  }
+
   const semanticReplayMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/transcripts\/([^/]+)\/semantic-replay$/u);
   if (request.method === 'POST' && semanticReplayMatch) {
     const input = await readJson(request);
