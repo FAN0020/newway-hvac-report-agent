@@ -39,8 +39,8 @@ function matchBinding(snapshot) {
     || !/^[a-f0-9]{64}$/u.test(String(binding.review_sha256))) {
     throw error('Reviewed work order hashes are missing.', 'WORK_ORDER_BINDING_INCOMPLETE');
   }
-  const vehicleField = snapshot.fields.find((field) => ['asset.internal_fleet_no', 'vehicle_id'].includes(field.field_id));
-  if (vehicleField?.state === 'KNOWN_VALUE' && String(vehicleField.value).trim() !== vehicleId) {
+  if (snapshot.fields.some((field) => ['asset.internal_fleet_no', 'vehicle_id'].includes(field.field_id)
+    && field.state === 'KNOWN_VALUE' && String(field.value).trim() !== vehicleId)) {
     throw error('Report and reviewed vehicle identifiers disagree.', 'VEHICLE_ID_MISMATCH');
   }
   return { vehicle_id: vehicleId, work_order_ref: workOrderRef, work_order_version: workOrderVersion,
@@ -60,8 +60,86 @@ export class VehicleHistoryService {
     return { session, snapshot };
   }
 
+  async reviewIdentity(sessionId, { vehicle_id: vehicleId, attested, review_note: reviewNote } = {}, reviewerPrincipalRef) {
+    const { session, snapshot } = await this.snapshot(sessionId);
+    if (snapshot.job_context_binding) {
+      throw error('This report already has a reviewed work-order vehicle identity.', 'VEHICLE_IDENTITY_ALREADY_BOUND');
+    }
+    if (!String(snapshot.job_context_ref || '').startsWith('new-report:')) {
+      throw error('Manual vehicle identity review is limited to reports started without a work order.', 'VEHICLE_IDENTITY_REVIEW_NOT_APPLICABLE');
+    }
+    if (attested !== true) throw error('Explicit vehicle identity review is required.', 'VEHICLE_IDENTITY_REVIEW_REQUIRED', 400);
+    const id = identity(vehicleId, 'vehicle_id');
+    const reviewer = identity(reviewerPrincipalRef, 'reviewer_principal_ref');
+    const note = String(reviewNote || '').trim();
+    if (!note || note.length > 500) throw error('Describe the independent source checked for this stable vehicle ID.', 'VEHICLE_IDENTITY_SOURCE_REQUIRED', 400);
+    this.assertFieldVehicleId(snapshot, id);
+    const existing = await this.identityReview(snapshot.snapshot_id);
+    if (existing) {
+      if (existing.vehicle_id !== id || existing.snapshot_hash !== snapshot.snapshot_hash || existing.session_id !== session.session_id) {
+        throw error('This report is already reviewed for another vehicle.', 'VEHICLE_IDENTITY_CONFLICT');
+      }
+      return this.link(sessionId);
+    }
+    const body = {
+      contract: 'VehicleIdentityReview', contract_version: '1',
+      snapshot_id: snapshot.snapshot_id, snapshot_hash: snapshot.snapshot_hash,
+      session_id: session.session_id, vehicle_id: id,
+      reviewer_principal_ref: reviewer, review_note: note,
+      reviewed_at: new Date().toISOString(),
+    };
+    const review = { ...body, review_hash: hashContract(body) };
+    try {
+      await this.sessionStore.putRecord('vehicle-identity-reviews', snapshot.snapshot_id, review);
+    } catch (cause) {
+      if (cause.code !== 'IMMUTABLE_RECORD_COLLISION') throw cause;
+      const winner = await this.identityReview(snapshot.snapshot_id);
+      if (winner?.vehicle_id !== id) throw error('This report is already reviewed for another vehicle.', 'VEHICLE_IDENTITY_CONFLICT');
+    }
+    return this.link(sessionId);
+  }
+
+  assertFieldVehicleId(snapshot, vehicleId) {
+    for (const field of snapshot.fields.filter((item) => ['asset.internal_fleet_no', 'vehicle_id'].includes(item.field_id))) {
+      if (field.state === 'KNOWN_VALUE' && String(field.value).trim() !== vehicleId) {
+        throw error('Report and reviewed vehicle identifiers disagree.', 'VEHICLE_ID_MISMATCH');
+      }
+    }
+  }
+
+  async identityReview(snapshotId) {
+    const review = await this.sessionStore.readRecord('vehicle-identity-reviews', snapshotId)
+      .catch((cause) => { if (cause.code === 'IMMUTABLE_RECORD_NOT_FOUND') return null; throw cause; });
+    if (!review) return null;
+    const { review_hash: reviewHash, ...body } = review;
+    if (review.contract !== 'VehicleIdentityReview' || review.contract_version !== '1'
+      || reviewHash !== hashContract(body) || review.snapshot_id !== snapshotId) {
+      throw error('Vehicle identity review content changed.', 'VEHICLE_IDENTITY_REVIEW_MISMATCH');
+    }
+    return review;
+  }
+
+  async reviewedBinding(snapshot) {
+    const order = matchBinding(snapshot);
+    if (order) return order;
+    const review = await this.identityReview(snapshot.snapshot_id);
+    if (!review) return null;
+    if (!String(snapshot.job_context_ref || '').startsWith('new-report:')) {
+      throw error('Manual vehicle identity review is not valid for this report.', 'VEHICLE_IDENTITY_REVIEW_NOT_APPLICABLE');
+    }
+    if (review.snapshot_hash !== snapshot.snapshot_hash || review.session_id !== snapshot.session_id) {
+      throw error('Vehicle identity review belongs to another report.', 'VEHICLE_IDENTITY_REVIEW_MISMATCH');
+    }
+    const id = identity(review.vehicle_id, 'vehicle_id');
+    this.assertFieldVehicleId(snapshot, id);
+    return { vehicle_id: id, work_order_ref: null, work_order_version: null,
+      vehicle_identity_source: 'MANUAL_REVIEW', identity_review_ref: snapshot.snapshot_id,
+      identity_review_hash: review.review_hash };
+  }
+
   async link(sessionId) {
     const { session, snapshot } = await this.snapshot(sessionId);
+    const binding = await this.reviewedBinding(snapshot);
     const existing = await this.sessionStore.readRecord('vehicle-history-links', snapshot.snapshot_id)
       .catch((cause) => { if (cause.code === 'IMMUTABLE_RECORD_NOT_FOUND') return null; throw cause; });
     if (existing) {
@@ -70,15 +148,18 @@ export class VehicleHistoryService {
       }
       const { link_hash: linkHash, ...body } = existing;
       if (linkHash !== hashContract(body)) throw error('Vehicle history link content changed.', 'VEHICLE_HISTORY_LINK_MISMATCH');
-      const binding = matchBinding(snapshot);
       if (!binding || existing.vehicle_id !== binding.vehicle_id
         || existing.work_order_ref !== binding.work_order_ref
-        || existing.work_order_version !== binding.work_order_version) {
-        throw error('Vehicle history link disagrees with its reviewed work order.', 'VEHICLE_HISTORY_LINK_MISMATCH');
+        || existing.work_order_version !== binding.work_order_version
+        || existing.source_sha256 !== binding.source_sha256
+        || existing.review_sha256 !== binding.review_sha256
+        || existing.vehicle_identity_source !== binding.vehicle_identity_source
+        || existing.identity_review_ref !== binding.identity_review_ref
+        || existing.identity_review_hash !== binding.identity_review_hash) {
+        throw error('Vehicle history link disagrees with its identity review.', 'VEHICLE_HISTORY_LINK_MISMATCH');
       }
       return existing;
     }
-    const binding = matchBinding(snapshot);
     if (!binding) return null;
     const body = {
       contract: 'VehicleHistoryLink', contract_version: '1',
@@ -100,7 +181,6 @@ export class VehicleHistoryService {
     const sessions = await this.sessionStore.listSessions();
     const records = [];
     for (const session of sessions.filter((item) => item.phase === 'CONFIRMED')) {
-      if (session.job_context_binding?.vehicle_id !== id) continue;
       const link = await this.link(session.session_id);
       if (link?.vehicle_id !== id) continue;
       await this.snapshot(session.session_id);

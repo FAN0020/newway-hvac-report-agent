@@ -280,6 +280,19 @@ async function handleApi(request, response, url, traceId, config, services) {
     writeJson(response, 200, toolEnvelope('list_vehicle_history', traceId, 'PASS', result));
     return;
   }
+  const vehicleIdentityMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/vehicle-identity-review$/u);
+  if (request.method === 'POST' && vehicleIdentityMatch) {
+    const input = await readJson(request);
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+      || Object.keys(input).some((key) => !['vehicle_id', 'review_note', 'attested'].includes(key))) {
+      throw Object.assign(new Error('Vehicle identity review accepts only vehicle_id, review_note and attested.'), {
+        code: 'INVALID_VEHICLE_IDENTITY_REVIEW', status: 400,
+      });
+    }
+    const link = await captureService.reviewVehicleIdentity(decodeURIComponent(vehicleIdentityMatch[1]), input);
+    writeJson(response, 200, toolEnvelope('review_vehicle_identity', traceId, 'PASS', { link }));
+    return;
+  }
   const structuredExportMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/structured-export$/u);
   if (request.method === 'GET' && structuredExportMatch) {
     const result = await captureService.exportStructuredConfirmedSession(decodeURIComponent(structuredExportMatch[1]));
@@ -1210,6 +1223,8 @@ async function handleApi(request, response, url, traceId, config, services) {
 
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/vehicle-history.html', ['vehicle-history.html', 'text/html; charset=utf-8']],
+  ['/vehicle-history.js', ['vehicle-history.js', 'text/javascript; charset=utf-8']],
   ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
   ['/locales/en.js', ['locales/en.js', 'text/javascript; charset=utf-8']],
   ['/locales/zh-CN.js', ['locales/zh-CN.js', 'text/javascript; charset=utf-8']],

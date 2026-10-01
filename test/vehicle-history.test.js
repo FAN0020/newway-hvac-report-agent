@@ -16,14 +16,14 @@ async function fixture(t) {
   return { store, history: new VehicleHistoryService({ sessionStore: store }) };
 }
 
-async function persistReport(store, { number, vehicleId, workOrderId, fieldVehicleId = vehicleId, confirmed = true }) {
+async function persistReport(store, { number, vehicleId, workOrderId, fieldVehicleId = vehicleId, confirmed = true, noOrder = false }) {
   const id = `session_vehicle_${number}`;
   const workOrderRef = `work-order:wo_${String(number).padStart(36, '0')}@1`;
   const base = createReportSession({
     session_id: id,
     template_binding: { template_id: 'bus-report', template_version: '1' },
     context_binding: { context_id: 'SBS/BUS', context_version: '1', scope_id: 'SBS_BUS' },
-    job_context_ref: workOrderRef,
+    job_context_ref: noOrder ? `new-report:manual-${number}` : workOrderRef,
     created_at: `2026-10-01T00:00:${String(number).padStart(2, '0')}.000Z`,
   });
   if (!confirmed) {
@@ -33,13 +33,13 @@ async function persistReport(store, { number, vehicleId, workOrderId, fieldVehic
   const session = {
     ...base, phase: 'CONFIRMED', revision: 1,
     confirmation_ref: `confirmation_${number}`,
-    job_context_binding: vehicleId ? {
+    job_context_binding: vehicleId && !noOrder ? {
       record_id: workOrderRef, version: '1', vehicle_id: vehicleId,
       source_sha256: HASH, review_sha256: HASH,
     } : undefined,
   };
   const fields = [
-    { contract: 'ReportField', session_id: id, field_id: 'asset.internal_fleet_no', state: 'KNOWN_VALUE', value: fieldVehicleId },
+    ...(fieldVehicleId === null ? [] : [{ contract: 'ReportField', session_id: id, field_id: 'asset.internal_fleet_no', state: 'KNOWN_VALUE', value: fieldVehicleId }]),
     { contract: 'ReportField', session_id: id, field_id: 'work.work_order_id', state: 'KNOWN_VALUE', value: workOrderId },
   ];
   const snapshot = createReportSnapshot({
@@ -97,4 +97,45 @@ test('wrong vehicle and altered immutable link are rejected instead of merged', 
   const link = JSON.parse(await fs.readFile(file, 'utf8'));
   await fs.writeFile(file, JSON.stringify({ ...link, vehicle_id: 'BUS-202' }));
   await assert.rejects(() => history.list('BUS-101'), { code: 'VEHICLE_HISTORY_LINK_MISMATCH' });
+});
+
+test('manual review links two no-order confirmed snapshots without changing either snapshot', async (t) => {
+  const { store, history } = await fixture(t);
+  const first = await persistReport(store, { number: 1, vehicleId: 'BUS-101', workOrderId: 'WO-1', noOrder: true });
+  const second = await persistReport(store, { number: 2, vehicleId: 'BUS-101', workOrderId: 'WO-2', noOrder: true });
+  assert.equal((await history.list('BUS-101')).reports.length, 0);
+  for (const report of [first, second]) {
+    const link = await history.reviewIdentity(report.session.session_id,
+      { vehicle_id: 'BUS-101', attested: true, review_note: 'Fleet register record BUS-101 checked' }, 'principal:reviewer');
+    assert.equal(link.vehicle_identity_source, 'MANUAL_REVIEW');
+    assert.equal(link.work_order_ref, null);
+    assert.equal((await store.readRecord('report-snapshots', report.snapshot.snapshot_id)).snapshot_hash, report.snapshot.snapshot_hash);
+  }
+  const restarted = new VehicleHistoryService({ sessionStore: new ReportSessionStore({ root: ROOT }) });
+  assert.deepEqual((await restarted.list('BUS-101')).reports.map((item) => item.snapshot_id),
+    [first.snapshot.snapshot_id, second.snapshot.snapshot_id]);
+  assert.equal((await restarted.export(first.session.session_id)).vehicle_identity_status, 'VERIFIED');
+  assert.equal((await restarted.list('BUS-202')).reports.length, 0);
+});
+
+test('manual review rejects missing attestation, wrong ID, conflicting retry and altered review', async (t) => {
+  const { store, history } = await fixture(t);
+  const report = await persistReport(store, { number: 1, vehicleId: 'BUS-101', workOrderId: 'WO-1', noOrder: true });
+  const review = (vehicleId, attested = true) => history.reviewIdentity(report.session.session_id,
+    { vehicle_id: vehicleId, attested, review_note: 'Fleet register checked' }, 'principal:reviewer');
+  await assert.rejects(() => review('BUS-101', false), { code: 'VEHICLE_IDENTITY_REVIEW_REQUIRED' });
+  await assert.rejects(() => review('BUS-202'), { code: 'VEHICLE_ID_MISMATCH' });
+  await assert.rejects(() => review('../BUS-101'), { code: 'INVALID_VEHICLE_ID' });
+  const link = await review('BUS-101');
+  assert.deepEqual(await review('BUS-101'), link);
+  await assert.rejects(() => review('BUS-202'), { code: 'VEHICLE_ID_MISMATCH' });
+  const fieldless = await persistReport(store, { number: 2, vehicleId: 'BUS-101', fieldVehicleId: null, workOrderId: 'WO-2', noOrder: true });
+  const reviewFieldless = (vehicleId) => history.reviewIdentity(fieldless.session.session_id,
+    { vehicle_id: vehicleId, attested: true, review_note: 'Fleet register checked' }, 'principal:reviewer');
+  await reviewFieldless('BUS-101');
+  await assert.rejects(() => reviewFieldless('BUS-202'), { code: 'VEHICLE_IDENTITY_CONFLICT' });
+  const file = path.join(ROOT, 'records', 'vehicle-identity-reviews', `${report.snapshot.snapshot_id}.json`);
+  const persisted = JSON.parse(await fs.readFile(file, 'utf8'));
+  await fs.writeFile(file, JSON.stringify({ ...persisted, vehicle_id: 'BUS-202' }));
+  await assert.rejects(() => history.list('BUS-101'), { code: 'VEHICLE_IDENTITY_REVIEW_MISMATCH' });
 });

@@ -722,6 +722,10 @@ export class AuthoritativeCaptureService {
     return this.vehicleHistory.list(vehicleId);
   }
 
+  async reviewVehicleIdentity(sessionId, input) {
+    return this.vehicleHistory.reviewIdentity(sessionId, input, this.principalRef);
+  }
+
   async exportStructuredConfirmedSession(sessionId) {
     return this.vehicleHistory.export(sessionId);
   }
