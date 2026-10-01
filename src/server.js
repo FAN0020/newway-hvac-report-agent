@@ -695,6 +695,16 @@ async function handleApi(request, response, url, traceId, config, services) {
     return;
   }
 
+  const proposalMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/propose$/u);
+  if (request.method === 'POST' && proposalMatch) {
+    await readJson(request);
+    const draft = await templates.proposeWithModel(decodeURIComponent(proposalMatch[1]), {
+      provider: ollama, model: String(process.env.HVAC_OLLAMA_MODEL || '').trim(),
+    });
+    writeJson(response, 200, toolEnvelope('propose_template_fields', traceId, 'PASS', { draft }));
+    return;
+  }
+
   const contextMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/context$/u);
   if (request.method === 'POST' && contextMatch) {
     const draft = await templates.addContext(decodeURIComponent(contextMatch[1]), {
@@ -703,6 +713,14 @@ async function handleApi(request, response, url, traceId, config, services) {
       bytes: await readRawBody(request),
     });
     writeJson(response, 200, toolEnvelope('upload_template_context', traceId, 'PASS', { draft }));
+    return;
+  }
+
+  const contextWaiverMatch = url.pathname.match(/^\/api\/templates\/drafts\/([^/]+)\/context\/waive$/u);
+  if (request.method === 'POST' && contextWaiverMatch) {
+    const input = await readJson(request);
+    const draft = await templates.waiveContext(decodeURIComponent(contextWaiverMatch[1]), input.reason);
+    writeJson(response, 200, toolEnvelope('waive_template_context', traceId, 'PASS', { draft }));
     return;
   }
 

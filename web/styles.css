@@ -427,7 +427,7 @@ pre { max-height: 320px; overflow: auto; padding: 14px; border-radius: 9px; colo
 .setup-status.success { color: #226448; background: #e6f4ec; }
 .setup-status.warning { color: #7b5518; background: var(--amber-soft); }
 .setup-field-list { display: grid; gap: 8px; margin: 12px 0; }
-.setup-field-row { display: grid; grid-template-columns: 1fr 1fr 110px auto; gap: 7px; align-items: center; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); }
+.setup-field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; align-items: center; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); }
 .setup-field-row input, .setup-field-row select { padding: 8px; }
 .setup-field-row label { display: flex; gap: 5px; align-items: center; margin: 0; }
 .setup-field-row label input { width: auto; }

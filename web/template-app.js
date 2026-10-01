@@ -1183,18 +1183,60 @@ async function attachEvidence(file, purpose) {
 }
 
 function setSetupStep(index) { [...$('setup-steps').children].forEach((item, position) => { item.classList.toggle('done', position < index); item.classList.toggle('active', position === index); }); }
+function setupInput(placeholder, value = '') { const input = element('input'); input.placeholder = placeholder; input.value = value; return input; }
+function setupCheck(label, checked = false) { const wrapper = element('label'); const input = element('input'); input.type = 'checkbox'; input.checked = checked; wrapper.append(input, document.createTextNode(label)); return { wrapper, input }; }
 function addSetupField(values = {}) {
-  const row = element('div', 'setup-field-row'); const id = element('input'); id.placeholder = 'field.id'; id.value = values.id || ''; const label = element('input'); label.placeholder = 'Field label'; label.value = values.label || ''; const type = element('select');
-  for (const value of ['string', 'text', 'number', 'status']) { const option = element('option', '', value); option.value = value; type.append(option); } type.value = values.type || 'string';
-  const requiredLabel = element('label'); const required = element('input'); required.type = 'checkbox'; required.checked = Boolean(values.required); requiredLabel.append(required, document.createTextNode('Required')); row.append(id, label, type, requiredLabel); row._controls = { id, label, type, required }; $('setup-field-list').append(row);
+  const row = element('div', 'setup-field-row');
+  const id = setupInput('field.id', values.id); const label = setupInput('Field label', values.label);
+  const section = setupInput('Section', values.section || 'Report fields');
+  const type = element('select');
+  for (const value of ['string', 'text', 'number', 'measurement', 'boolean', 'status', 'structured']) { const option = element('option', '', value); option.value = value; type.append(option); } type.value = values.type || 'string';
+  const required = setupCheck('Required', values.required);
+  const critical = setupCheck('Critical (confirmation required)', values.critical);
+  const confirmation = setupCheck('Technician confirmation', values.requiresTechnicianConfirmation);
+  const technician = setupCheck('Technician', values.allowedSources?.includes('TECHNICIAN') ?? true);
+  const workOrder = setupCheck('Work order', values.allowedSources?.includes('WORK_ORDER'));
+  const knowledge = setupCheck('Knowledge guidance', values.allowedSources?.includes('KNOWLEDGE'));
+  const explicitNone = setupCheck('Explicit none', values.allowExplicitNone);
+  const notApplicable = setupCheck('Not applicable', values.allowNotApplicable);
+  const whenField = setupInput('Required when field ID', values.requiredWhen?.field);
+  const whenOperator = element('select');
+  for (const [value, text] of [['HAS_VALUE', 'has a value'], ['IS', 'equals']]) { const option = element('option', '', text); option.value = value; whenOperator.append(option); } whenOperator.value = values.requiredWhen?.operator || 'HAS_VALUE';
+  const whenValue = setupInput('Equals value', values.requiredWhen?.value);
+  const choices = setupInput('Allowed values, comma separated', (values.allowedValues || values.allowedStatuses || []).filter((value) => value !== 'NOT_CHECKED').join(', '));
+  const remove = element('button', 'secondary', 'Remove'); remove.type = 'button'; remove.addEventListener('click', () => row.remove());
+  row.append(id, label, section, type, choices, required.wrapper, critical.wrapper, confirmation.wrapper, technician.wrapper, workOrder.wrapper, knowledge.wrapper, explicitNone.wrapper, notApplicable.wrapper, whenField, whenOperator, whenValue, remove);
+  row._controls = { id, label, section, type, choices, required: required.input, critical: critical.input, confirmation: confirmation.input, technician: technician.input, workOrder: workOrder.input, knowledge: knowledge.input, explicitNone: explicitNone.input, notApplicable: notApplicable.input, whenField, whenOperator, whenValue };
+  $('setup-field-list').append(row);
 }
-function setupFields() { return [...document.querySelectorAll('.setup-field-row')].map((row) => ({ id: row._controls.id.value.trim(), label: row._controls.label.value.trim(), section: 'Report fields', type: row._controls.type.value, required: row._controls.required.checked })).filter((field) => field.id && field.label); }
+function setupFields() { return [...document.querySelectorAll('.setup-field-row')].map((row) => {
+  const c = row._controls;
+  return { id: c.id.value.trim(), label: c.label.value.trim(), section: c.section.value.trim(), type: c.type.value,
+    required: c.required.checked, critical: c.critical.checked, requiresTechnicianConfirmation: c.confirmation.checked,
+    allowedSources: [['TECHNICIAN', c.technician], ['WORK_ORDER', c.workOrder], ['KNOWLEDGE', c.knowledge]].filter(([, input]) => input.checked).map(([source]) => source),
+    allowExplicitNone: c.explicitNone.checked, allowNotApplicable: c.notApplicable.checked,
+    ...(c.choices.value.trim() ? c.type.value === 'status'
+      ? { allowedStatuses: ['NOT_CHECKED', ...c.choices.value.split(',').map((value) => value.trim()).filter(Boolean)] }
+      : { allowedValues: c.choices.value.split(',').map((value) => value.trim()).filter(Boolean) } : {}),
+    ...(c.whenField.value.trim() ? { requiredWhen: { field: c.whenField.value.trim(), operator: c.whenOperator.value, ...(c.whenOperator.value === 'IS' ? { value: c.whenValue.value } : {}) } } : {}),
+  };
+}); }
+function renderSetupSuggestions(draft) {
+  $('setup-field-list').replaceChildren();
+  for (const field of draft.analysis.detectedFields || []) addSetupField(field);
+  $('setup-analysis-status').textContent = draft.analysis.status === 'PROPOSED_FOR_REVIEW'
+    ? `${draft.analysis.detectedFields.length} unreviewed suggestions. Check every field and rule before saving.`
+    : `${draft.analysis.undetectedReason} Source preserved; define fields manually.`;
+  $('setup-propose-model').disabled = !draft.analysis.parser;
+}
 async function uploadTemplateSource() {
   const file = $('setup-source-file').files[0]; const name = $('setup-name').value.trim(); if (!file || !name) { $('setup-analysis-status').textContent = 'Add a template name and source file.'; return; }
-  try { const data = await api(`/api/templates/drafts/source?name=${encodeURIComponent(name)}&filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file }); state.setupDraft = data.draft; state.setupSchemaSaved = false; state.setupContextReady = false; state.setupTestPassed = false; $('setup-analysis-status').textContent = `${data.draft.analysis.status.replaceAll('_', ' ')}. Source preserved.`; $('setup-field-list').replaceChildren(); addSetupField({ id: 'asset.id', label: 'Asset ID', required: true }); setSetupStep(2); } catch (error) { $('setup-analysis-status').textContent = `Upload failed: ${error.message}`; }
+  try { const data = await api(`/api/templates/drafts/source?name=${encodeURIComponent(name)}&filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file }); state.setupDraft = data.draft; state.setupSchemaSaved = false; state.setupContextReady = false; state.setupTestPassed = false; $('setup-publish').disabled = true; $('setup-schema-status').textContent = 'Review and save the field rules.'; $('setup-context-status').textContent = 'No context decision yet.'; $('setup-test-status').textContent = 'Not tested.'; renderSetupSuggestions(data.draft); setSetupStep(2); } catch (error) { $('setup-analysis-status').textContent = `Upload failed: ${error.message}`; }
 }
-async function saveSetupSchema() { if (!state.setupDraft) return; try { const fields = setupFields(); const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/schema`, { method: 'POST', body: { fields } }); state.setupDraft = data.draft; state.setupSchemaSaved = true; $('setup-schema-status').textContent = `${fields.length} explicit fields reviewed.`; setSetupStep(3); } catch (error) { $('setup-schema-status').textContent = error.message; } }
-async function uploadSetupContext() { const file = $('setup-context-file').files[0]; if (!state.setupDraft || !file) return; try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/context?filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file }); state.setupDraft = data.draft; state.setupContextReady = data.draft.context.status === 'READY'; $('setup-context-status').textContent = state.setupContextReady ? 'Context preserved.' : 'Context needs review.'; setSetupStep(4); } catch (error) { $('setup-context-status').textContent = error.message; } }
+async function proposeSetupWithModel() { if (!state.setupDraft) return; try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/propose`, { method: 'POST', body: {} }); state.setupDraft = data.draft; state.setupSchemaSaved = false; state.setupTestPassed = false; $('setup-publish').disabled = true; renderSetupSuggestions(data.draft); } catch (error) { $('setup-analysis-status').textContent = `Suggestion unavailable: ${error.message}. Review fields manually.`; } }
+async function saveSetupSchema() { if (!state.setupDraft) return; try { const fields = setupFields(); const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/schema`, { method: 'POST', body: { fields } }); state.setupDraft = data.draft; state.setupSchemaSaved = true; state.setupTestPassed = false; $('setup-publish').disabled = true; $('setup-schema-status').textContent = `${fields.length} explicit fields reviewed.`; setSetupStep(3); } catch (error) { $('setup-schema-status').textContent = error.message; } }
+async function uploadSetupContext() { const file = $('setup-context-file').files[0]; if (!state.setupDraft || !file) return; try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/context?filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file }); state.setupDraft = data.draft; state.setupContextReady = data.draft.context.status === 'READY'; state.setupTestPassed = false; $('setup-publish').disabled = true; $('setup-context-status').textContent = state.setupContextReady ? 'Context preserved.' : 'Context needs review.'; setSetupStep(4); } catch (error) { $('setup-context-status').textContent = error.message; } }
+async function waiveSetupContext() { if (!state.setupDraft) return; try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/context/waive`, { method: 'POST', body: { reason: 'Manager selected no context for this version.' } }); state.setupDraft = data.draft; state.setupContextReady = true; state.setupTestPassed = false; $('setup-publish').disabled = true; $('setup-context-status').textContent = 'No context for this version. Knowledge will not provide job facts.'; setSetupStep(4); } catch (error) { $('setup-context-status').textContent = error.message; } }
 async function testSetup() { if (!state.setupDraft || !state.setupSchemaSaved || !state.setupContextReady) return; try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/test`, { method: 'POST', body: {} }); state.setupDraft = data.draft; state.setupTestPassed = data.draft.test.status === 'PASSED'; $('setup-test-status').textContent = data.draft.test.notes; $('setup-publish').disabled = !state.setupTestPassed; setSetupStep(5); } catch (error) { $('setup-test-status').textContent = error.message; } }
 async function publishSetup() { try { const data = await api(`/api/templates/drafts/${encodeURIComponent(state.setupDraft.id)}/publish`, { method: 'POST', body: {} }); registerRuntimeTemplate(data.template); state.templates.push(data.template); renderCatalog(); renderManager(); $('setup-test-status').textContent = `Published ${data.template.name} v${data.template.templateVersion}.`; $('setup-publish').disabled = true; } catch (error) { $('setup-test-status').textContent = error.message; } }
 
@@ -1298,5 +1340,5 @@ $('workspace-report-confirm').addEventListener('click', confirmAndSubmitReport);
 $('workspace-attachment-choose').addEventListener('click', (event) => { event.preventDefault(); $('workspace-attachment-dialog').close(); $('workspace-evidence-upload').click(); });
 $('workspace-evidence-upload').addEventListener('change', async (event) => { const file = event.target.files[0]; if (file) await attachEvidence(file, $('workspace-attachment-purpose').value); event.target.value = ''; });
 $('workspace-audio-upload').addEventListener('change', async (event) => { const workspace = activeWorkspace(); const file = event.target.files[0]; if (file) await uploadAudio(file, workspace); event.target.value = ''; renderWorkspaceIfActive(workspace); });
-$('setup-add-field').addEventListener('click', () => addSetupField()); $('setup-upload').addEventListener('click', uploadTemplateSource); $('setup-save-schema').addEventListener('click', saveSetupSchema); $('setup-context-upload').addEventListener('click', uploadSetupContext); $('setup-test').addEventListener('click', testSetup); $('setup-publish').addEventListener('click', publishSetup);
+$('setup-add-field').addEventListener('click', () => addSetupField()); $('setup-upload').addEventListener('click', uploadTemplateSource); $('setup-propose-model').addEventListener('click', proposeSetupWithModel); $('setup-save-schema').addEventListener('click', saveSetupSchema); $('setup-context-upload').addEventListener('click', uploadSetupContext); $('setup-context-waive').addEventListener('click', waiveSetupContext); $('setup-test').addEventListener('click', testSetup); $('setup-publish').addEventListener('click', publishSetup);
 syncMobileNavigation(false); init();

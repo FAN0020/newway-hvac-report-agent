@@ -136,17 +136,17 @@
           <section class="template-panel setup-source">
             <h3>Source template</h3><label>Template name<input id="setup-name" placeholder="e.g. Depot daily inspection"></label>
             <label class="upload-drop">Choose the original template file<input id="setup-source-file" type="file" accept=".docx,.pdf,.txt,.csv,.md"></label>
-            <button id="setup-upload" class="primary">Upload &amp; analyze</button><p id="setup-analysis-status" class="setup-status">No source uploaded.</p>
+            <button id="setup-upload" class="primary">Upload &amp; analyze</button><button id="setup-propose-model" class="secondary" type="button" disabled>Suggest with local model</button><p id="setup-analysis-status" class="setup-status">No source uploaded.</p>
           </section>
           <section class="template-panel setup-schema">
-            <div class="section-heading"><div><h3>Schema review</h3><p>Detected fields are never invented. Add or correct fields manually before testing.</p></div><button id="setup-add-field" class="secondary" type="button">＋ Field</button></div>
+            <div class="section-heading"><div><h3>Schema review</h3><p>Suggestions are unreviewed. Set required, conditions, sources and confirmation here; only saved manager rules can be published.</p></div><button id="setup-add-field" class="secondary" type="button">＋ Field</button></div>
             <div id="setup-field-list" class="setup-field-list"></div><button id="setup-save-schema" class="secondary">Save reviewed schema</button><p id="setup-schema-status" class="setup-status">Waiting for a source.</p>
           </section>
           <section class="template-panel setup-context">
-            <h3>Context documents</h3><p>Context can normalize terminology and explain rules. It never proves job facts.</p><label class="upload-drop">Choose a context document<input id="setup-context-file" type="file" accept=".txt,.md,.csv,.docx,.pdf"></label><button id="setup-context-upload" class="secondary">Upload context</button><p id="setup-context-status" class="setup-status">No context decision yet.</p>
+            <h3>Context documents</h3><p>Context can normalize terminology and explain rules. It never proves job facts.</p><label class="upload-drop">Choose a context document<input id="setup-context-file" type="file" accept=".txt,.md,.csv,.docx,.pdf"></label><button id="setup-context-upload" class="secondary">Upload context</button><button id="setup-context-waive" class="secondary" type="button">No context for this version</button><p id="setup-context-status" class="setup-status">No context decision yet.</p>
           </section>
           <section class="template-panel setup-publish">
-            <h3>Test &amp; publish</h3><p>The test checks required fields, status defaults, unsupported autofill, and immutable bindings.</p><div class="button-row"><button id="setup-test" class="secondary">Run contract test</button><button id="setup-publish" class="primary" disabled>Publish version</button></div><p id="setup-test-status" class="setup-status">Not tested.</p>
+            <h3>Test &amp; publish</h3><p>The test checks reviewed field rules and the context decision. Report values are validated during each job.</p><div class="button-row"><button id="setup-test" class="secondary">Run contract test</button><button id="setup-publish" class="primary" disabled>Publish version</button></div><p id="setup-test-status" class="setup-status">Not tested.</p>
           </section>
         </div>
       </section>

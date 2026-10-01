@@ -434,7 +434,10 @@ export class AuthoritativeCaptureService {
       report_time_zone: this.reportTimeZone,
     });
     if (context) {
-      const fields = Array.isArray(context?.fields) ? context.fields : [];
+      const fields = (Array.isArray(context?.fields) ? context.fields : []).filter((item) => {
+        const definition = template.schema.fields.find((entry) => entry.id === item.field_id || (entry.id.endsWith('.*') && item.field_id.startsWith(entry.id.slice(0, -1))));
+        return definition && (!definition.allowedSources || definition.allowedSources.includes('WORK_ORDER'));
+      });
       if (fields.length) {
         const lines = fields.map((item) => `${item.field_id}=${item.value}${item.unit ? ` ${item.unit}` : ''}`);
         const sourceText = lines.join('\n');

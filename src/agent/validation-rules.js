@@ -20,6 +20,19 @@ export function candidateRuleViolations(candidate, definition = {}) {
   const violations = [];
   const push = (code, reason) => violations.push({ code, reason });
   const semantic = candidate.semantic;
+  const source = candidate.support_type === 'AUTHORITATIVE_SYSTEM_DATA' ? 'WORK_ORDER'
+    : candidate.support_type === 'RAG_GUIDANCE' ? 'KNOWLEDGE'
+      : ['TRANSCRIPT_EVIDENCE', 'MANUAL_TECHNICIAN_INPUT', 'TECHNICIAN_CONFIRMATION'].includes(candidate.support_type) ? 'TECHNICIAN'
+        : 'UNVERIFIED_SOURCE';
+  if (definition.allowedSources && !definition.allowedSources.includes(source)) {
+    push('SOURCE_NOT_ALLOWED', `${source} is not an allowed source for ${definition.id || candidate.field_id}.`);
+  }
+  if (candidate.claim?.kind === 'EXPLICIT_NONE' && definition.allowExplicitNone === false) {
+    push('EXPLICIT_NONE_NOT_ALLOWED', `${definition.id || candidate.field_id} does not permit an explicit none state.`);
+  }
+  if (candidate.claim?.kind === 'NOT_APPLICABLE' && definition.allowNotApplicable === false) {
+    push('NOT_APPLICABLE_NOT_ALLOWED', `${definition.id || candidate.field_id} does not permit a not applicable state.`);
+  }
   if (semantic?.semantic_type) {
     if (candidate.claim?.kind === 'EXPLICIT_NONE' && !['PART_USED', 'FOLLOW_UP'].includes(semantic.semantic_type)) {
       push('EXPLICIT_NONE_SEMANTIC_MISMATCH', `${semantic.semantic_type} cannot establish explicit none.`);
@@ -52,6 +65,9 @@ export function candidateRuleViolations(candidate, definition = {}) {
     push('TYPE_MISMATCH', `${definition.id || candidate.field_id} requires structured data.`);
   }
   const allowed = definition.allowedValues || definition.allowedStatuses;
+  if (type === 'status' && value === 'NOT_CHECKED') {
+    push('STATUS_NOT_CHECKED', `${definition.id || candidate.field_id} is still not checked.`);
+  }
   if (allowed && !allowed.includes(String(value))) {
     push('VALUE_NOT_ALLOWED', `${String(value)} is outside the template allow-list.`);
   }
