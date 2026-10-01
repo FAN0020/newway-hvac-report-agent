@@ -67,6 +67,7 @@ function snapshotBody(input, code = 'INVALID_REPORT_SNAPSHOT') {
     template_binding: copy(session.template_binding),
     context_binding: copy(session.context_binding),
     job_context_ref: session.job_context_ref,
+    ...(session.job_context_binding ? { job_context_binding: copy(session.job_context_binding) } : {}),
     audit_event_ids: copy(session.audit_event_ids),
     fields,
     evidence_ids: evidenceIds,

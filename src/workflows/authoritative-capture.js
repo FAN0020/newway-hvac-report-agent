@@ -34,6 +34,7 @@ import { allowedScopes, resolveContext } from '../v2/scope.js';
 import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
+import { VehicleHistoryService } from './vehicle-history.js';
 
 const PROCESSING_VERSION = 'authoritative-capture.v6';
 const EXTRACTION_VERSION = 'atomic-semantic-extraction.v8';
@@ -286,6 +287,7 @@ export class AuthoritativeCaptureService {
     this.uploadStore = uploadStore || null;
     this.retriever = retriever || null;
     this.jobContextProvider = jobContextProvider || null;
+    this.vehicleHistory = new VehicleHistoryService({ sessionStore });
     this.templateProvider = templateProvider || null;
     this.modelResolver = modelResolver || null;
     this.semanticProvider = semanticProvider || null;
@@ -714,6 +716,14 @@ export class AuthoritativeCaptureService {
         outputArtifacts,
       });
     }));
+  }
+
+  async listVehicleHistory(vehicleId) {
+    return this.vehicleHistory.list(vehicleId);
+  }
+
+  async exportStructuredConfirmedSession(sessionId) {
+    return this.vehicleHistory.export(sessionId);
   }
 
   async enterReview({ session_id: sessionId, expected_revision: expectedRevision } = {}) {

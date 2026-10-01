@@ -274,6 +274,18 @@ async function handleApi(request, response, url, traceId, config, services) {
     }));
     return;
   }
+  const vehicleHistoryMatch = url.pathname.match(/^\/api\/vehicles\/([^/]+)\/reports$/u);
+  if (request.method === 'GET' && vehicleHistoryMatch) {
+    const result = await captureService.listVehicleHistory(decodeURIComponent(vehicleHistoryMatch[1]));
+    writeJson(response, 200, toolEnvelope('list_vehicle_history', traceId, 'PASS', result));
+    return;
+  }
+  const structuredExportMatch = url.pathname.match(/^\/api\/report-sessions\/([^/]+)\/structured-export$/u);
+  if (request.method === 'GET' && structuredExportMatch) {
+    const result = await captureService.exportStructuredConfirmedSession(decodeURIComponent(structuredExportMatch[1]));
+    writeJson(response, 200, toolEnvelope('export_structured_confirmed_report', traceId, 'PASS', result));
+    return;
+  }
   if (request.method === 'POST' && url.pathname === '/api/report-sessions') {
     const input = await readJson(request);
     rejectUntrustedAuthority(input);
