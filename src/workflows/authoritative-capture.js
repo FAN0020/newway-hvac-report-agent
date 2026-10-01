@@ -35,6 +35,7 @@ import { allowedScopes, resolveContext } from '../v2/scope.js';
 import { ingestDocument, UPLOAD_STATUS } from '../v2/upload.js';
 import { createRetriever } from '../v2/retrieval.js';
 import { templateFor } from '../../web/template-catalog.js';
+import { loadCustomContext, retrieveCustomContext } from '../templates/custom-context.js';
 import { VehicleHistoryService } from './vehicle-history.js';
 
 const PROCESSING_VERSION = 'authoritative-capture.v6';
@@ -546,21 +547,24 @@ export class AuthoritativeCaptureService {
 
   async getSourcePlan(sessionId) {
     const chain = await this.sessionStore.loadChain(sessionId);
+    const template = await this.resolveTemplate(chain.session.template_binding.template_id);
     const cached = this.sourcePlanCache.get(sessionId);
-    if (cached?.revision === chain.session.revision) return cached.pending;
+    if (template.domain !== 'CUSTOM' && cached?.revision === chain.session.revision) return cached.pending;
     const pending = (async () => {
-      const dependencies = await this.guidanceDependencies();
+      const dependencies = template.domain === 'CUSTOM' ? null : await this.guidanceDependencies();
       const contextId = chain.session.context_binding.context_id;
-      const knowledgeAvailable = Boolean(dependencies && CONTEXT_BY_SCOPE[chain.session.context_binding.scope_id]
+      const knowledgeAvailable = template.domain === 'CUSTOM'
+        ? (await loadCustomContext({ session: chain.session, template })).length > 0
+        : Boolean(dependencies && CONTEXT_BY_SCOPE[chain.session.context_binding.scope_id]
         && (chain.session.guidance_upload_ids.length || allowedScopes(contextId, dependencies.registry)
           .some((scopeId) => !scopeId.startsWith('USER_UPLOADED:')
             && (dependencies.registry.knowledge_files?.[scopeId] || []).length > 0)));
       return buildSourcePlan({ session: chain.session,
-        template: await this.resolveTemplate(chain.session.template_binding.template_id),
+        template,
         agentState: chain.agent_state, knowledgeAvailable,
         provider: this.semanticProvider, model: this.semanticModel });
     })();
-    this.sourcePlanCache.set(sessionId, { revision: chain.session.revision, pending });
+    if (template.domain !== 'CUSTOM') this.sourcePlanCache.set(sessionId, { revision: chain.session.revision, pending });
     pending.catch(() => {
       if (this.sourcePlanCache.get(sessionId)?.pending === pending) this.sourcePlanCache.delete(sessionId);
     });
@@ -1325,6 +1329,35 @@ export class AuthoritativeCaptureService {
   }
 
   async retrieveGuidance({ session, transcript, facts, query = transcript.normalized_text ?? transcript.raw_text }) {
+    const template = await this.resolveTemplate(session.template_binding.template_id);
+    if (template.domain === 'CUSTOM') {
+      const chunks = await loadCustomContext({ session, template });
+      const passages = retrieveCustomContext(chunks, query);
+      if (!passages.length) return { session, guidanceContext: null };
+      const followUpQuestions = template.schema.fields.filter((field) =>
+        field.fieldRole === 'NORMATIVE_REFERENCE' && field.allowedSources?.includes('KNOWLEDGE')
+      ).slice(0, 3).map((field) => ({
+        section_id: field.section, field: field.id,
+        question: `Does the cited document apply to ${field.label} for this report? Confirm the exact reference before entering it.`,
+        answer_source: 'technician_confirmation',
+      }));
+      const guidanceContext = createGuidanceContext({
+        session_id: session.session_id, context_id: session.context_binding.context_id,
+        scope_id: session.context_binding.scope_id, context_version: session.context_binding.context_version,
+        query, retrieval_method: 'LEXICAL_DETERMINISTIC', retrieval_version: 'custom-template-text.v1',
+        permitted_corpora: chunks.map((item) => `knowledge:${item.document_id}`).filter((id, index, all) => all.indexOf(id) === index),
+        retrieved_at: this.clock(), passages, applicable_modules: [], follow_up_questions: followUpQuestions,
+      });
+      await this.sessionStore.putRecord('guidance-contexts', guidanceContext.guidance_context_id, guidanceContext);
+      const recorded = await this.sessionStore.recordEvent({
+        session_id: session.session_id, expected_revision: session.revision,
+        event_type: 'GUIDANCE_RETRIEVED', occurred_at: this.clock(),
+        details: { guidance_context_id: guidanceContext.guidance_context_id,
+          query_source: transcript.transcript_id, result_count: passages.length, warnings: [] },
+        additions: { guidance_context_ids: [guidanceContext.guidance_context_id] },
+      });
+      return { session: recorded.session, guidanceContext };
+    }
     if (!CONTEXT_BY_SCOPE[session.context_binding.scope_id]) return { session, guidanceContext: null };
     const dependencies = await this.guidanceDependencies();
     if (!dependencies) return { session, guidanceContext: null };

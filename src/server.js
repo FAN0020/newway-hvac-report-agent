@@ -462,6 +462,9 @@ async function handleApi(request, response, url, traceId, config, services) {
       follow_up_questions: context.follow_up_questions,
       passages: context.passages.map((passage) => ({
         source_type: passage.source_type,
+        document_id: passage.document_id,
+        document_version: passage.document_version,
+        citation: passage.provenance.filename || passage.provenance.file || passage.document_id,
         text: passage.text,
       })),
     }));

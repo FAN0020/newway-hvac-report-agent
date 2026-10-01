@@ -448,6 +448,7 @@ test('HTTP guidance upload derives scope from ReportSession and exposes only min
   assert.equal(viewed.status, 200);
   assert.ok(viewed.body.data.guidance.length >= 1);
   assert.ok(viewed.body.data.guidance[0].follow_up_questions.length >= 1);
+  assert.ok(viewed.body.data.guidance[0].passages[0].citation);
   assert.equal(Object.hasOwn(viewed.body.data.guidance[0].passages[0], 'score'), false);
   assert.equal(Object.hasOwn(viewed.body.data.guidance[0].passages[0], 'chunk_id'), false);
   assert.equal(Object.hasOwn(viewed.body.data.guidance[0].passages[0], 'provenance'), false);

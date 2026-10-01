@@ -699,6 +699,18 @@ function renderField(section, field) {
 
 function renderReportSections(view) {
   const container = $('workspace-sections'); container.replaceChildren();
+  const guidance = state.chain?.guidance_contexts?.at(-1);
+  if (guidance?.passages?.length && state.activeTemplate?.domain === 'CUSTOM') {
+    const panel = element('section', 'workspace-missing-questions');
+    panel.append(element('strong', '', 'Template reference guidance'));
+    panel.append(element('p', 'task-note', 'These excerpts are from this template version. Check applicability and enter any normative reference yourself; they do not prove work, measurements, tests, or safety status.'));
+    for (const passage of guidance.passages) {
+      const citation = passage.provenance?.filename || passage.document_id;
+      panel.append(element('p', 'task-note', `${citation} · ${passage.document_version}: ${passage.text}`));
+    }
+    for (const question of guidance.follow_up_questions || []) panel.append(element('p', 'task-note', question.question));
+    container.append(panel);
+  }
   const mode = view.extraction.mode === 'MODEL_ASSISTED'
     ? `Field extraction: model assisted (${view.extraction.model}); every value still needs allowed evidence.`
     : view.extraction.mode === 'MODEL_ATTEMPTED_FALLBACK'

@@ -66,6 +66,10 @@ Manager Template Setup implements truthful states for:
 
 Text context is marked `READY_TEXT`. Unsupported binary context is preserved as `PRESERVED_UNDETECTED` and blocks publication pending review. The source artifact is never discarded. Custom templates published through this flow are returned by the same catalog endpoint and registered into the same browser runtime; they are not UI exceptions.
 
+For a published custom ReportSession, retrieval reads only `READY_TEXT` sources in the exact bound template and context version. It verifies the stored byte count and SHA-256 before strict UTF-8 decoding, then searches bounded 800-character chunks (up to 1 MiB per document and 256 chunks per corpus). A matching excerpt is stored as `GuidanceContext` with filename, document hash, template version, context version, and character offsets. The guidance endpoint and report workspace expose the citation. Unsupported binary sources are preserved but are never represented as searched text. Missing or modified text fails closed. A normative-reference source plan lists `KNOWLEDGE` only when a verified searchable chunk exists and manager rules permit it.
+
+Retrieved excerpts and their follow-up questions cannot fill report fields. The technician must check applicability and enter any normative reference through the ordinary field-answer workflow. No automatic cited field candidate exists in the current report-field contract. Retrieved material never establishes this job's work, measurements, tests, or safety status.
+
 ## Verification coverage
 
 Automated contracts cover:
